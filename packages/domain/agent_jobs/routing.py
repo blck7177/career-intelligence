@@ -44,6 +44,19 @@ def route_task(task_type: str) -> ExecutionMode:
     return ExecutionMode.DETERMINISTIC
 
 
+def celery_queue_for_task_type(task_type: str) -> str:
+    """
+    Return the Celery queue name for a given task_type.
+
+    agent tasks  → "agent"  (worker-agent: concurrency=1, long-running OpenClaw jobs)
+    fast tasks   → "fast"   (worker-fast: concurrency=2-4, deterministic short tasks)
+
+    Used by the API when enqueuing tasks so agent and deterministic tasks are
+    isolated and cannot block each other.
+    """
+    return "agent" if task_type in _OPENCLAW_TASK_TYPES else "fast"
+
+
 def get_agent_id(task_type: str) -> str:
     if task_type not in _TASK_TYPE_TO_AGENT:
         raise ValueError(f"No agent mapped for task_type: {task_type!r}")

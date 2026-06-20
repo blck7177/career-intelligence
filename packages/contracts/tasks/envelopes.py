@@ -5,7 +5,7 @@ Only IDs are passed via Redis/Celery — full payload is read from Postgres.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
@@ -23,4 +23,6 @@ class TaskEnvelope(BaseModel):
     schema_version: str = "v1"
     idempotency_key: str
     attempt: int = 1
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    # correlation_id propagates from API request → worker for structured log tracing
+    correlation_id: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

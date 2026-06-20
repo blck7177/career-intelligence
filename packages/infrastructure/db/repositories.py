@@ -171,10 +171,16 @@ class TaskRepository:
         self._s.flush()
         return task
 
-    def mark_needs_review(self, task_id: str, error_message: str) -> Task:
+    def mark_needs_review(
+        self,
+        task_id: str,
+        error_message: str,
+        error_code: str | None = None,
+    ) -> Task:
         task = self.get_or_raise(task_id)
         task.status = "needs_review"
         task.finished_at = datetime.now(timezone.utc)
+        task.error_code = error_code
         task.error_message = error_message
         self._s.flush()
         return task
