@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Python: unit tests + contract check
+  # -------------------------------------------------------------------------
+  python-tests:
+    name: Python tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run unit and contract tests (no Docker required)
+        run: |
+          python -m pytest tests/ -x -q \
+            --ignore=tests/integration \
+            -m "not live and not integration"
+
+  # -------------------------------------------------------------------------
+  # OpenAPI contract check: ensure apps/web/openapi.json is not stale
+  # -------------------------------------------------------------------------
+  openapi-contract:
+    name: OpenAPI contract check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Check openapi.json is up to date
+        run: |
+          chmod +x scripts/check-openapi-contract.sh
+          ./scripts/check-openapi-contract.sh
+
+  # -------------------------------------------------------------------------
+  # TypeScript: typecheck the generated client
+  # -------------------------------------------------------------------------
+  web-typecheck:
+    name: TypeScript typecheck
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: apps/web
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+        working-directory: apps/web
