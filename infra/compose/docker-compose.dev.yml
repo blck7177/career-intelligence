@@ -69,10 +69,35 @@ services:
       timeout: 5s
       retries: 5
 
-  worker:
+  # Deterministic short tasks: job_report, fit_report
+  # Listens on the "fast" queue. Does NOT need openclaw-gateway.
+  worker-fast:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=fast --concurrency=2
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: postgresql://career:career@postgres:5432/career_openclaw
+      REDIS_URL: redis://redis:6379/0
+      AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # OpenClaw agent tasks: job_discovery, job_research, run_reflection
+  # Listens on the "agent" queue. concurrency=1 to prevent resource contention.
+  # Requires openclaw-gateway to be healthy before starting.
+  worker-agent:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
     env_file:
       - ../../.env
     environment:
@@ -80,6 +105,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
       OPENCLAW_BIN: openclaw
+      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
     depends_on:
@@ -112,6 +138,23 @@ services:
       web:
         condition: service_started
       api:
+        condition: service_healthy
+
+  # Celery Flower — worker/task monitoring dashboard (dev only)
+  # Access at http://localhost:5555
+  flower:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    command: celery -A apps.worker.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    env_file:
+      - ../../.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
         condition: service_healthy
 
 volumes:
