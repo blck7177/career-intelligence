@@ -8,5 +8,6 @@ RUN pip install --no-cache-dir -e ".[anthropic,openai]"
 COPY apps/ apps/
 COPY packages/ packages/
 COPY tools/ tools/
+COPY alembic.ini .
 
-CMD ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info"]
+CMD ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info", "--queues=tasks"]

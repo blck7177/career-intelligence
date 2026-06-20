@@ -1,0 +1,295 @@
+"""
+SQLAlchemy ORM models.
+
+Tables:
+  Core:   workspaces, runs, tasks, task_events, artifacts
+  Agent:  agent_invocations, agent_tool_events, agent_validation_results
+
+Rules (enforced here and in AGENTS.md):
+  - OpenClaw never writes to these tables directly
+  - agent_invocations.session_key is platform-generated, never from frontend
+  - Validator Gate must pass before writing to jobs-style tables
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Core tables
+# ---------------------------------------------------------------------------
+
+
+class Workspace(Base):
+    """Logical isolation unit. MVP: one workspace per user."""
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    runs: Mapped[list["Run"]] = relationship(back_populates="workspace")
+
+
+class Run(Base):
+    """
+    Top-level unit of work initiated by the user.
+    run_type determines which task types get created.
+    input_snapshot_json captures the user's inputs at creation time (immutable).
+    """
+
+    __tablename__ = "runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    run_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="queued", index=True
+    )
+    input_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result_summary_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v1")
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="runs")
+    tasks: Mapped[list["Task"]] = relationship(back_populates="run")
+    task_events: Mapped[list["TaskEvent"]] = relationship(back_populates="run")
+    artifacts: Mapped[list["Artifact"]] = relationship(back_populates="run")
+    agent_invocations: Mapped[list["AgentInvocation"]] = relationship(back_populates="run")
+
+
+class Task(Base):
+    """
+    A single unit of async execution within a run.
+    Status machine: queued → running → succeeded | failed | cancelled | needs_review
+    """
+
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    task_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="queued", index=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    schema_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v1")
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    run: Mapped["Run"] = relationship(back_populates="tasks")
+    events: Mapped[list["TaskEvent"]] = relationship(back_populates="task")
+    artifacts: Mapped[list["Artifact"]] = relationship(back_populates="task")
+    agent_invocations: Mapped[list["AgentInvocation"]] = relationship(back_populates="task")
+
+
+class TaskEvent(Base):
+    """Append-only log of task lifecycle steps. UI reads this for progress display."""
+
+    __tablename__ = "task_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tasks.id"), nullable=False, index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), nullable=False, index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    task: Mapped["Task"] = relationship(back_populates="events")
+    run: Mapped["Run"] = relationship(back_populates="task_events")
+
+
+class Artifact(Base):
+    """
+    Pointer to a file on the artifact storage (local volume or object store).
+    Only written after Validator Gate passes.
+    """
+
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), nullable=False, index=True
+    )
+    task_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("tasks.id"), nullable=True, index=True
+    )
+    artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    run: Mapped["Run"] = relationship(back_populates="artifacts")
+    task: Mapped["Task"] = relationship(back_populates="artifacts")
+
+
+# ---------------------------------------------------------------------------
+# Agent-specific tables (new in v2)
+# ---------------------------------------------------------------------------
+
+
+class AgentInvocation(Base):
+    """
+    One OpenClaw agent execution.
+    Created by worker before calling agent_runtime.invoke().
+    Updated by worker after result is received.
+    """
+
+    __tablename__ = "agent_invocations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("runs.id"), nullable=False, index=True
+    )
+    task_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("tasks.id"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Platform-generated. Never comes from frontend. Format:
+    # agent:<agent_id>:workspace:<ws_id>:run:<run_id>:task:<task_id>:attempt:<n>
+    session_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    skill_contract_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="pending", index=True
+    )
+    input_spec_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_manifest_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stdout_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stderr_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    run: Mapped["Run"] = relationship(back_populates="agent_invocations")
+    task: Mapped["Task"] = relationship(back_populates="agent_invocations")
+    tool_events: Mapped[list["AgentToolEvent"]] = relationship(back_populates="invocation")
+    validation_results: Mapped[list["AgentValidationResult"]] = relationship(
+        back_populates="invocation"
+    )
+
+
+class AgentToolEvent(Base):
+    """
+    One tool call made by the agent during an invocation.
+    Written by agent tool wrappers (career_*.py) via the platform,
+    NOT by OpenClaw directly.
+    """
+
+    __tablename__ = "agent_tool_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    invocation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_invocations.id"), nullable=False, index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="ok")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    invocation: Mapped["AgentInvocation"] = relationship(back_populates="tool_events")
+
+
+class AgentValidationResult(Base):
+    """
+    One validator's verdict on an agent's output manifest.
+    If any validator status == "failed", the task moves to needs_review
+    and no jobs/artifacts are written.
+    """
+
+    __tablename__ = "agent_validation_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    invocation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("agent_invocations.id"), nullable=False, index=True
+    )
+    validator_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)  # passed | failed | warning
+    errors_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    warnings_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    invocation: Mapped["AgentInvocation"] = relationship(back_populates="validation_results")
