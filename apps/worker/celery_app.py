@@ -39,7 +39,7 @@ celery_app = Celery(
     "career_worker",
     broker=_REDIS_URL,
     backend=_REDIS_URL,
-    include=["apps.worker.tasks"],
+    include=["apps.worker.tasks.execute_task"],
 )
 
 celery_app.conf.update(
