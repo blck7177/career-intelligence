@@ -10,4 +10,8 @@ echo "[start_api] Running database migrations..."
 alembic upgrade head
 
 echo "[start_api] Starting API server..."
-exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+if [ "${DEV_MODE}" = "1" ]; then
+  exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+else
+  exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+fi

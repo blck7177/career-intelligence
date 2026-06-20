@@ -15,6 +15,7 @@ import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from apps.api.routes.health import router as health_router
 from apps.api.routes.runs import router as runs_router
@@ -61,3 +62,8 @@ async def correlation_id_middleware(request: Request, call_next):
 
 app.include_router(health_router)
 app.include_router(runs_router)
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return RedirectResponse(url="/docs" if _DEV_MODE else "/healthz")
