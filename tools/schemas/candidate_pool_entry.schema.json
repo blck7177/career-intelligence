@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "candidate_pool_entry.schema.json",
+  "title": "CandidatePoolEntry",
+  "description": "One persisted line in runs/<session_id>/candidate_pool.jsonl, written by search_session.log_candidates after the provenance gate passes. This is the durable contract the downstream discovery pipeline reads (fetch → extract → classify → save). The agent supplies url/title/company/etc.; the service fills candidate_id, url_hash, fetch_status and timestamp_captured.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidate_id", "url", "url_hash", "relevance", "fetch_status", "timestamp_captured"],
+  "properties": {
+    "candidate_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Session-local id (cand_NNN), auto-assigned when omitted."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Real job-posting URL confirmed via web_fetch (never a search-result or company-home page)."
+    },
+    "url_hash": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Stable hash of the normalized url; used for in-session dedup."
+    },
+    "title": { "type": "string", "description": "Job title." },
+    "company": { "type": "string", "description": "Company name." },
+    "location": { "type": "string", "description": "Job location, if known." },
+    "source_query_id": {
+      "type": "string",
+      "description": "query_id of the search_ledger entry this candidate came from."
+    },
+    "relevance": {
+      "type": "string",
+      "enum": ["relevant", "maybe"],
+      "description": "Agent triage verdict."
+    },
+    "relevance_reason": {
+      "type": "string",
+      "description": "Why this posting matches the search profile."
+    },
+    "workstream_hint": {
+      "type": "string",
+      "description": "Initial workstream guess (may be 'unknown'); refined later by the classifier."
+    },
+    "fetch_status": {
+      "type": "string",
+      "enum": ["pending", "success", "failed", "skipped"],
+      "description": "Lifecycle of the JD fetch; written as 'pending' at admission."
+    },
+    "timestamp_captured": {
+      "type": "string",
+      "description": "ISO-8601 timestamp when the candidate entered the pool."
+    }
+  }
+}

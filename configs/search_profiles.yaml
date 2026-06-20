@@ -1,0 +1,45 @@
+# Human-owned config. Do not modify via agent.
+# Last updated: 2026-06-07
+
+profiles:
+  market_risk_nyc:
+    description: "Market risk, exposure management, valuation control roles in NYC / Jersey City"
+    keywords:
+      - market risk analyst
+      - exposure management
+      - valuation control
+      - IPV independent price verification
+      - risk analytics
+      - trading risk
+      - exposure analytics
+      - P&L explain
+    locations:
+      - New York, NY
+      - Jersey City, NJ
+    seniority:
+      - analyst
+      - associate
+    max_jobs_per_run: 20
+    source_preference:
+      - company_career_page
+      - linkedin
+      - indeed
+
+  structured_credit_nyc:
+    description: "Structured credit, credit analytics, CLO/CDO related roles in NYC"
+    keywords:
+      - structured credit
+      - credit risk analyst
+      - CLO analyst
+      - credit portfolio
+      - structured products
+      - ABS analyst
+    locations:
+      - New York, NY
+    seniority:
+      - analyst
+      - associate
+    max_jobs_per_run: 15
+    source_preference:
+      - company_career_page
+      - linkedin

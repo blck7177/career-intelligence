@@ -1,0 +1,25 @@
+{
+  "agent": {
+    "default_model": "claude-opus-4-5"
+  },
+  "workspace": {
+    "path": "/openclaw/workspace",
+    "bootstrap_files": [
+      "AGENTS.md",
+      "TOOLS.md",
+      "USER.md"
+    ]
+  },
+  "skills": {
+    "paths": [
+      "/app/agent/openclaw/skills"
+    ]
+  },
+  "exec": {
+    "approvals_path": "/app/agent/openclaw/config/exec-approvals.json"
+  },
+  "session": {
+    "store_dir": "/openclaw/state/sessions",
+    "isolation": "strict"
+  }
+}

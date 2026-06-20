@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "task.schema.json",
+  "title": "Task",
+  "description": "An async unit of work dispatched to the worker process. Created by the API layer, consumed by the worker.",
+  "type": "object",
+  "required": [
+    "task_id",
+    "workspace_id",
+    "task_type",
+    "status",
+    "created_at"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "task_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "run_id": { "type": ["string", "null"] },
+    "task_type": {
+      "type": "string",
+      "enum": ["job_report", "fit_report", "search_run", "process_run"],
+      "description": "job_report: generate a Job Intelligence Report for a job_id. fit_report: generate a Candidate Fit Report. search_run: start an OpenClaw search session. process_run: run the processing pipeline on a candidate_pool."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "running", "completed", "failed"],
+      "description": "pending → running → completed|failed"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Task-type-specific input parameters.",
+      "additionalProperties": true
+    },
+    "result": {
+      "type": ["object", "null"],
+      "description": "Task output on success.",
+      "additionalProperties": true
+    },
+    "error_message": {
+      "type": ["string", "null"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "started_at": { "type": ["string", "null"], "format": "date-time" },
+    "finished_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

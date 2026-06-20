@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "run_summary.schema.json",
+  "title": "RunSummary",
+  "type": "object",
+  "required": [
+    "run_id",
+    "session_id",
+    "run_timestamp",
+    "profile_used",
+    "jobs_discovered",
+    "jobs_fetched",
+    "jobs_structured",
+    "jobs_saved",
+    "jobs_failed"
+  ],
+  "properties": {
+    "run_id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "run_timestamp": { "type": "string", "format": "date-time" },
+    "profile_used": { "type": "string" },
+    "runner_version": { "type": "string" },
+    "jobs_discovered": { "type": "integer", "minimum": 0 },
+    "jobs_fetched": { "type": "integer", "minimum": 0 },
+    "jobs_structured": { "type": "integer", "minimum": 0 },
+    "jobs_saved": { "type": "integer", "minimum": 0 },
+    "jobs_failed": { "type": "integer", "minimum": 0 },
+    "jobs_skipped": { "type": "integer", "minimum": 0 },
+    "top_workstreams": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "workstream": { "type": "string" },
+          "count": { "type": "integer" }
+        }
+      }
+    },
+    "validation_pass_rate": { "type": "number" },
+    "duration_seconds": { "type": "number" }
+  }
+}

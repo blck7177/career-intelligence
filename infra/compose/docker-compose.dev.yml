@@ -1,0 +1,122 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: career
+      POSTGRES_PASSWORD: career
+      POSTGRES_DB: career_openclaw
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U career -d career_openclaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  openclaw-gateway:
+    build:
+      context: ../..
+      dockerfile: infra/docker/openclaw.Dockerfile
+    environment:
+      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
+      OPENCLAW_STATE_DIR: /openclaw/state
+    volumes:
+      - openclaw_state:/openclaw/state
+      - openclaw_workspace:/openclaw/workspace
+      - agent_artifacts:/app/data/agent_artifacts
+      # Mount skills and config from repo (dev: live reload)
+      - ../../agent:/app/agent:ro
+      - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
+    healthcheck:
+      test: ["CMD", "openclaw", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: postgresql://career:career@postgres:5432/career_openclaw
+      REDIS_URL: redis://redis:6379/0
+      DEV_MODE: "1"
+      ENV: development
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_URL: postgresql://career:career@postgres:5432/career_openclaw
+      REDIS_URL: redis://redis:6379/0
+      AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
+      OPENCLAW_BIN: openclaw
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      openclaw-gateway:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web:
+        condition: service_started
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  openclaw_state:
+  openclaw_workspace:
+  agent_artifacts:

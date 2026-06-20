@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "fit_report.schema.json",
+  "title": "CandidateFitReport",
+  "description": "Workspace-private analysis of how a specific candidate's profile and resume match a Job Intelligence Report. Contains skill gap assessment, fit score, and resume rewrite strategy. NOT to be confused with the global Job Intelligence Report — this is candidate-specific.",
+  "type": "object",
+  "required": [
+    "fit_report_id",
+    "workspace_id",
+    "job_id",
+    "job_report_id",
+    "candidate_profile_id",
+    "analyzed_at",
+    "prompt_version",
+    "overall_match_score",
+    "strong_matches",
+    "partial_matches",
+    "gaps",
+    "resume_rewrite_strategy"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "fit_report_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "job_id": { "type": "string", "pattern": "^job_[a-f0-9]{8}$" },
+    "job_report_id": { "type": "string" },
+    "candidate_profile_id": { "type": "string" },
+    "resume_version_id": { "type": "string", "description": "Optional — only present when report was generated with a resume. Reserved for Sprint 5." },
+    "analyzed_at": { "type": "string", "format": "date-time" },
+    "prompt_version": { "type": "string", "description": "FIT_PROMPT_VERSION at generation time. Part of the cache key." },
+
+    "overall_match_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "0–100 fit score. Not a hiring prediction — a signal of alignment between candidate profile and role demands."
+    },
+    "match_summary": {
+      "type": "string",
+      "description": "2–3 sentence narrative summary of fit and gap."
+    },
+
+    "strong_matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["demand", "evidence"],
+        "properties": {
+          "demand": { "type": "string" },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "partial_matches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["demand", "gap_description"],
+        "properties": {
+          "demand": { "type": "string" },
+          "gap_description": { "type": "string" }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["demand", "gap_description", "severity"],
+        "properties": {
+          "demand": { "type": "string" },
+          "gap_description": { "type": "string" },
+          "severity": { "type": "string", "enum": ["blocking", "significant", "minor"] }
+        }
+      }
+    },
+    "risk_flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Signals that could cause the application to screen out (e.g. title mismatch, missing license, explicit seniority bar)."
+    },
+
+    "resume_rewrite_strategy": {
+      "type": "object",
+      "required": ["positioning", "keywords_to_add", "bullets_to_reframe", "evidence_to_surface"],
+      "properties": {
+        "positioning": {
+          "type": "string",
+          "description": "How to frame the candidate's overall story for this role."
+        },
+        "keywords_to_add": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "High-value JD terms missing from the current resume."
+        },
+        "bullets_to_reframe": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["current_framing", "suggested_reframe"],
+            "properties": {
+              "current_framing": { "type": "string" },
+              "suggested_reframe": { "type": "string" }
+            }
+          }
+        },
+        "evidence_to_surface": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Experiences or projects the candidate has that should be made more prominent."
+        }
+      }
+    },
+
+    "interview_talking_points": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "2-4 concrete angles the candidate should prepare to discuss in interviews for this role."
+    },
+    "recommended_next_action": {
+      "type": "string",
+      "description": "Concrete next step: apply now, revise resume first, get more context, skip this role, etc."
+    }
+  }
+}

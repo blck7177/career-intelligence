@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "candidate_profile.schema.json",
+  "title": "CandidateProfile",
+  "description": "Workspace-private candidate profile for fit analysis. Created manually — no resume upload required. profile_version is injected at creation time so that cache keys derived from profile_hash naturally invalidate when the schema interpretation changes.",
+  "type": "object",
+  "required": [
+    "candidate_profile_id",
+    "workspace_id",
+    "created_at",
+    "profile_version",
+    "years_experience",
+    "current_background",
+    "domain_experience",
+    "technical_skills",
+    "analytical_methods",
+    "finance_domains",
+    "tools",
+    "representative_projects"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "candidate_profile_id": { "type": "string" },
+    "workspace_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "profile_version": {
+      "type": "string",
+      "description": "FIT_PROFILE_VERSION at creation time. Injected by profile_service.create_manual_profile(). Because profile_hash = md5(full profile JSON), bumping this version changes the hash and automatically invalidates cached Fit Reports."
+    },
+    "display_name": {
+      "type": "string",
+      "description": "Optional label for this profile version, e.g. 'Senior Associate 2026'."
+    },
+    "years_experience": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total years of relevant professional experience."
+    },
+    "current_background": {
+      "type": "string",
+      "description": "2-3 sentence summary of current role and primary focus area."
+    },
+    "domain_experience": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Finance/risk domains with hands-on experience. e.g. ['Market Risk', 'Valuation Control', 'Credit Analytics']"
+    },
+    "technical_skills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Programming languages, data tools, risk systems. e.g. ['Python', 'SQL', 'Bloomberg', 'Murex']"
+    },
+    "analytical_methods": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Quantitative methods and frameworks. e.g. ['VaR', 'Greeks', 'Scenario Analysis', 'Model Validation']"
+    },
+    "finance_domains": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Asset classes or product types. e.g. ['Equities', 'Fixed Income', 'Derivatives', 'Structured Products']"
+    },
+    "tools": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Software tools and platforms. e.g. ['Excel', 'Tableau', 'JIRA', 'Git']"
+    },
+    "representative_projects": {
+      "type": "array",
+      "description": "Most important work evidence. Each item should be concrete enough for LLM evidence-based matching. Structured rather than free text so match_service can cite specific projects in strong_matches.",
+      "items": {
+        "type": "object",
+        "required": ["description", "skills_used"],
+        "additionalProperties": true,
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Short label for this project. Optional."
+          },
+          "description": {
+            "type": "string",
+            "description": "What you did and the business context. Be specific."
+          },
+          "skills_used": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Skills and tools directly exercised in this project."
+          },
+          "quantified_impact": {
+            "type": "string",
+            "description": "Optional metric or outcome. e.g. 'Reduced daily reconciliation time by 40%.' Best to include when available."
+          }
+        }
+      }
+    },
+    "target_workstreams": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Workstream IDs from workstream_taxonomy.yaml the candidate is targeting. UI/filter use."
+    },
+    "target_roles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Role titles or role-type keywords the candidate is open to. UI/filter use."
+    },
+    "constraints": {
+      "type": "string",
+      "description": "Location, seniority, compensation, or other preferences. UI/filter use only — not fed to LLM analysis."
+    }
+  }
+}

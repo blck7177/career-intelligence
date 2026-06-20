@@ -1,0 +1,256 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "job_report.schema.json",
+  "title": "JobReport",
+  "description": "Global Job Intelligence Report — a deep, user-independent analysis of a job posting. Describes what the role actually does, what organizational problem it solves, and what underlying capabilities it requires. Layer 2 structured form; Layer 1 is the companion narrative report.md.",
+  "type": "object",
+  "required": [
+    "job_report_id",
+    "job_id",
+    "jd_hash",
+    "prompt_version",
+    "analysis_version",
+    "analyzed_at",
+    "status",
+    "business_context",
+    "position_function",
+    "daily_workflow",
+    "underlying_skill_demands",
+    "primary_workstream",
+    "analyst_notes"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "job_report_id": {
+      "type": "string",
+      "description": "Unique ID for this report instance (e.g. rpt_a1b2c3d4)."
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^job_[a-f0-9]{8}$",
+      "description": "Foreign key to the Job Record in the job database."
+    },
+    "jd_hash": {
+      "type": "string",
+      "description": "MD5 or SHA-256 hash of the raw JD text used to generate this report. Used for cache invalidation — if the JD changes, a new report must be generated."
+    },
+    "prompt_version": {
+      "type": "string",
+      "description": "Version identifier for the analysis prompt used. Cached reports are only reused when both jd_hash and prompt_version match."
+    },
+    "analysis_version": {
+      "type": "string",
+      "description": "Version of the role_analyzer module that produced this report."
+    },
+    "analyzed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when this report was generated."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "superseded"],
+      "description": "active = current report for this job/jd_hash/prompt_version. superseded = a newer report exists (JD changed or prompt updated)."
+    },
+    "superseded_by": {
+      "type": ["string", "null"],
+      "description": "job_report_id of the report that supersedes this one, if status=superseded."
+    },
+    "title": { "type": "string" },
+    "company": { "type": "string" },
+    "source_url": { "type": "string" },
+    "run_id": {
+      "type": "string",
+      "description": "Run ID during which this report was generated."
+    },
+
+    "business_context": {
+      "type": "object",
+      "required": ["summary", "confidence"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One to three sentence summary of the role's organizational purpose."
+        },
+        "problem_solved": {
+          "type": "string",
+          "description": "The specific business, operational, or technical problem this role helps solve."
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Exact phrases or sentences from the JD or research supporting this context."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        }
+      }
+    },
+
+    "position_function": {
+      "type": "object",
+      "required": ["primary_function", "confidence"],
+      "properties": {
+        "primary_function": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Primary function label (e.g. Analytics, Risk / Compliance, Engineering, Mixed / Hybrid)."
+        },
+        "secondary_functions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "function_mix_description": {
+          "type": "string",
+          "description": "Brief description of function breakdown for hybrid roles."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why this function classification fits."
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"]
+        }
+      }
+    },
+
+    "daily_workflow": {
+      "type": "object",
+      "properties": {
+        "likely_inputs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Data, documents, systems, or processes the role works with."
+        },
+        "likely_analyses": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Analysis, execution, coordination, or decisions the role performs."
+        },
+        "likely_outputs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Reports, decisions, code, models, or recommendations the role produces."
+        },
+        "likely_stakeholders": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Who the role communicates with or works alongside."
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "underlying_skill_demands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["jd_phrase", "underlying_capability", "importance"],
+        "properties": {
+          "jd_phrase": {
+            "type": "string",
+            "description": "Exact or closely summarized phrase from the JD."
+          },
+          "demand_type": {
+            "type": "string",
+            "enum": [
+              "domain_knowledge",
+              "technical_skill",
+              "analytical_capability",
+              "workflow_capability",
+              "stakeholder_capability",
+              "business_context_knowledge",
+              "operating_judgment",
+              "mixed"
+            ]
+          },
+          "underlying_capability": {
+            "type": "string",
+            "description": "What this JD phrase actually requires the person to do or understand in practice."
+          },
+          "importance": {
+            "type": "string",
+            "enum": ["core", "supporting", "nice_to_have"]
+          },
+          "research_contribution": {
+            "type": "string",
+            "description": "What web research clarified or changed about this demand. Empty string if research adds nothing."
+          },
+          "evidence": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          }
+        }
+      },
+      "description": "Translation of JD phrases into actual demand stack. Up to 8 most important demands."
+    },
+
+    "primary_workstream": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Primary workstream label from configs/workstream_taxonomy.yaml, or 'unknown'."
+    },
+    "secondary_workstreams": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "workstream_evidence": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "workstream_confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+
+    "uncertainty_notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "impact"],
+        "properties": {
+          "issue": { "type": "string" },
+          "impact": { "type": "string" }
+        }
+      }
+    },
+
+    "analyst_notes": {
+      "type": "string",
+      "description": "Concise analyst summary: what the role is really about, who would succeed, what makes it distinct."
+    },
+
+    "used_research": {
+      "type": "boolean",
+      "description": "Whether a validated web-research bundle was fed into Layer 1 ([RESEARCH] context). False = JD-only report."
+    },
+    "research_bundle_hash": {
+      "type": "string",
+      "description": "Content hash of the research bundle used, or 'none'. Folded into the report cache key."
+    },
+    "research_validation_status": {
+      "type": "string",
+      "enum": ["passed", "partial", "failed"],
+      "description": "Anti-fabrication gate result for the research bundle, when research was attempted."
+    },
+    "research_source_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of research sources verified against real web_fetch calls."
+    }
+  }
+}

@@ -1,0 +1,86 @@
+# Machine-readable taxonomy.
+# primary_workstream 字段值必须是这里的枚举之一。
+# Human-readable 版本见 protocols/WORKSTREAM_TAXONOMY.md
+
+workstreams:
+  - id: market_risk_exposure
+    label: "Market Risk / Exposure Monitoring"
+    keywords_pattern:
+      - exposure
+      - VaR
+      - Greeks
+      - sensitivities
+      - limit monitoring
+      - P&L explain
+      - exposure analytics
+      - exposure management
+
+  - id: valuation_control_ipv
+    label: "Valuation Control / IPV"
+    keywords_pattern:
+      - IPV
+      - independent price verification
+      - fair value
+      - P&L reserve
+      - mark validation
+      - FVA
+      - PVA
+      - fair value adjustment
+      - derivative valuation
+
+  - id: product_control_pnl
+    label: "Product Control / P&L Reporting"
+    keywords_pattern:
+      - P&L attribution
+      - daily P&L
+      - trading book finance
+      - front-to-back
+      - month-end close
+
+  - id: structured_credit
+    label: "Structured Credit / Credit Analytics"
+    keywords_pattern:
+      - structured credit
+      - CLO
+      - CDO
+      - ABS
+      - credit portfolio
+      - default risk
+      - spread analysis
+
+  - id: risk_analytics_automation
+    label: "Risk Analytics / Automation / Data"
+    keywords_pattern:
+      - risk data
+      - automation
+      - risk infrastructure
+      - data pipeline
+      - risk reporting automation
+
+  - id: model_risk_validation
+    label: "Model Risk / Model Validation"
+    keywords_pattern:
+      - model validation
+      - MRM
+      - SR 11-7
+      - model approval
+      - FRTB model
+
+  - id: stress_testing
+    label: "Stress Testing / Scenario Analysis"
+    keywords_pattern:
+      - stress testing
+      - CCAR
+      - DFAST
+      - scenario analysis
+      - macro stress
+
+  - id: treasury_alm
+    label: "Treasury / ALM / Liquidity"
+    keywords_pattern:
+      - treasury
+      - ALM
+      - liquidity risk
+      - FTP
+      - IRRBB
+      - interest rate risk banking book

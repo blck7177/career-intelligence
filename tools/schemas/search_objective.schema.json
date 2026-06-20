@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search_objective.schema.json",
+  "title": "SearchObjective",
+  "description": "Worker-owned execution contract for a discovery run. Created by the Objective Controller after Intent Translation. Defines what the run must achieve, hard constraints, budget split across attempts, and completion criteria. The agent never reads this directly — it receives a per-attempt AttemptContext derived from it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["objective_id", "target_new_jobs", "max_attempts", "per_attempt_budget", "completion_criteria"],
+  "properties": {
+    "objective_id": {
+      "type": "string",
+      "description": "Unique identifier (matches the task_id that created it)."
+    },
+    "target_new_jobs": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of new jobs (not already in catalog) the run aims to insert."
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Maximum number of search attempts before declaring the run complete."
+    },
+    "hard_constraints": {
+      "type": "object",
+      "description": "Constraints that must be satisfied by search results; propagated from DiscoveryIntent.",
+      "properties": {
+        "location": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required locations (e.g. ['NYC', 'Jersey City'])."
+        },
+        "seniority": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required seniority levels (e.g. ['Analyst', 'Associate'])."
+        },
+        "max_years_experience": {
+          "type": ["integer", "null"],
+          "description": "Upper bound on years of experience; null means unconstrained."
+        },
+        "workstreams": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Required workstream families."
+        },
+        "exclusions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Role types or keywords to exclude (e.g. ['model_validation', 'audit'])."
+        }
+      }
+    },
+    "soft_preferences": {
+      "type": "object",
+      "description": "Preferences that influence search strategy but do not invalidate results.",
+      "properties": {
+        "company_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "remote_policy": {
+          "type": "string",
+          "enum": ["on-site", "hybrid", "remote", "flexible"]
+        },
+        "preferred_sources": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "per_attempt_budget": {
+      "type": "object",
+      "description": "Budget allocation per attempt. Attempt 1 uses full budget; attempt 2 uses remainder.",
+      "additionalProperties": false,
+      "required": ["attempt_1_queries", "attempt_1_pages"],
+      "properties": {
+        "attempt_1_queries": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Query budget for attempt 1 (typically 60% of total)."
+        },
+        "attempt_1_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page budget for attempt 1."
+        },
+        "attempt_2_queries": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Query budget for attempt 2 (typically 40% of total)."
+        },
+        "attempt_2_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Page budget for attempt 2."
+        }
+      }
+    },
+    "completion_criteria": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_new_jobs"],
+      "description": "Thresholds for evaluating whether an attempt's result meets the objective.",
+      "properties": {
+        "min_new_jobs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum new_jobs_inserted to declare the objective met."
+        },
+        "max_duplicate_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7,
+          "description": "If (possible_duplicates / candidates_captured) > this, classify as high_duplicates failure."
+        },
+        "max_fetch_failure_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.6,
+          "description": "If (jobs_failed / jobs_discovered) > this, classify as fetch_failures failure."
+        },
+        "min_candidate_count": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 5,
+          "description": "If candidates_captured < this, classify as low_candidates failure."
+        }
+      }
+    },
+    "search_mode": {
+      "type": "string",
+      "enum": ["auto", "directed_discovery", "profile_based_exploration", "gap_fill_discovery"],
+      "description": "Discovery mode forwarded to the Intent Translator."
+    },
+    "additional_instruction": {
+      "type": "string",
+      "description": "User-provided free-text instruction carried alongside structured params."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when the objective was created."
+    }
+  }
+}

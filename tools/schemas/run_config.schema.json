@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "run_config.schema.json",
+  "title": "RunConfig",
+  "type": "object",
+  "required": ["session_id", "profile_name", "mode", "run_timestamp"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "profile_name": { "type": "string" },
+    "mode": { "type": "string", "enum": ["exploratory", "refresh"] },
+    "run_timestamp": { "type": "string" },
+    "runner_version": { "type": "string" },
+    "candidates_file": { "type": "string" },
+    "dry_run": { "type": "boolean", "default": false },
+    "max_jobs": { "type": "integer", "minimum": 1, "maximum": 50 },
+    "search_budget": {
+      "type": "object",
+      "properties": {
+        "max_queries": { "type": "integer" },
+        "max_fetched_pages": { "type": "integer" },
+        "stop_on_consecutive_empty": { "type": "integer" }
+      }
+    }
+  }
+}

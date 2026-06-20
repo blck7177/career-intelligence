@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "research_bundle.schema.json",
+  "title": "ResearchBundle",
+  "description": "Web-research evidence produced by career-research for a job, consumed by analysis_service to generate a research-augmented Job Report. The agent produces evidence only; it never writes the final report or MetadataStore.",
+  "type": "object",
+  "required": [
+    "job_id",
+    "research_inputs_hash",
+    "bundle_hash",
+    "used_research",
+    "validation_status",
+    "source_count",
+    "verified_source_count",
+    "generated_at"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "pattern": "^job_[a-f0-9]{8}$",
+      "description": "Job this research bundle was produced for."
+    },
+    "company": { "type": "string" },
+    "research_inputs_hash": {
+      "type": "string",
+      "description": "Hash of the inputs that produced this bundle (job_id + jd_hash + planner version). Cache/freshness key."
+    },
+    "bundle_hash": {
+      "type": "string",
+      "description": "Content hash of the validated research bundle. Folded into the Job Report cache key so a new bundle invalidates a stale JD-only report."
+    },
+    "used_research": {
+      "type": "boolean",
+      "description": "Whether the downstream report actually used this research (false when validation failed and the report fell back to JD-only)."
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": ["passed", "partial", "failed"],
+      "description": "Result of research_validator anti-fabrication gate."
+    },
+    "validation_reason": { "type": "string" },
+    "source_count": { "type": "integer", "minimum": 0 },
+    "verified_source_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Sources whose URL matched a real web_fetch (ground truth)."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "verified"],
+        "properties": {
+          "url": { "type": "string" },
+          "url_hash": { "type": "string" },
+          "title": { "type": "string" },
+          "source_type": {
+            "type": "string",
+            "description": "company_website | press_release | job_board | news | linkedin | other"
+          },
+          "related_jd_signal": { "type": "string" },
+          "boundary": { "type": "string" },
+          "fetched_at": { "type": "string" },
+          "verified": { "type": "boolean" }
+        }
+      }
+    },
+    "notes_path": {
+      "type": "string",
+      "description": "Path to research_notes.md (Layer 1 research input)."
+    },
+    "sources_path": {
+      "type": "string",
+      "description": "Path to research_sources.json."
+    },
+    "run_log_path": {
+      "type": "string",
+      "description": "Path to the agent run log used as fabrication ground-truth."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

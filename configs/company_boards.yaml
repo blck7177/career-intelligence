@@ -1,0 +1,132 @@
+# Human-owned config. Do not modify via agent.
+# Agent-discovered entries are added via career_register_board wrapper.
+# Last updated: auto
+#
+# status values:
+#   active      — connector verified, regularly synced
+#   best_effort — connector available but success not guaranteed
+#   hard_source — known bot protection / auth gate; use search aggregator only
+#   unknown     — not yet verified
+
+axioma:
+  board_token: axioma
+  source: greenhouse
+  status: best_effort
+  verified_at: '2026-06-08'
+barclays:
+  host: barclays.wd3.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: barclays
+blackrock:
+  host: blackrock.wd1.myworkdayjobs.com
+  source: workday
+  status: active
+  tenant: blackrock
+  verified_at: '2026-06-08'
+bnp_paribas:
+  host: bnpparibas.wd3.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: bnpparibas
+citadel:
+  board_token: citadel
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+citi:
+  host: citi.wd5.myworkdayjobs.com
+  notes: high 404 rate on detail pages
+  source: workday
+  status: best_effort
+  tenant: citi
+deutsche_bank:
+  host: db.wd3.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: db
+dez:
+  board_token: de-shaw
+  source: lever
+  status: best_effort
+  verified_at: '2026-06-08'
+goldman_sachs:
+  host: higher.gs.com
+  notes: custom careers portal, not standard Workday endpoint
+  source: workday
+  status: hard_source
+  tenant: gs
+hudson_river_trading:
+  board_token: hudsonrivertrading
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+jane_street:
+  board_url: https://www.janestreet.com/join-jane-street/open-roles/
+  notes: custom careers portal, no ATS API
+  source: html
+  status: best_effort
+  verified_at: '2026-06-08'
+jpmorgan:
+  host: jpmc.wd5.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: jpmc
+millennium:
+  board_token: millenniummanagement
+  notes: Should NOT overwrite verified_at
+  source: greenhouse
+  status: best_effort
+  verified_at: '2026-06-10'
+morgan_stanley:
+  host: morganstanley.wd1.myworkdayjobs.com
+  notes: auth gate on detail pages
+  source: workday
+  status: hard_source
+  tenant: morganstanley
+msci:
+  board_token: msci
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+numerix:
+  board_token: numerix
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+pimco:
+  board_token: pimco
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+schonfeld:
+  board_token: schonfeld
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+swiss_re:
+  host: swissre.wd3.myworkdayjobs.com
+  notes: HTTP 403 on most pages
+  source: workday
+  status: hard_source
+  tenant: swissre
+tower_research:
+  board_token: towerresearch
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+two_sigma:
+  board_token: twosigma
+  source: greenhouse
+  status: active
+  verified_at: '2026-06-08'
+ubs:
+  host: ubs.wd3.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: ubs
+vanguard:
+  host: vanguard.wd5.myworkdayjobs.com
+  source: workday
+  status: best_effort
+  tenant: vanguard

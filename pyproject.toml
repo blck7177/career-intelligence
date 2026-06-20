@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "career-openclaw"
+version = "0.2.0"
+description = "Career job intelligence platform — contract-first modular monolith + OpenClaw agent runtime"
+requires-python = ">=3.11"
+dependencies = [
+    # HTTP / async
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+
+    # API layer
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+
+    # Task queue
+    "celery[redis]>=5.4",
+    "redis>=5.0",
+
+    # Database
+    "sqlalchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg2-binary>=2.9",
+
+    # Validation / schemas
+    "pydantic>=2.7",
+    "jsonschema>=4.22",
+    "pyyaml>=6.0",
+
+    # CLI
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.28"]
+openai = ["openai>=1.30"]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+# Platform CLI tools (deterministic, no agent)
+career-query-jobs = "tools.cli.query_jobs:main"
+career-validate-run = "tools.cli.validate_run:main"
+career-summarize-run = "tools.cli.summarize_run:main"
+career-register-board = "tools.cli.register_board:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*", "packages*", "tools*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
+markers = [
+    "live: calls the real LLM (slow, requires API key)",
+    "integration: requires running Docker stack",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

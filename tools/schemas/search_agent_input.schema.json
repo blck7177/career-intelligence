@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search_agent_input.schema.json",
+  "title": "SearchAgentInputSpec",
+  "description": "The structured task spec the worker writes for the bounded career-search-agent (agent_service._search_input_spec). The agent reads this file to learn the session_id, workspace, search contract, catalog and strategy context, and the expected output paths. Built by the worker, consumed by the career-discovery-operator skill.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["session_id", "workspace_id", "search_request", "budget", "expected_output_paths"],
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Session the worker already created. The agent MUST NOT start/end it."
+    },
+    "workspace_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Workspace the session lives in; pass to every wrapper via --workspace-id."
+    },
+    "search_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_user_request", "profile_name"],
+      "properties": {
+        "raw_user_request": {
+          "type": "string",
+          "description": "Free-text objective or user instruction for this discovery run."
+        },
+        "profile_name": {
+          "type": "string",
+          "description": "Search profile name (configs/search_profiles.yaml) or candidate_profile_id."
+        },
+        "profile_summary": {
+          "type": "string",
+          "description": "Human-readable summary of the candidate profile."
+        },
+        "discovery_intent": {
+          "type": "object",
+          "description": "Structured search contract from the Intent Translator. Empty object when triggered via the legacy operator endpoint. Non-empty for user-facing /api/discovery-runs."
+        },
+        "attempt_context": {
+          "type": "object",
+          "description": "Per-attempt context injected by the Objective Controller (new path only). Absent for legacy operator runs. When present, the agent MUST: (1) avoid URLs and companies listed in seen_urls/seen_companies; (2) follow the pivot_hint strategy for this attempt.",
+          "properties": {
+            "attempt_number": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Which attempt this is (1-indexed)."
+            },
+            "max_attempts": {
+              "type": "integer",
+              "description": "Total max attempts for this objective."
+            },
+            "target_new_jobs": {
+              "type": "integer",
+              "description": "Total new jobs the objective aims to insert."
+            },
+            "remaining_target": {
+              "type": "integer",
+              "description": "Remaining new jobs still needed after previous attempts."
+            },
+            "seen_companies": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Company names already captured in previous attempts. Avoid searching these again unless the pivot_hint says otherwise."
+            },
+            "seen_urls": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Job posting URLs already processed in previous attempts. Do not re-capture."
+            },
+            "previous_failure_summary": {
+              "type": ["string", "null"],
+              "description": "Human-readable summary of why the previous attempt did not meet the objective."
+            },
+            "pivot_hint": {
+              "type": ["string", "null"],
+              "description": "LLM-generated strategy adjustment for this attempt. Follow it as a priority directive over the baseline DiscoveryIntent lanes."
+            }
+          }
+        }
+      }
+    },
+    "catalog_context": {
+      "type": "object",
+      "description": "Database-derived snapshot: existing job count and recently-seen companies.",
+      "properties": {
+        "existing_job_count": { "type": "integer" },
+        "recent_companies": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "strategy_context": {
+      "type": "object",
+      "description": "Reflect-produced cross-run learnings: coverage gaps, source health, query patterns, key learnings, recommended next searches."
+    },
+    "source_context": {
+      "type": "object",
+      "description": "Paths to source configuration files (company_boards.yaml, source_policy.yaml).",
+      "properties": {
+        "company_boards_path": { "type": "string" },
+        "source_policy_path": { "type": "string" }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_queries", "max_pages"],
+      "properties": {
+        "max_queries": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hard query budget for the session."
+        },
+        "max_pages": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hard fetch-page budget for the session."
+        },
+        "max_board_syncs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Hard board-sync budget (career_sync_board calls)."
+        }
+      }
+    },
+    "expected_output_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage_report"],
+      "properties": {
+        "coverage_report": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path the agent must write coverage_report.md to; the gateway judges completion by its existence."
+        },
+        "discovery_notes": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional path for discovery_notes.md (new source discoveries, strategy observations)."
+        }
+      }
+    }
+  }
+}

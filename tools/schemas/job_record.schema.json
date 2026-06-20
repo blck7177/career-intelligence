@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "job_record.schema.json",
+  "title": "JobRecord",
+  "type": "object",
+  "required": [
+    "job_id",
+    "title",
+    "company",
+    "location",
+    "source_url",
+    "source_type",
+    "date_found",
+    "fetch_status",
+    "raw_jd_path",
+    "primary_workstream",
+    "classification_confidence",
+    "classification_evidence",
+    "validation_status",
+    "run_id",
+    "schema_version"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "job_id": { "type": "string", "pattern": "^job_[a-f0-9]{8}$" },
+    "title": { "type": "string", "minLength": 1 },
+    "company": { "type": "string", "minLength": 1 },
+    "location": { "type": "string" },
+    "source_url": { "type": "string", "format": "uri" },
+    "source_type": {
+      "comment": "Keep in sync with career_intelligence.contracts.JOB_RECORD_SOURCE_TYPES (locked by tests/test_record_enum_contracts.py).",
+      "type": "string",
+      "enum": [
+        "greenhouse", "lever", "ashby", "workday", "html", "manual",
+        "company_career_page", "linkedin", "indeed", "glassdoor", "google_search"
+      ]
+    },
+    "date_found": { "type": "string", "format": "date" },
+    "fetch_status": {
+      "comment": "Keep in sync with career_intelligence.contracts.JOB_RECORD_FETCH_STATUSES (locked by tests/test_record_enum_contracts.py).",
+      "type": "string",
+      "enum": ["success", "partial_success", "failed", "manual"]
+    },
+    "raw_jd_path": { "type": "string" },
+    "responsibilities": { "type": "array", "items": { "type": "string" } },
+    "required_skills": { "type": "array", "items": { "type": "string" } },
+    "preferred_skills": { "type": "array", "items": { "type": "string" } },
+    "tools_mentioned": { "type": "array", "items": { "type": "string" } },
+    "finance_domains": { "type": "array", "items": { "type": "string" } },
+    "seniority_inferred": { "type": "string" },
+    "primary_workstream": { "type": "string", "minLength": 1 },
+    "secondary_workstreams": { "type": "array", "items": { "type": "string" } },
+    "classification_confidence": {
+      "type": "string",
+      "enum": ["high", "medium", "low"]
+    },
+    "classification_evidence": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "uncertainty_notes": { "type": ["string", "null"] },
+    "likely_tasks": { "type": "array", "items": { "type": "string" } },
+    "likely_stakeholders": { "type": "array", "items": { "type": "string" } },
+    "inferred_team_context": { "type": "string" },
+    "division_or_business_line": { "type": "string" },
+    "evidence_from_jd": { "type": "object" },
+    "possible_duplicate": { "type": "boolean" },
+    "validation_status": { "type": "string", "enum": ["passed", "failed"] },
+    "validation_errors": { "type": "array", "items": { "type": "string" } },
+    "run_id": { "type": "string" },
+    "schema_version": { "type": "string" }
+  },
+  "if": {
+    "properties": { "classification_confidence": { "const": "low" } }
+  },
+  "then": {
+    "properties": {
+      "uncertainty_notes": { "type": "string", "minLength": 1 }
+    }
+  }
+}

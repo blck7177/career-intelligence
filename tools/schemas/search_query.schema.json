@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "search_query.schema.json",
+  "title": "SearchQueryLedgerEntry",
+  "description": "Input accepted by career_search_session log-query (and search_session.log_query). One entry per real web_search the bounded career-search-agent ran. The alias 'query' is normalized to 'query_text'; unknown top-level fields are rejected. This schema is the single source of truth shared by the CLI, the wrapper, and the skill references.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["query_text"],
+  "properties": {
+    "query_id": {
+      "type": "string",
+      "description": "Optional id; auto-assigned (q_NNN) when omitted."
+    },
+    "query_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The actual query string searched. Inline alias: 'query'."
+    },
+    "search_intent": {
+      "type": "string",
+      "description": "What this query was trying to discover."
+    },
+    "query_type": {
+      "type": "string",
+      "description": "e.g. targeted_site_search | broad_keyword_search | company_career_page_snowball."
+    },
+    "query_family": {
+      "type": "string",
+      "description": "Query family label, typically derived from profile keywords."
+    },
+    "derived_from": {
+      "type": "string",
+      "description": "Provenance of the query (e.g. a prior query_id or JD term)."
+    },
+    "results_seen": {
+      "type": "array",
+      "description": "Results observed for this query. url_hash is filled automatically.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "url": { "type": "string" },
+          "relevance": { "type": "string" }
+        }
+      }
+    },
+    "new_terms_discovered": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "New terminology surfaced by this query, for query expansion."
+    },
+    "source_type": {
+      "type": "string",
+      "enum": ["company_career_page", "ats_board", "aggregator", "recruiter_post", "unknown"],
+      "description": "Source type targeted by this query."
+    },
+    "observed_failure_mode": {
+      "type": "string",
+      "enum": ["none", "blocked_403", "no_results", "fake_urls", "search_result_pages_only", "other"],
+      "description": "Observed failure mode of this query."
+    },
+    "valid_url_count": {
+      "type": ["integer", "null"],
+      "description": "How many results were confirmed real JD pages (excludes search-result pages)."
+    },
+    "candidate_yield": {
+      "type": ["integer", "null"],
+      "description": "How many candidates this query added to the pool."
+    }
+  }
+}

@@ -1,0 +1,59 @@
+# Human-owned. Do not modify via agent.
+# Defines allowed sources and per-source behavior.
+
+allowed_sources:
+  company_career_page:
+    description: "Direct company career page URLs"
+    requires_login: false
+    max_per_run: 20
+    enabled: true
+
+  linkedin:
+    description: "LinkedIn public search results (no login)"
+    requires_login: false
+    max_per_run: 15
+    enabled: true
+    note: "Public search results only. Do not attempt login."
+
+  indeed:
+    description: "Indeed public job listings"
+    requires_login: false
+    max_per_run: 15
+    enabled: true
+
+  glassdoor:
+    description: "Glassdoor public job listings (no login)"
+    requires_login: false
+    max_per_run: 10
+    enabled: true
+
+  google_search:
+    description: "Google web search results"
+    requires_login: false
+    max_per_run: 30
+    enabled: true
+
+  manual:
+    description: "Manually provided job URL or JD text by user"
+    requires_login: false
+    max_per_run: 50
+    enabled: true
+
+  serpapi:
+    description: "SerpAPI job search (requires SERPAPI_KEY in .env)"
+    requires_login: false
+    max_per_run: 20
+    enabled: false
+    requires_env: SERPAPI_KEY
+
+global_limits:
+  max_jobs_per_run: 50
+  fetch_delay_seconds: 1
+  max_fetch_timeout_seconds: 15
+
+denied_behaviors:
+  - login_bypass
+  - headless_browser_login
+  - mass_scraping
+  - pii_collection
+  - direct_db_write_from_search
