@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""
+career_register_board — thin shim that delegates to tools/cli/register_board.py
+
+This shim preserves the legacy wrapper path while the canonical implementation
+lives in tools/cli/register_board.py.
+
+Per AGENTS.md: configs/company_boards.yaml may only be written via this wrapper.
+"""
+
+import sys
+import runpy
+from pathlib import Path
+
+_REAL = Path(__file__).parent.parent.parent / "cli" / "register_board.py"
+sys.argv[0] = str(_REAL)
+runpy.run_path(str(_REAL), run_name="__main__")

@@ -10,4 +10,8 @@ COPY packages/ packages/
 COPY tools/ tools/
 COPY alembic.ini .
 
-CMD ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info", "--queues=tasks"]
+# Default: fast worker (deterministic tasks).
+# Override in docker-compose with the appropriate --queues and --concurrency:
+#   worker-fast:  --queues=fast  --concurrency=2
+#   worker-agent: --queues=agent --concurrency=1
+CMD ["celery", "-A", "apps.worker.celery_app", "worker", "--loglevel=info", "--queues=fast", "--concurrency=2"]

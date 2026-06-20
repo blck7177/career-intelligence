@@ -7,7 +7,7 @@ AgentInvocationResult — raw output from agent_runtime.invoke()
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -36,7 +36,7 @@ class AgentInvocationSpec(BaseModel):
     max_tool_calls: int = Field(default=30, ge=1, le=200)
     allowed_output_types: list[str] = Field(default_factory=list)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class AgentInvocationResult(BaseModel):

@@ -10,19 +10,17 @@ Rules (from AGENTS.md):
 
 from __future__ import annotations
 
-import logging
 import os
+import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.routes.health import router as health_router
 from apps.api.routes.runs import router as runs_router
+from packages.infrastructure.observability.logging import configure_logging, set_correlation_id
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+configure_logging()
 
 _ENV = os.environ.get("ENV", "development")
 _DEV_MODE = os.environ.get("DEV_MODE", "0") == "1"
@@ -45,6 +43,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """
+    Extract or generate a correlation_id for every request.
+    Propagated downstream via X-Correlation-ID header.
+    Workers inherit it via the Celery task envelope.
+    """
+    cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+    set_correlation_id(cid)
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = cid
+    return response
+
 
 app.include_router(health_router)
 app.include_router(runs_router)

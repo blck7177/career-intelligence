@@ -7,7 +7,7 @@ regardless of pass/fail.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -35,7 +35,7 @@ class AgentValidationResult(BaseModel):
     status: Literal["passed", "failed", "warning"]
     errors: list[ValidationError] = Field(default_factory=list)
     warnings: list[ValidationWarning] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def passed(self) -> bool:

@@ -73,9 +73,13 @@ def create_run(body: RunCreate, db: Session = Depends(get_db)) -> RunRead:
 
     # Determine task_type from run_type
     task_type_map = {
+        # Agent (OPENCLAW) tasks
         "job_discovery": "agent.job_discovery",
         "job_research": "agent.job_research",
         "run_reflection": "agent.run_reflection",
+        # Deterministic tasks
+        "job_report": "job_report",
+        "fit_report": "fit_report",
     }
     task_type = task_type_map.get(body.run_type)
     if task_type is None:
@@ -92,22 +96,30 @@ def create_run(body: RunCreate, db: Session = Depends(get_db)) -> RunRead:
 
     db.commit()
 
-    # Enqueue via Celery
+    # Enqueue via Celery — route to the correct queue by task_type.
+    # agent.* tasks → "agent" queue (worker-agent, concurrency=1, long-running)
+    # deterministic tasks → "fast" queue (worker-fast, concurrency=2-4, low latency)
+    from packages.domain.agent_jobs.routing import celery_queue_for_task_type
+
     envelope = TaskEnvelope(
         task_id=task.id,
         run_id=run.id,
         workspace_id=body.workspace_id,
         task_type=task_type,
         idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
     )
+    celery_queue = celery_queue_for_task_type(task_type)
     try:
         celery_app = _get_celery()
         celery_app.send_task(
             "apps.worker.tasks.execute_task",
             kwargs={"envelope": envelope.model_dump(mode="json")},
-            queue="tasks",
+            queue=celery_queue,
         )
-        logger.info("Enqueued task %s for run %s", task.id, run.id)
+        logger.info(
+            "Enqueued task %s for run %s (queue=%s)", task.id, run.id, celery_queue
+        )
     except Exception as exc:
         logger.warning("Failed to enqueue task (Celery unreachable?): %s", exc)
         # Don't fail the request — the task is persisted; can be re-queued
