@@ -37,6 +37,8 @@ services:
       # Mount skills and config from repo (dev: live reload)
       - ../../agent:/app/agent:ro
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
+      # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
+      - ../../agent/openclaw/config/exec-approvals.json:/openclaw/state/exec-approvals.json:ro
     healthcheck:
       test: ["CMD", "openclaw", "--version"]
       interval: 10s
@@ -93,6 +95,11 @@ services:
   # OpenClaw agent tasks: job_discovery, job_research, run_reflection
   # Listens on the "agent" queue. concurrency=1 to prevent resource contention.
   # Requires openclaw-gateway to be healthy before starting.
+  #
+  # This worker is a gateway CLIENT only — it does not run openclaw-gateway itself.
+  # "openclaw agent ..." issued here routes through the gateway daemon via the shared
+  # openclaw_state socket. The gateway container is the sole OpenClaw execution host
+  # (exec sandbox, skills, session state, exec-approvals enforcement).
   worker-agent:
     build:
       context: ../..
@@ -105,9 +112,13 @@ services:
       REDIS_URL: redis://redis:6379/0
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
       OPENCLAW_BIN: openclaw
-      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
+      # Gateway socket lives in the shared openclaw_state volume.
+      OPENCLAW_STATE_DIR: /openclaw/state
+      OPENCLAW_GATEWAY_MODE: "client"
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
+      # Shared gateway state: the CLI uses this directory to locate the gateway socket.
+      - openclaw_state:/openclaw/state
     depends_on:
       postgres:
         condition: service_healthy

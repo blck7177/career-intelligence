@@ -213,7 +213,7 @@ python -m pytest tests/ -m integration -v
 | `ANTHROPIC_API_KEY`    | —                                                | Alternative LLM provider                 |
 | `LLM_MODEL`            | `claude-opus-4-5`                                | Model identifier                         |
 | `OPENCLAW_BIN`         | `openclaw`                                       | Path to OpenClaw CLI                     |
-| `OPENCLAW_CONFIG_PATH` | `/app/agent/openclaw/config/openclaw.json`       | Agent/tool/workspace config              |
+| `OPENCLAW_CONFIG_PATH` | `/app/agent/openclaw/config/openclaw.json`       | Gateway runtime config (worker 可不设置) |
 | `OPENCLAW_STATE_DIR`   | `/openclaw/state`                                | OpenClaw session state volume            |
 | `AGENT_ARTIFACTS_DIR`  | `/app/data/agent_artifacts`                      | Shared volume for staged agent output    |
 | `LOG_LEVEL`            | `INFO`                                           | `DEBUG` / `INFO` / `WARNING` / `ERROR`   |
@@ -276,9 +276,72 @@ Before going to production:
 
 - [ ] Set all required env vars (no empty API keys)
 - [ ] Run `alembic upgrade head` against production Postgres
-- [ ] Verify `openclaw-gateway` healthcheck passes
+- [ ] Verify `openclaw-gateway` healthcheck passes: `docker compose exec openclaw-gateway openclaw --version`
 - [ ] Run `./scripts/check-openapi-contract.sh` — no stale spec
 - [ ] Set `ENV=production` (disables `/docs` and `/redoc`)
 - [ ] Set `LOG_JSON=1` (ensure structured logs)
 - [ ] Confirm `exec-approvals.json` is in allowlist mode
 - [ ] Confirm no DB credentials are reachable from within the openclaw-gateway container
+- [ ] Confirm `worker-agent` image has openclaw CLI installed (`openclaw --version`)
+- [ ] Confirm `worker-agent` mounts `openclaw_state` (gateway socket) and `agent_artifacts` only
+- [ ] Verify `OPENCLAW_STATE_DIR=/openclaw/state` is set on `worker-agent`
+
+---
+
+## 13. Gateway Client Architecture
+
+**The `worker-agent` container is a gateway client — it does NOT run OpenClaw locally.**
+
+```
+worker-agent  →  "openclaw agent ..." CLI  →  openclaw-gateway container
+                 (thin client shim)               (sole execution host)
+```
+
+The `openclaw-gateway` container owns:
+- All OpenClaw runtime state (`/openclaw/state`)
+- Agent workspace, skills, session files
+- `exec-approvals.json` enforcement
+- Wrapper script execution sandbox
+
+The `worker-agent` container needs:
+- `openclaw` CLI binary (for `openclaw agent` client calls)
+- Shared `openclaw_state` volume (for gateway socket discovery)
+- Shared `agent_artifacts` volume (for input.json / output_manifest.json exchange)
+
+**Never configure `worker-agent` to run `openclaw gateway`.**
+
+---
+
+## 14. Validator Gate Rules (v2)
+
+The `ValidatorGate` runs five validators on every agent manifest before any DB write:
+
+| Validator | What it checks |
+|-----------|----------------|
+| `schema` | `invocation_id` matches spec; `status != failed`; `stop_reason` present |
+| `provenance` | All declared artifact files exist; discovery requires `coverage_report` artifact |
+| `budget` | `candidate_count` within expected range relative to `max_tool_calls` |
+| `tool_activity` | Discovery three-state gate (see below); research tool-evidence check |
+| `discovery_count` | `manifest.candidate_count` matches actual `candidate_pool.jsonl` line count |
+
+### Discovery three-state gate
+
+| State | Condition | Result |
+|-------|-----------|--------|
+| A — no discovery | No `trace_events` or no discovery tool in trace | **FAIL** → `needs_review` |
+| B — valid no-yield | `trace_events` with discovery tool, `candidate_count == 0` | **PASS** |
+| C — candidates found | `trace_events` with discovery tool, `candidate_count > 0` | **PASS** |
+
+Placeholder runs (agent writes manifest without executing real `web_search`/`web_fetch`/wrappers) are always caught by State A and land in `needs_review`.
+
+### Research tool-evidence check
+
+If `citations_count > 0`, `trace_events` must contain evidence of `web_fetch` or `career_fetch_source`. Research reports fabricated without real fetches are rejected.
+
+### `needs_review` meaning
+
+A `needs_review` task means the Validator Gate rejected the agent output. Check:
+```bash
+curl http://localhost:8000/api/runs/{run_id}/agent-invocations
+```
+Look at `agent_validation_results` for the failing `validator_name` and `errors` array.

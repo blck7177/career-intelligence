@@ -1,13 +1,15 @@
-FROM python:3.11-slim
+FROM ghcr.io/openclaw/openclaw:2026.2.26
 
-# Install OpenClaw
-RUN pip install --no-cache-dir openclaw-sdk || \
-    (curl -fsSL https://install.openclaw.ai | sh)
+USER root
+
+# Keep wrapper runtime compatible with existing exec-approvals.json.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip ca-certificates && \
+    ln -sf /usr/bin/python3 /usr/local/bin/python3 && \
+    python3 -m pip install --break-system-packages --no-cache-dir click httpx && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-# Install Python deps for wrappers
-RUN pip install --no-cache-dir click httpx
 
 COPY tools/wrappers/agent_tools/ /app/tools/wrappers/agent_tools/
 COPY agent/openclaw/ /app/agent/openclaw/
@@ -17,6 +19,8 @@ RUN mkdir -p /openclaw/state /openclaw/workspace /app/data/agent_artifacts
 
 ENV OPENCLAW_CONFIG_PATH=/app/agent/openclaw/config/openclaw.json
 ENV OPENCLAW_STATE_DIR=/openclaw/state
+
+USER node
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
     CMD openclaw --version || exit 1

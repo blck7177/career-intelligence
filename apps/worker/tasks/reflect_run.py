@@ -34,7 +34,7 @@ from packages.contracts.agents.invocation import AgentBudget
 from packages.contracts.agents.manifests import ReflectionManifest
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
-from packages.infrastructure.agent_runtime.openclaw import OpenClawRuntime
+from packages.infrastructure.agent_runtime.openclaw import create_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
@@ -49,8 +49,6 @@ from packages.infrastructure.db.session import get_session
 logger = logging.getLogger(__name__)
 
 _ARTIFACTS_DIR = os.environ.get("AGENT_ARTIFACTS_DIR", "/app/data/agent_artifacts")
-_OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
-_OPENCLAW_CONFIG = os.environ.get("OPENCLAW_CONFIG_PATH")
 
 
 def handle_reflect_run(env: TaskEnvelope) -> dict:
@@ -133,10 +131,7 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = OpenClawRuntime(
-        openclaw_bin=_OPENCLAW_BIN,
-        config_path=_OPENCLAW_CONFIG,
-    )
+    runtime = create_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)
@@ -176,6 +171,23 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
         )
+
+    if result.exit_code != 0 or result.timed_out:
+        error_code = "AGENT_TIMEOUT" if result.timed_out else "AGENT_EXIT_NONZERO"
+        reason = (
+            f"Agent invocation timed out after {spec.timeout_seconds}s"
+            if result.timed_out
+            else f"Agent invocation failed with exit_code={result.exit_code}"
+        )
+        if result.stderr:
+            reason = f"{reason}: {result.stderr[:500]}"
+        _mark_needs_review(
+            env,
+            invocation_id=invocation_id,
+            reason=reason,
+            error_code=error_code,
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
 
     # ------------------------------------------------------------------
     # Step 7–8: Read output manifest and run Validator Gate
@@ -288,13 +300,14 @@ def _mark_needs_review(
     *,
     invocation_id: str,
     reason: str,
+    error_code: str = "VALIDATOR_GATE_FAILED",
 ) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
         task_repo.mark_needs_review(
             env.task_id,
-            error_code="VALIDATOR_GATE_FAILED",
+            error_code=error_code,
             error_message=reason[:500],
         )
         event_repo.append(

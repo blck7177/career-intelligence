@@ -14,7 +14,7 @@ All wrappers accept `--task-spec <path> --output <path>`.
 Fetch and normalize a job posting or company page from a URL.
 
 ```
-python /app/tools/wrappers/agent_tools/career_fetch_source.py \
+python3 /app/tools/wrappers/agent_tools/career_fetch_source.py \
   --task-spec /path/to/fetch_spec.json \
   --output /path/to/fetch_result.json
 ```
@@ -28,7 +28,7 @@ Output: normalized page text and metadata.
 Write the final output manifest. Call once when all research is complete.
 
 ```
-python /app/tools/wrappers/agent_tools/career_write_manifest.py \
+python3 /app/tools/wrappers/agent_tools/career_write_manifest.py \
   --task-spec /path/to/manifest_data.json \
   --output /path/to/output_manifest.json
 ```

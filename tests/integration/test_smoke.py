@@ -143,6 +143,8 @@ class TestDiscoveryManifestSmoke:
             json.dumps({"tool_name": "career_log_candidates", "status": "ok", "logged_count": 1})
             + "\n"
         )
+        coverage_path = tmp_path / "coverage_report.md"
+        coverage_path.write_text("# Coverage\n\nSearched 3 queries across 2 boards.\n")
 
         spec = make_spec("agent.job_discovery", invocation_id="ainv_smoke")
         manifest = DiscoveryManifest(
@@ -153,6 +155,7 @@ class TestDiscoveryManifestSmoke:
                 "candidate_pool": str(pool_path),
                 "search_ledger": str(ledger_path),
                 "trace_events": str(trace_path),
+                "coverage_report": str(coverage_path),
             },
             candidate_count=1,
             sources_tried=["greenhouse.io"],
@@ -218,6 +221,11 @@ class TestResearchManifestSmoke:
         notes_path.write_text("# Research Notes\n\nFindings here.")
         sources_path = tmp_path / "research_sources.json"
         sources_path.write_text(json.dumps(["https://example.com/job"]))
+        # trace_events required when citations_count > 0 (ToolActivityValidator v2)
+        trace_path = tmp_path / "trace_events.jsonl"
+        trace_path.write_text(
+            json.dumps({"tool": "web_fetch", "url": "https://example.com/job"}) + "\n"
+        )
 
         spec = AgentInvocationSpec(
             invocation_id="ainv_research",
@@ -239,6 +247,7 @@ class TestResearchManifestSmoke:
             artifact_paths={
                 "research_notes": str(notes_path),
                 "sources": str(sources_path),
+                "trace_events": str(trace_path),
             },
             job_id="job_abc",
             citations_count=1,

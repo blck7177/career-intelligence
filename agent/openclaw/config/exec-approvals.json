@@ -1,42 +1,71 @@
 {
-  "mode": "allowlist",
-  "ask": "on-miss",
-  "commands": [
-    {
-      "name": "career_search_status",
-      "description": "Query current search session coverage and budget stats",
-      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_search_status"]
+  "version": 1,
+  "defaults": {
+    "security": "deny",
+    "ask": "on-miss",
+    "askFallback": "deny",
+    "autoAllowSkills": false
+  },
+  "agents": {
+    "career-search-agent": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [
+        {
+          "id": "a1b2c3d4-0001-4000-8000-career000001",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_search_status\\.py",
+          "source": "allow-always"
+        },
+        {
+          "id": "a1b2c3d4-0002-4000-8000-career000002",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_log_candidates\\.py",
+          "source": "allow-always"
+        },
+        {
+          "id": "a1b2c3d4-0003-4000-8000-career000003",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
+          "source": "allow-always"
+        },
+        {
+          "id": "a1b2c3d4-0004-4000-8000-career000004",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_fetch_source\\.py",
+          "source": "allow-always"
+        }
+      ]
     },
-    {
-      "name": "career_log_candidates",
-      "description": "Write triaged candidate jobs to candidate pool",
-      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_log_candidates"]
+    "career-reflect-agent": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [
+        {
+          "id": "a1b2c3d4-0005-4000-8000-career000005",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
+          "source": "allow-always"
+        }
+      ]
     },
-    {
-      "name": "career_write_manifest",
-      "description": "Write the agent output manifest to the designated output path",
-      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_write_manifest"]
-    },
-    {
-      "name": "career_fetch_source",
-      "description": "Fetch and normalize a job posting from an ATS source URL",
-      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_fetch_source"]
+    "career-research-agent": {
+      "security": "allowlist",
+      "ask": "on-miss",
+      "allowlist": [
+        {
+          "id": "a1b2c3d4-0006-4000-8000-career000006",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_fetch_source\\.py",
+          "source": "allow-always"
+        },
+        {
+          "id": "a1b2c3d4-0007-4000-8000-career000007",
+          "pattern": "/usr/local/bin/python3",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
+          "source": "allow-always"
+        }
+      ]
     }
-  ],
-  "denied_patterns": [
-    "bash",
-    "sh",
-    "python -c",
-    "python3 -c",
-    "rm",
-    "cp",
-    "mv",
-    "git",
-    "docker",
-    "ssh",
-    "curl",
-    "wget",
-    "psql",
-    "redis-cli"
-  ]
+  }
 }

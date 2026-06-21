@@ -41,7 +41,7 @@ Browser
 | `apps/worker` | Claim tasks, call agent_runtime or deterministic handlers, validate, persist | Expose HTTP endpoints, return data to frontend |
 | `packages/domain` | Pure business logic | Import FastAPI, SQLAlchemy, Redis, Celery, OpenAI |
 | `packages/contracts` | Pydantic DTOs and schemas | IO of any kind |
-| `packages/infrastructure/agent_runtime` | Call OpenClaw CLI, parse stdout, capture artifacts | Business decisions, DB writes |
+| `packages/infrastructure/agent_runtime` | Invoke OpenClaw gateway client, capture artifacts | Business decisions, DB writes, running openclaw-gateway |
 | `openclaw-gateway` | Run OpenClaw, hold state/workspace/skills | Direct DB access, internal API calls |
 | `Postgres` | Source of truth: runs/tasks/events/artifacts/jobs | Act as queue broker |
 | `Redis` | Queue, distributed lock, short-term cache, rate limit | Store final business state |
@@ -52,14 +52,21 @@ Browser
 1. POST /api/runs  →  API creates run + task in Postgres, enqueues task_id via Redis
 2. Celery worker claims task, marks running
 3. domain/agent_jobs/planner.py builds AgentInvocationSpec
-4. Worker writes input.json to agent_artifacts volume
-5. infrastructure/agent_runtime/openclaw.py invokes OpenClaw via subprocess
-6. OpenClaw (in openclaw-gateway) reads input.json, executes skill, writes output_manifest.json
-7. Worker reads manifest, runs Validator Gate
-8. Pass → write jobs/artifacts/events to Postgres, mark task succeeded
-9. Fail → mark task needs_review, write agent_validation_results
-10. UI polls GET /api/runs/{run_id} and renders result
+4. Worker writes input.json to shared agent_artifacts volume
+5. infrastructure/agent_runtime/openclaw.py calls create_runtime() and invokes the
+   openclaw CLI as a gateway client ("openclaw agent --session-key ...")
+6. The CLI routes the invocation through the openclaw-gateway daemon via the shared
+   openclaw_state volume socket. The gateway owns agent workspace, exec sandbox,
+   skills, and session state. The worker does not mount local agent/openclaw config.
+7. Gateway executes the skill; agent reads input.json, writes output_manifest.json
+8. Worker reads manifest, runs Validator Gate (5 validators)
+9. Pass → write jobs/artifacts/events to Postgres, mark task succeeded
+10. Fail → mark task needs_review, write agent_validation_results
+11. UI polls GET /api/runs/{run_id} and renders result
 ```
+
+**The `worker-agent` container is a gateway CLIENT, not a gateway host.**
+See `docs/runbook.md §13` for runtime boundary details.
 
 ## Task Types
 

@@ -48,6 +48,7 @@ class AgentInvocationResult(BaseModel):
     stderr: str
     duration_seconds: float
     timed_out: bool = False
+    tool_activity_summary_path: str | None = None
 
     @property
     def succeeded(self) -> bool:

@@ -1,25 +1,30 @@
 {
-    "agent": {
-        "default_model": "openai/gpt-5.4-mini"
+  "agents": {
+    "defaults": {
+      "model": { "primary": "openai/gpt-5.4-mini" },
+      "skipBootstrap": true
     },
-  "workspace": {
-    "path": "/openclaw/workspace",
-    "bootstrap_files": [
-      "AGENTS.md",
-      "TOOLS.md",
-      "USER.md"
+    "list": [
+      {
+        "id": "career-search-agent",
+        "workspace": "/app/agent/openclaw/agents/career-search-agent",
+        "skills": ["career-search-operator"]
+      },
+      {
+        "id": "career-reflect-agent",
+        "workspace": "/app/agent/openclaw/agents/career-reflect-agent",
+        "skills": ["career-reflect-operator"]
+      },
+      {
+        "id": "career-research-agent",
+        "workspace": "/app/agent/openclaw/agents/career-research-agent",
+        "skills": ["career-research-operator"]
+      }
     ]
   },
   "skills": {
-    "paths": [
-      "/app/agent/openclaw/skills"
-    ]
-  },
-  "exec": {
-    "approvals_path": "/app/agent/openclaw/config/exec-approvals.json"
-  },
-  "session": {
-    "store_dir": "/openclaw/state/sessions",
-    "isolation": "strict"
+    "load": {
+      "extraDirs": ["/app/agent/openclaw/skills"]
+    }
   }
 }

@@ -1,5 +1,5 @@
 ---
-name: career-job-research-operator
+name: career-research-operator
 description: "Bounded web-research for ONE known job/company/team. Use when the platform asks you to collect research evidence (research_notes + research_sources) for a job report. You do NOT write the report."
 ---
 
@@ -15,10 +15,10 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 执行本任务**只需读下面 4 个 skill-local references**（一跳直达，只服务本 bounded turn）：
 
-1. `skills/career-job-research-operator/references/research_io.md` — 输入 spec、平台前后做什么、硬性「不做」
-2. `skills/career-job-research-operator/references/research_notes_format.md` — `research_notes.md` 强制格式
-3. `skills/career-job-research-operator/references/source_verification_gate.md` — **反捏造闸门** + `research_sources.json` 结构 + `log-fetch`
-4. `skills/career-job-research-operator/references/data_policy_summary.md` — source / fetch budget / 证据边界
+1. `skills/career-research-operator/references/research_io.md` — 输入 spec、平台前后做什么、硬性「不做」
+2. `skills/career-research-operator/references/research_notes_format.md` — `research_notes.md` 强制格式
+3. `skills/career-research-operator/references/source_verification_gate.md` — **反捏造闸门** + `research_sources.json` 结构 + `log-fetch`
+4. `skills/career-research-operator/references/data_policy_summary.md` — source / fetch budget / 证据边界
 
 `AGENTS.md` 由平台自动注入；`protocols/AGENT_IO_CONTRACT.md` / `protocols/ROLE_DOSSIER_PROTOCOL.md` / `protocols/DATA_POLICY.md` 仍是全局背景，需要时可查，但本 turn 的全部要求已在上面 references 内。
 
