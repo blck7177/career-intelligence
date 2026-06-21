@@ -3,10 +3,12 @@ FROM python:3.11-slim
 # Install Node.js 24 and OpenClaw CLI (npm package).
 # This container does NOT run "openclaw gateway" — it only uses "openclaw agent"
 # to forward task invocations to the openclaw-gateway service.
+ARG OPENCLAW_VERSION=2026.2.26
+
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg bash && \
     curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
-    npm install -g openclaw@latest && \
+    npm install -g openclaw@${OPENCLAW_VERSION} && \
     command -v openclaw && \
     rm -rf /var/lib/apt/lists/*
 

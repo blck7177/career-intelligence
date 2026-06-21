@@ -35,7 +35,7 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 ## 你只做这一件事
 
-围绕**一个已知 job/company/team** 做 bounded 补充研究：`web_search` → `web_fetch`（每公司最多 `max_fetches` 次）→ 写 `research_notes.md` + `research_sources.json`，并对每次 fetch 记 ledger（见 `source_verification_gate.md`）。
+围绕**一个已知 job/company/team** 做 bounded 补充研究：`web_search` → `web_fetch`（每公司最多 `max_fetches` 次）→ 写 `research_notes.md` + `research_sources.json`（gateway 自动观测所有 tool calls，见 `source_verification_gate.md`）。
 
 研究目标是澄清 JD：公司业务背景、team/division context、role 在组织中的位置、product/business line、为什么这个岗位存在。**不是找新岗位。**
 
@@ -47,7 +47,7 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 ## 完成标志（expected_outputs）
 
-`research_notes.md` 与 `research_sources.json` 都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` + `career_research_session log-fetch` 记录。
+`research_notes.md` 与 `research_sources.json` 都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` 记录（gateway 自动观测）。
 
 ## 硬性「不做」
 

@@ -42,7 +42,6 @@ from packages.infrastructure.agent_runtime.base import AgentRuntime
 logger = logging.getLogger(__name__)
 
 _DEFAULT_OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
-_DEFAULT_CONFIG_PATH = os.environ.get("OPENCLAW_CONFIG_PATH")
 _DEFAULT_STATE_DIR = os.environ.get("OPENCLAW_STATE_DIR")
 _TOOL_ACTIVITY_SUMMARY_FILENAME = "gateway_tool_activity.json"
 
@@ -54,7 +53,11 @@ class OpenClawGatewayRuntime(AgentRuntime):
     The CLI binary (``openclaw agent``) acts as a thin client: it locates the
     running gateway via OPENCLAW_STATE_DIR and forwards the invocation.  All
     exec, state, and session management happen inside the gateway process — not
-    in this worker container.  ``--config`` is optional in client mode.
+    in this worker container.
+
+    Note: ``openclaw agent`` (2026.6+) does not support a ``--config`` flag.
+    Config is loaded by the gateway process itself via OPENCLAW_CONFIG_PATH.
+    The worker only needs OPENCLAW_STATE_DIR to locate the gateway socket.
 
     The agent reads its task from input_spec_path (written by the caller
     before ``invoke``).  The agent writes its output to output_manifest_path
@@ -64,11 +67,9 @@ class OpenClawGatewayRuntime(AgentRuntime):
     def __init__(
         self,
         openclaw_bin: str = _DEFAULT_OPENCLAW_BIN,
-        config_path: str | None = None,
         state_dir: str | None = None,
     ) -> None:
         self._bin = openclaw_bin
-        self._config_path = config_path or _DEFAULT_CONFIG_PATH
         self._state_dir = state_dir or _DEFAULT_STATE_DIR
 
     def is_available(self) -> bool:
@@ -94,9 +95,6 @@ class OpenClawGatewayRuntime(AgentRuntime):
             "--json",
             "--message", message,
         ]
-
-        if self._config_path:
-            cmd += ["--config", self._config_path]
 
         env = _build_env(self._state_dir)
 
@@ -220,7 +218,6 @@ OpenClawRuntime = OpenClawGatewayRuntime
 
 def create_runtime(
     openclaw_bin: str | None = None,
-    config_path: str | None = None,
     state_dir: str | None = None,
 ) -> OpenClawGatewayRuntime:
     """
@@ -230,12 +227,13 @@ def create_runtime(
     directly.  This makes it trivial to swap the runtime implementation
     (e.g. future HTTP-based gateway client) from a single location.
 
-    Parameters fall back to ``OPENCLAW_BIN``, ``OPENCLAW_CONFIG_PATH``, and
-    ``OPENCLAW_STATE_DIR`` environment variables if not provided explicitly.
+    Parameters fall back to ``OPENCLAW_BIN`` and ``OPENCLAW_STATE_DIR``
+    environment variables if not provided explicitly.
+    Config loading is handled by the gateway process via OPENCLAW_CONFIG_PATH —
+    the worker client does not pass --config to the CLI.
     """
     return OpenClawGatewayRuntime(
         openclaw_bin=openclaw_bin or _DEFAULT_OPENCLAW_BIN,
-        config_path=config_path or _DEFAULT_CONFIG_PATH,
         state_dir=state_dir or _DEFAULT_STATE_DIR,
     )
 

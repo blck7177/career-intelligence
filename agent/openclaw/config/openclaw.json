@@ -1,4 +1,8 @@
 {
+  "gateway": {
+    "mode": "local",
+    "bind": "lan"
+  },
   "agents": {
     "defaults": {
       "model": { "primary": "openai/gpt-5.4-mini" },

@@ -27,8 +27,11 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/openclaw.Dockerfile
+    env_file:
+      - ../../.env
     environment:
       OPENCLAW_STATE_DIR: /openclaw/state
+      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
     volumes:
       - openclaw_state:/openclaw/state
       - openclaw_workspace:/openclaw/workspace
@@ -39,17 +42,11 @@ services:
       # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
       - ../../agent/openclaw/config/exec-approvals.json:/openclaw/state/exec-approvals.json:ro
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 30s
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 20s
+      retries: 12
+      start_period: 30s
 
   api:
     build:

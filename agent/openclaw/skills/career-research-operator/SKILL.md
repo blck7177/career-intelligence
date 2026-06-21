@@ -26,7 +26,7 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 1. **读 task spec**（路径在 prompt 里）→ 拿到 `job_id` / `research_inputs_hash` / `queries` / `context_gaps` / `avoid_queries` / `max_fetches` / `expected_output_paths`。
 2. **执行 bounded 搜索**：按 `queries` 优先级 high → medium → low 跑 `web_search`，对值得确认的结果 `web_fetch`（每公司最多 `max_fetches` 次），跳过 `avoid_queries`。
-3. **每次 `web_fetch` 后立即 `career_research_session log-fetch`**（反捏造自报告层，强制）。
+3. **每次 `web_fetch` 后继续执行**（gateway 自动记录所有 tool calls；不调用不存在记录）。
 4. **写 `research_notes.md`**（格式见 `research_notes_format.md`，聚焦 `context_gaps`，最多 3 源）。
 5. **写 `research_sources.json`**（结构与逐源核对规则见 `source_verification_gate.md`）。
 6. 两个文件都写到 spec 路径后 **STOP**。
@@ -41,4 +41,4 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 ## 完成标志
 
-`research_notes.md` 与 `research_sources.json` 都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` + `career_research_session log-fetch` 记录。
+`research_notes.md` 与 `research_sources.json` 都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` 记录（gateway 自动观测）。
