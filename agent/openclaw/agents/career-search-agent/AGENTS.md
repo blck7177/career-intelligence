@@ -12,27 +12,89 @@ At the start of every run, read your task spec from the path provided in the inv
 /app/data/agent_artifacts/<run_id>/<task_id>/input.json
 ```
 
-The spec contains:
-- `search_objective` — what you are trying to find
-- `profile_snapshot` — candidate profile for relevance filtering
-- `source_registry` — known ATS boards and their status
-- `strategy_state` — cross-run search strategy and coverage gaps
-- `budget` — max tool calls, max candidates, max new sources
-- `output_manifest_path` — where to write your output manifest
+The spec contains a `payload` object with the following structure:
+
+### `payload.discovery_intent` — What to find
+
+This is the structured output of the Intent Translator. It is your primary directive.
+
+| Field | Meaning |
+|-------|---------|
+| `discovery_intent.interpreted_goal` | One sentence: what you are trying to find. Read this first. |
+| `discovery_intent.search_mode` | `direct` / `exploratory` / `profile_guided` |
+| `discovery_intent.target_role_families` | List of role directions with name, rationale, and source |
+| `discovery_intent.excluded_role_families` | Role directions you must not pursue |
+| `discovery_intent.hard_constraints` | Mandatory constraints (location, seniority, exclusions, visa, etc.) |
+| `discovery_intent.soft_preferences` | Preferences to consider during ranking and filtering |
+| `discovery_intent.expansion_scope` | `narrow` / `standard` / `wide` — how broadly you may expand searches |
+| `discovery_intent.capability_signals` | Profile-derived capability clusters (empty if no profile) |
+| `discovery_intent.ambiguity_flags` | Unresolved ambiguities — treat these as informational, not directives |
+
+**expansion_scope rules:**
+- `narrow` (direct mode): Only search within the exact role families listed. Synonyms and title aliases are allowed (e.g. "IPV" for "independent price verification"), but do not expand to adjacent roles not listed in `target_role_families`.
+- `standard` (exploratory / profile_guided): You may expand to semantically adjacent roles within the spirit of the intent.
+- `wide`: You may explore broadly while remaining anchored to the intent.
+
+**hard_constraints are mandatory.** If `hard_constraints.location` is set, only log candidates matching that location. If `hard_constraints.exclude_role_types` lists terms, do not log candidates matching those types. A null or empty constraint means no restriction — do not infer one.
+
+### `payload.catalog_context` — Deduplication
+
+| Field | Meaning |
+|-------|---------|
+| `catalog_context.recently_seen_urls` | Job URLs already in catalog — do NOT re-log these |
+| `catalog_context.recently_seen_companies` | Companies already well-covered — deprioritize |
+
+### `payload.source_registry_snapshot` — Source guidance
+
+| Field | Meaning |
+|-------|---------|
+| `source_registry_snapshot.known_boards` | ATS boards known to be active |
+| `source_registry_snapshot.avoid_sources` | Sources known to fail (bot-blocked, login-required) |
+| `source_registry_snapshot.effective_query_patterns` | Query patterns that have worked historically |
+
+### `payload.previous_run_diagnostics` — History
+
+| Field | Meaning |
+|-------|---------|
+| `previous_run_diagnostics.coverage_gaps` | Directions not yet covered in prior runs |
+| `previous_run_diagnostics.key_learnings` | What prior runs discovered about this search space |
+| `previous_run_diagnostics.recommended_next_searches` | Suggested focus for this run |
+
+### `payload.budget` — Execution limits
+
+| Field | Meaning |
+|-------|---------|
+| `budget.max_tool_calls` | Hard limit on total tool calls |
+| `budget.max_candidates` | Hard limit on logged candidates |
+| `budget.max_new_sources` | Hard limit on new ATS sources added |
+| `budget.timeout_seconds` | Wall-clock time budget |
+
+### `payload.output_paths` — Where to write
+
+| Field | Meaning |
+|-------|---------|
+| `output_paths.candidate_pool_path` | Path for `career_log_candidates` |
+| `output_paths.search_ledger_path` | Path for search activity log |
+| `output_paths.trace_events_path` | Path for tool call trace |
+| `output_paths.coverage_report_path` | Path for coverage report (required) |
+| `output_paths.output_manifest_path` | Path for final output manifest (required) |
 
 ## Output Contract
 
-Write your output manifest to the path in `output_manifest_path` before stopping.
+Write your output manifest to `payload.output_paths.output_manifest_path` before stopping.
 
 The manifest must contain:
 - `status`: `completed` | `partial` | `failed`
+- `invocation_id`: copied from the task spec
 - `candidate_count`: number of candidates logged
 - `sources_tried`: list of sources attempted
 - `sources_added`: new sources registered
-- `search_ledger_path`: path to search_ledger.jsonl
-- `candidate_pool_path`: path to candidate_pool.jsonl
-- `trace_events_path`: path to trace_events.jsonl
 - `stop_reason`: why you stopped
+- `artifact_paths`:
+  - `"candidate_pool"` → value from `output_paths.candidate_pool_path`
+  - `"search_ledger"` → value from `output_paths.search_ledger_path`
+  - `"trace_events"` → value from `output_paths.trace_events_path`
+  - `"coverage_report"` → value from `output_paths.coverage_report_path`
 
 ## Allowed Tools
 
@@ -58,5 +120,7 @@ Stop and write manifest when:
 - Do not modify files outside your designated run directory
 - Do not access `.env` or credential files
 - Do not call any wrapper not in the exec allowlist
-- Do not re-log candidates already in the existing job database
+- Do not re-log URLs in `catalog_context.recently_seen_urls`
 - Do not fabricate job postings — every logged candidate must have a real source URL
+- Do not override `hard_constraints` — they are mandatory platform-level constraints
+- Do not expand beyond `expansion_scope = narrow` when search_mode is `direct`

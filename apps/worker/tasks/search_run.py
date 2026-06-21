@@ -6,15 +6,19 @@ Agent: career-search-agent
 Skill: career-search-operator
 
 Full flow (per architecture.md Agent Execution Flow):
-  1. Read run/task from Postgres
-  2. Build AgentInvocationSpec (via domain/agent_jobs/planner)
-  3. Build AgentTaskInput → write to input.json on agent_artifacts volume
-  4. Create agent_invocation record in DB
-  5. Call OpenClawRuntime.invoke(spec)
-  6. Update agent_invocation with exit_code / timing
-  7. Read output_manifest.json
-  8. Run ValidatorGate (schema + provenance + budget)
-  9. Persist validation results
+  1.  Read run/task from Postgres
+  1b. Parse input_snapshot → JobDiscoveryFrontendInput
+  1c. Load ProfileSnapshot (empty default for MVP)
+  1d. IntentTranslator.translate() → DiscoveryIntent  [LLM call]
+      Emit task_event(intent_translated)
+  2.  Build AgentInvocationSpec (via domain/agent_jobs/planner)
+  3.  Build DiscoveryTaskSpec → write to input.json on agent_artifacts volume
+  4.  Create agent_invocation record in DB
+  5.  Call OpenClawRuntime.invoke(spec)
+  6.  Update agent_invocation with exit_code / timing
+  7.  Read output_manifest.json
+  8.  Run ValidatorGate (schema + provenance + budget)
+  9.  Persist validation results
   10. Pass → write artifacts to DB, mark task succeeded
   11. Fail → mark task needs_review, no artifact writes
 """
@@ -26,10 +30,18 @@ import logging
 import os
 from pathlib import Path
 
+from pydantic import ValidationError
+
+from packages.contracts.agents.discovery_intent import ProfileSnapshot
 from packages.contracts.agents.invocation import AgentBudget, AgentTaskInput
 from packages.contracts.agents.manifests import AgentOutputManifest, DiscoveryManifest
+from packages.contracts.api.discovery import JobDiscoveryFrontendInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
-from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
+from packages.domain.agent_jobs.discovery_planner import (
+    build_discovery_task_spec,
+    budget_for_depth,
+)
+from packages.domain.agent_jobs.planner import build_invocation_spec
 from packages.infrastructure.agent_runtime.openclaw import OpenClawRuntime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
@@ -41,6 +53,11 @@ from packages.infrastructure.db.repositories import (
     TaskRepository,
 )
 from packages.infrastructure.db.session import get_session
+from packages.infrastructure.llm.client import get_llm_client
+from packages.infrastructure.llm.intent_translator import (
+    IntentTranslationError,
+    IntentTranslator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +78,89 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     with get_session() as session:
         run = RunRepository(session).get_or_raise(env.run_id)
-        task = TaskRepository(session).get_or_raise(env.task_id)
+        TaskRepository(session).get_or_raise(env.task_id)
         input_snapshot = run.input_snapshot_json or {}
         workspace_id = env.workspace_id
 
     # ------------------------------------------------------------------
+    # Step 1b: Parse input_snapshot → JobDiscoveryFrontendInput
+    # ------------------------------------------------------------------
+    try:
+        frontend_input = JobDiscoveryFrontendInput.model_validate(input_snapshot)
+    except ValidationError as exc:
+        logger.error("search_run: invalid frontend input: %s", exc)
+        _mark_needs_review(
+            env,
+            invocation_id=None,
+            reason=f"Invalid job_discovery input_snapshot: {exc}",
+            error_code="INVALID_FRONTEND_INPUT",
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
+
+    # ------------------------------------------------------------------
+    # Step 1c: Load ProfileSnapshot (MVP: always empty default)
+    # ------------------------------------------------------------------
+    profile_snapshot = _load_profile(frontend_input.profile_id)
+
+    # ------------------------------------------------------------------
+    # Step 1d: Intent Translation (LLM call)
+    # ------------------------------------------------------------------
+    with get_session() as session:
+        event_repo = TaskEventRepository(session)
+        event_repo.append(
+            task_id=env.task_id,
+            run_id=env.run_id,
+            event_type="intent_translation_started",
+            message=(
+                f"Translating intent: mode={frontend_input.search_mode} "
+                f"depth={frontend_input.search_depth}"
+            ),
+        )
+
+    translator = IntentTranslator(llm_client=get_llm_client())
+    try:
+        discovery_intent = translator.translate(
+            frontend_input=frontend_input,
+            profile_snapshot=profile_snapshot,
+        )
+    except IntentTranslationError as exc:
+        logger.error(
+            "search_run: intent translation failed (kind=%s): %s", exc.kind, exc
+        )
+        error_code = (
+            "INTENT_BLOCKING_AMBIGUITY"
+            if exc.kind == "blocking_ambiguity"
+            else "INTENT_TRANSLATION_FAILED"
+        )
+        _mark_needs_review(
+            env,
+            invocation_id=None,
+            reason=str(exc),
+            error_code=error_code,
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
+
+    with get_session() as session:
+        event_repo = TaskEventRepository(session)
+        event_repo.append(
+            task_id=env.task_id,
+            run_id=env.run_id,
+            event_type="intent_translated",
+            message=discovery_intent.interpreted_goal,
+            payload=discovery_intent.model_dump(mode="json"),
+        )
+
+    logger.info(
+        "search_run: intent translated — goal=%r lanes=%d flags=%d",
+        discovery_intent.interpreted_goal[:80],
+        len(discovery_intent.target_role_families),
+        len(discovery_intent.ambiguity_flags),
+    )
+
+    # ------------------------------------------------------------------
     # Step 2: Build AgentInvocationSpec
     # ------------------------------------------------------------------
-    budget = AgentBudget(
-        max_tool_calls=input_snapshot.get("max_tool_calls", 30),
-        max_candidates=input_snapshot.get("max_candidates", 50),
-        timeout_seconds=input_snapshot.get("timeout_seconds", 900),
-    )
+    budget = budget_for_depth(frontend_input.search_depth)
 
     spec = build_invocation_spec(
         run_id=env.run_id,
@@ -81,18 +169,34 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         task_type=env.task_type,
         attempt=env.attempt,
         artifacts_base_dir=_ARTIFACTS_DIR,
-        payload=input_snapshot,
+        payload={},  # payload is built separately below via DiscoveryTaskSpec
         budget=budget,
     )
 
     # ------------------------------------------------------------------
-    # Step 3: Build input.json and write to artifact volume
+    # Step 3: Build DiscoveryTaskSpec and write to input.json
     # ------------------------------------------------------------------
-    task_input = build_task_input(
-        spec=spec,
+    task_spec = build_discovery_task_spec(
+        discovery_intent=discovery_intent,
+        search_depth=frontend_input.search_depth,
+        artifacts_dir=_ARTIFACTS_DIR,
+        run_id=env.run_id,
+        task_id=env.task_id,
+        # MVP: catalog_context, source_registry_snapshot, previous_run_diagnostics
+        # are all None. Future: planner queries DB to populate these.
+    )
+
+    # Wrap into AgentTaskInput using DiscoveryTaskSpec as the payload
+    task_input = AgentTaskInput(
+        invocation_id=spec.invocation_id,
+        run_id=spec.run_id,
+        task_id=spec.task_id,
+        workspace_id=spec.workspace_id,
         task_type=env.task_type,
-        payload=input_snapshot,
+        skill_contract_version=spec.skill_contract_version,
+        output_manifest_path=task_spec.output_paths.output_manifest_path,
         budget=budget,
+        payload=task_spec.model_dump(mode="json"),
     )
 
     run_dir = Path(_ARTIFACTS_DIR) / env.run_id / env.task_id
@@ -117,7 +221,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             session_key=spec.session_key,
             skill_contract_version=spec.skill_contract_version,
             input_spec_uri=str(input_json_path),
-            output_manifest_uri=spec.output_manifest_path,
+            output_manifest_uri=task_spec.output_paths.output_manifest_path,
         )
         invocation_id = invocation.id
 
@@ -178,7 +282,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 7–8: Read output manifest and run Validator Gate
     # ------------------------------------------------------------------
-    manifest_path = Path(spec.output_manifest_path)
+    manifest_path = Path(task_spec.output_paths.output_manifest_path)
 
     if not manifest_path.exists():
         logger.error(
@@ -237,7 +341,6 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
-    # Validator passed — write artifact records and mark succeeded
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
@@ -275,11 +378,33 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_profile(profile_id: str | None) -> ProfileSnapshot:
+    """
+    Load a ProfileSnapshot for the given profile_id.
+
+    MVP: always returns an empty profile. Future: query workspace_profiles
+    table and return a populated snapshot.
+    """
+    if profile_id:
+        logger.debug(
+            "search_run: profile_id=%r provided but workspace_profiles not yet "
+            "implemented — using empty profile",
+            profile_id,
+        )
+    return ProfileSnapshot.empty()
+
+
 def _mark_needs_review(
     env: TaskEnvelope,
     *,
-    invocation_id: str,
+    invocation_id: str | None,
     reason: str,
+    error_code: str = "VALIDATOR_GATE_FAILED",
 ) -> None:
     """Helper: mark task as needs_review and append event."""
     with get_session() as session:
@@ -287,7 +412,7 @@ def _mark_needs_review(
         event_repo = TaskEventRepository(session)
         task_repo.mark_needs_review(
             env.task_id,
-            error_code="VALIDATOR_GATE_FAILED",
+            error_code=error_code,
             error_message=reason[:500],
         )
         event_repo.append(
