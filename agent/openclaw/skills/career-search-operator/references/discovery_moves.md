@@ -46,7 +46,7 @@ web_search("<role keywords> <location> jobs")
 {
   "run_id": "<来自 input.json>",
   "task_id": "<来自 input.json>",
-  "artifacts_dir": "/app/data/agent_artifacts",
+  "artifacts_dir": "<来自 input.json 里的 payload.output_paths.candidate_pool_path 的父目录，或直接用 input.json 同级目录>",
   "candidates": [
     {
       "url": "https://boards.greenhouse.io/acme/jobs/12345",
@@ -96,7 +96,7 @@ web_search("site:jobs.ashbyhq.com <role keywords>")
   "source_type": "greenhouse",
   "run_id": "<来自 input.json>",
   "task_id": "<来自 input.json>",
-  "artifacts_dir": "/app/data/agent_artifacts"
+  "artifacts_dir": "<input.json 同级目录路径>"
 }
 ```
 
@@ -177,7 +177,7 @@ web_fetch("<company>/careers or <company>/jobs listing page")
 tool: exec
 name: career_search_status
 args:
-  --task-spec /app/data/agent_artifacts/<run_id>/<task_id>/input.json
+  --task-spec <input.json 路径（来自 invocation message 里 "Read your task spec from:" 行）>
   --output /tmp/status_result.json
 ```
 

@@ -5,22 +5,22 @@
     {
       "name": "career_search_status",
       "description": "Query current search session coverage and budget stats",
-      "argv": ["python", "/app/tools/wrappers/agent_tools/career_search_status.py"]
+      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_search_status"]
     },
     {
       "name": "career_log_candidates",
       "description": "Write triaged candidate jobs to candidate pool",
-      "argv": ["python", "/app/tools/wrappers/agent_tools/career_log_candidates.py"]
+      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_log_candidates"]
     },
     {
       "name": "career_write_manifest",
       "description": "Write the agent output manifest to the designated output path",
-      "argv": ["python", "/app/tools/wrappers/agent_tools/career_write_manifest.py"]
+      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_write_manifest"]
     },
     {
       "name": "career_fetch_source",
       "description": "Fetch and normalize a job posting from an ATS source URL",
-      "argv": ["python", "/app/tools/wrappers/agent_tools/career_fetch_source.py"]
+      "argv": ["/home/ubuntu/career-openclaw/wrappers/career_fetch_source"]
     }
   ],
   "denied_patterns": [
