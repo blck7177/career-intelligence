@@ -27,6 +27,8 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/openclaw.Dockerfile
+    ports:
+      - "127.0.0.1:18790:18789"
     env_file:
       - ../../.env
     environment:
@@ -104,14 +106,16 @@ services:
   # Requires openclaw-gateway to be healthy before starting.
   #
   # This worker is a gateway CLIENT only — it does not run openclaw-gateway itself.
-  # "openclaw agent ..." issued here routes through the gateway daemon via the shared
-  # openclaw_state socket. The gateway container is the sole OpenClaw execution host
-  # (exec sandbox, skills, session state, exec-approvals enforcement).
+  # network_mode: "service:openclaw-gateway" shares the gateway's network namespace
+  # so that "openclaw agent ..." connects via localhost:18789 (loopback, no TLS
+  # requirement). This is the officially documented Docker pattern for openclaw-cli.
+  # The worker retains access to postgres/redis via the gateway's Docker bridge.
   worker-agent:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
+    network_mode: "service:openclaw-gateway"
     env_file:
       - ../../.env
     environment:
@@ -119,13 +123,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
       OPENCLAW_BIN: openclaw
-      # Gateway socket lives in the shared openclaw_state volume.
       OPENCLAW_STATE_DIR: /openclaw/state
       OPENCLAW_GATEWAY_MODE: "client"
+      # Read-only: gives the CLI the agent list so it can route --agent calls
+      # to the gateway. The worker does NOT own or write this config.
+      OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
-      # Shared gateway state: the CLI uses this directory to locate the gateway socket.
       - openclaw_state:/openclaw/state
+      # Read-only: CLI needs to read agent definitions to route gateway calls.
+      - openclaw_config:/openclaw/config:ro
     depends_on:
       postgres:
         condition: service_healthy

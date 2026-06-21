@@ -50,6 +50,9 @@ export OPENCLAW_GATEWAY_TOKEN
 
 # --- config ---
 mkdir -p /openclaw/config
+# Remove any stale file (possibly root-owned from a previous run) before copying.
+# Node user owns the directory and can unlink files regardless of file ownership.
+rm -f "$CONFIG_RUNTIME"
 if [ -f "$CONFIG_SOURCE" ]; then
     cp "$CONFIG_SOURCE" "$CONFIG_RUNTIME"
     # Inject the resolved auth token into the runtime config so the gateway
@@ -69,19 +72,47 @@ else
 fi
 
 # --- agent workspaces ---
+# Only copy workspace on first boot (directory does not exist yet).
+# Do NOT rm -rf on restart: OpenClaw stores workspace attestations in the state
+# volume; deleting the workspace triggers WorkspaceVanishedError on next start.
 mkdir -p /openclaw/workspace/agents
 
 for AGENT_ID in career-search-agent career-reflect-agent career-research-agent; do
     SRC="$AGENT_SOURCE/agents/$AGENT_ID"
     DST="/openclaw/workspace/agents/$AGENT_ID"
 
-    if [ -d "$SRC" ]; then
-        rm -rf "$DST"
-        cp -R "$SRC" "$DST"
-        echo "[openclaw-entrypoint] workspace materialized: $DST"
+    if [ ! -d "$DST" ]; then
+        if [ -d "$SRC" ]; then
+            cp -R "$SRC" "$DST"
+            echo "[openclaw-entrypoint] workspace materialized (first boot): $DST"
+        else
+            echo "[openclaw-entrypoint] WARNING: source workspace not found at $SRC"
+        fi
     else
-        echo "[openclaw-entrypoint] WARNING: source workspace not found at $SRC"
+        echo "[openclaw-entrypoint] workspace exists, preserving: $DST"
     fi
 done
+
+# --- sync gateway token to state-level client config ---
+# The CLI reads $OPENCLAW_STATE_DIR/openclaw.json for gateway auth.
+# Write the resolved token there so CLI clients (worker-agent) can authenticate
+# without pairing, even after gateway config is regenerated.
+STATE_CLIENT_CFG="${OPENCLAW_STATE_DIR}/openclaw.json"
+mkdir -p "${OPENCLAW_STATE_DIR}"
+python3 -c "
+import json, os
+path = '${STATE_CLIENT_CFG}'
+token = '${OPENCLAW_GATEWAY_TOKEN}'
+try:
+    d = json.load(open(path)) if os.path.exists(path) else {}
+except Exception:
+    d = {}
+gw = d.setdefault('gateway', {})
+auth = gw.setdefault('auth', {})
+auth['mode'] = 'token'
+auth['token'] = token
+json.dump(d, open(path, 'w'), indent=2)
+print('[openclaw-entrypoint] state client config token synced:', path)
+"
 
 exec dist/index.js gateway --allow-unconfigured

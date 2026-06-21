@@ -29,4 +29,5 @@ ENV OPENCLAW_CONFIG_PATH=/openclaw/config/openclaw.json
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=12 \
     CMD curl -fsS http://127.0.0.1:18789/readyz || exit 1
 
+USER node
 CMD ["/usr/local/bin/openclaw-entrypoint.sh"]
