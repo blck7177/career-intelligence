@@ -28,7 +28,6 @@ services:
       context: ../..
       dockerfile: infra/docker/openclaw.Dockerfile
     environment:
-      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
       OPENCLAW_STATE_DIR: /openclaw/state
     volumes:
       - openclaw_state:/openclaw/state
@@ -40,10 +39,17 @@ services:
       # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
       - ../../agent/openclaw/config/exec-approvals.json:/openclaw/state/exec-approvals.json:ro
     healthcheck:
-      test: ["CMD", "openclaw", "--version"]
-      interval: 10s
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 20s
 
   api:
     build:

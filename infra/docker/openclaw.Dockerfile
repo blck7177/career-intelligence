@@ -17,12 +17,9 @@ COPY agent/openclaw/ /app/agent/openclaw/
 # OpenClaw state and workspace are mounted as volumes at runtime
 RUN mkdir -p /openclaw/state /openclaw/workspace /app/data/agent_artifacts
 
-ENV OPENCLAW_CONFIG_PATH=/app/agent/openclaw/config/openclaw.json
 ENV OPENCLAW_STATE_DIR=/openclaw/state
 
-USER node
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+    CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
-    CMD openclaw --version || exit 1
-
-CMD ["openclaw", "gateway", "--config", "/app/agent/openclaw/config/openclaw.json"]
+CMD ["dist/index.js", "gateway", "--allow-unconfigured"]
