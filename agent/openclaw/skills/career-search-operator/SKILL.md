@@ -28,23 +28,22 @@ Service owns canonical database.
 
 执行本任务**只需读下面 5 个 references**（全部 self-contained，一跳直达）：
 
-1. `skills/career-discovery-operator/references/discovery_io.md` — 输入 spec / 输出路径 / 平台前后做什么
-2. `skills/career-discovery-operator/references/discovery_strategy.md` — 目标导向策略 / 自评 / 停止条件
-3. `skills/career-discovery-operator/references/discovery_moves.md` — 所有合法 search moves（board_sync、web_search、source routing 等）
-4. `skills/career-discovery-operator/references/candidate_evidence_contract.md` — **最硬规则**：candidate 入池条件 + evidence path 要求
-5. `skills/career-discovery-operator/references/data_policy_summary.md` — source / 存储 / budget 边界
+1. `skills/career-search-operator/references/discovery_io.md` — 输入 spec / 输出路径 / 平台前后做什么
+2. `skills/career-search-operator/references/discovery_strategy.md` — 目标导向策略 / 自评 / 停止条件
+3. `skills/career-search-operator/references/discovery_moves.md` — 所有合法 search moves（web_search、web_fetch、source routing 等）
+4. `skills/career-search-operator/references/candidate_evidence_contract.md` — **最硬规则**：candidate 入池条件 + evidence path 要求
+5. `skills/career-search-operator/references/data_policy_summary.md` — source / 存储 / budget 边界
 
 `AGENTS.md`（项目边界）由平台自动注入；`protocols/AGENT_IO_CONTRACT.md` 是全局背景，需要细节时可查，但本 run 的全部要求已在上面 references 内。
 
 ## 流程（概览）
 
-1. **读 task spec**（路径在 prompt 里）→ 拿到 `session_id`、`workspace_id`、`search_request`、`budget`、`expected_output_paths`。
-2. **`career_search_status --session-id <id> --workspace-id <id>`** 确认 session 状态和 budget。**绝不 `career_search_session start`。**
+1. **读 task spec**（路径在 prompt 里）→ 拿到 `run_id`、`task_id`、`workspace_id`、`payload.discovery_intent`、`payload.budget`、`payload.output_paths`。详见 `discovery_io.md`。
+2. **`career_search_status --task-spec <input.json 路径>`** 确认当前 budget 状态。**绝不 `career_search_session start`。**
 3. **Discovery loop**（细则见 `discovery_moves.md` + `candidate_evidence_contract.md`）：
    自主选择 search moves → 执行 → log evidence → 调整策略 → 继续或停止。
    每 5 次 discovery action 后做一次 strategy self-review。
-4. **写 `coverage_report.md`** 到 spec 路径（格式见 `candidate_evidence_contract.md` 末尾），然后 **STOP**。
-   可选：如有新 source discoveries，写 `discovery_notes.md`（路径也在 spec 里）。
+4. 写 **`coverage_report.md`** 到 `payload.output_paths.coverage_report_path`，然后调用 **`career_write_manifest`** 写 output manifest，然后 **STOP**。
 
 ## 硬性「不做」
 
@@ -58,4 +57,4 @@ Service owns canonical database.
 
 ## 完成标志
 
-`coverage_report.md` 已写到 spec 指定路径，且 run 里有至少一个真实 discovery action（web_search / board_sync / classify_source）——平台用 run log 的真实 tool-call 做反捏造校验。
+`coverage_report.md` 已写到 `payload.output_paths.coverage_report_path`，`output_manifest.json` 已由 `career_write_manifest` 写到 `payload.output_paths.output_manifest_path`，且 run 里有至少一个真实 discovery action（`web_search` / `web_fetch` / `career_fetch_source`）——平台用 trace_events 里的真实 tool-call 做反捏造校验。
