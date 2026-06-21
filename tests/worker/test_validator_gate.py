@@ -18,6 +18,7 @@ from packages.infrastructure.agent_runtime.validator import (
     BudgetValidator,
     ProvenanceValidator,
     SchemaValidator,
+    ToolActivityValidator,
     ValidatorGate,
 )
 
@@ -182,14 +183,114 @@ class TestBudgetValidator:
 
 
 # ---------------------------------------------------------------------------
+# ToolActivityValidator tests
+# ---------------------------------------------------------------------------
+
+
+class TestToolActivityValidator:
+    def setup_method(self):
+        self.v = ToolActivityValidator()
+
+    def test_passes_when_candidate_count_is_zero(self):
+        """Valid no-yield run: no candidates, no trace needed."""
+        spec = make_spec()
+        manifest = make_discovery_manifest(candidate_count=0, artifact_paths={})
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_fails_when_candidates_but_no_trace_events(self):
+        spec = make_spec()
+        manifest = make_discovery_manifest(candidate_count=5, artifact_paths={})
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("trace_events" in e.field for e in result.errors)
+
+    def test_fails_when_trace_file_missing_on_disk(self, tmp_path):
+        spec = make_spec()
+        manifest = make_discovery_manifest(
+            candidate_count=5,
+            artifact_paths={"trace_events": str(tmp_path / "nonexistent.jsonl")},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("does not exist" in e.message for e in result.errors)
+
+    def test_fails_when_trace_has_no_discovery_tools(self, tmp_path):
+        trace = tmp_path / "trace.jsonl"
+        trace.write_text('{"event": "agent_started"}\n')
+        spec = make_spec()
+        manifest = make_discovery_manifest(
+            candidate_count=5,
+            artifact_paths={"trace_events": str(trace)},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("no known discovery tool" in e.message for e in result.errors)
+
+    def test_passes_with_web_search_in_trace(self, tmp_path):
+        trace = tmp_path / "trace.jsonl"
+        trace.write_text('{"tool": "web_search", "query": "risk analytics jobs"}\n')
+        spec = make_spec()
+        manifest = make_discovery_manifest(
+            candidate_count=3,
+            artifact_paths={"trace_events": str(trace)},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_passes_with_career_fetch_source_in_trace(self, tmp_path):
+        trace = tmp_path / "trace.jsonl"
+        trace.write_text('{"tool": "career_fetch_source", "url": "https://greenhouse.io/..."}\n')
+        spec = make_spec()
+        manifest = make_discovery_manifest(
+            candidate_count=1,
+            artifact_paths={"trace_events": str(trace)},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_passes_for_non_discovery_manifest(self):
+        """ToolActivityValidator only applies to DiscoveryManifest."""
+        from packages.contracts.agents.manifests import ResearchManifest
+        from datetime import datetime, timezone
+
+        spec = make_spec()
+        manifest = ResearchManifest(
+            invocation_id="ainv_test",
+            status="completed",
+            stop_reason="done",
+            job_id="job_abc",
+            citations_count=0,
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+
+# ---------------------------------------------------------------------------
 # ValidatorGate orchestration tests
 # ---------------------------------------------------------------------------
 
 
 class TestValidatorGate:
-    def test_all_passed_returns_true_for_clean_manifest(self):
+    def test_all_passed_returns_true_for_clean_manifest(self, tmp_path):
+        """Clean manifest: has trace_events with real discovery activity."""
+        trace = tmp_path / "trace_events.jsonl"
+        trace.write_text('{"tool": "web_search", "query": "market risk roles"}\n')
+
         spec = make_spec()
-        manifest = make_discovery_manifest()
+        manifest = make_discovery_manifest(
+            artifact_paths={"trace_events": str(trace)},
+        )
+        gate = ValidatorGate()
+        results = gate.run(manifest, spec)
+        assert gate.all_passed(results) is True, [
+            r.model_dump() for r in results if not r.passed
+        ]
+
+    def test_all_passed_returns_true_for_zero_candidate_manifest(self):
+        """Zero-candidate no-yield run: no trace required."""
+        spec = make_spec()
+        manifest = make_discovery_manifest(candidate_count=0, artifact_paths={})
         gate = ValidatorGate()
         results = gate.run(manifest, spec)
         assert gate.all_passed(results) is True
@@ -211,7 +312,7 @@ class TestValidatorGate:
                 raise RuntimeError("intentional failure")
 
         spec = make_spec()
-        manifest = make_discovery_manifest()
+        manifest = make_discovery_manifest(candidate_count=0)
         gate = ValidatorGate(validators=[BrokenValidator()])  # type: ignore[arg-type]
         results = gate.run(manifest, spec)
         assert results[0].status == "failed"

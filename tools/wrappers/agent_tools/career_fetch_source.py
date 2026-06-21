@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -38,6 +39,9 @@ def main(task_spec: str, output: str) -> None:
 
     url = spec.get("url", "")
     source_type = spec.get("source_type", "html_fallback")
+    run_id = spec.get("run_id", "")
+    task_id = spec.get("task_id", "")
+    artifacts_dir = Path(spec.get("artifacts_dir", "/app/data/agent_artifacts"))
 
     if not url.startswith(("http://", "https://")):
         _fail(output, f"Invalid URL: {url!r}")
@@ -67,6 +71,22 @@ def main(task_spec: str, output: str) -> None:
     }
 
     Path(output).write_text(json.dumps(result, indent=2))
+
+    # Append a trace event so ToolActivityValidator can confirm real discovery action occurred.
+    if run_id and task_id:
+        trace_path = artifacts_dir / run_id / task_id / "trace_events.jsonl"
+        trace_path.parent.mkdir(parents=True, exist_ok=True)
+        trace_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool_name": "career_fetch_source",
+            "run_id": run_id,
+            "task_id": task_id,
+            "status": "ok",
+            "url": url,
+            "source_type": source_type,
+        }
+        with trace_path.open("a") as f:
+            f.write(json.dumps(trace_entry) + "\n")
 
 
 def _fail(output: str, message: str) -> None:

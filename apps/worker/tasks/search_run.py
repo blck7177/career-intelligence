@@ -169,7 +169,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             run_id=env.run_id,
             event_type="intent_translated",
             message=discovery_intent.interpreted_goal,
-            payload=discovery_intent.model_dump(mode="json"),
+            payload_json=discovery_intent.model_dump(mode="json"),
         )
 
     logger.info(

@@ -6,6 +6,12 @@ Rules:
   - domain/ must not import this module.
   - All prompts are passed in as plain strings; no prompt logic lives here.
   - Errors are re-raised as LLMCallError for callers to handle.
+
+Structured output:
+  Use complete_structured() for schema-constrained extraction tasks.
+  This uses OpenAI's response_format=json_schema with strict=True, which
+  applies constrained decoding at the token level — schema violations are
+  mathematically impossible (not just statistically unlikely).
 """
 
 from __future__ import annotations
@@ -13,6 +19,12 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, TypeVar
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel as PydanticBaseModel
+
+T = TypeVar("T", bound="PydanticBaseModel")
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +161,95 @@ class LLMClient:
         ]
         response = self.complete(messages, **kwargs)
         return response.content
+
+    def complete_structured(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: "type[T]",
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> "T":
+        """
+        Schema-constrained chat completion using OpenAI Structured Outputs.
+
+        Uses response_format=json_schema with strict=True, which applies
+        constrained decoding at the token level. The returned object is already
+        validated against response_schema — no manual JSON parsing required.
+
+        Args:
+            system_prompt:   Instruction text (defines semantic policy).
+            user_prompt:     Data payload (should use XML data blocks for
+                             untrusted input to prevent prompt injection).
+            response_schema: Pydantic BaseModel subclass defining the contract.
+            model:           Override default model.
+            temperature:     Override default temperature.
+            max_tokens:      Override default max_tokens.
+
+        Returns:
+            A fully-validated instance of response_schema.
+
+        Raises:
+            LLMCallError on API failure or if the model refuses to produce output.
+        """
+        client = self._get_client()
+
+        _model = model or self.model
+        _temperature = temperature if temperature is not None else self.temperature
+        _max_tokens = max_tokens or self.max_tokens
+
+        api_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        logger.info(
+            "LLM structured call: model=%s schema=%s max_tokens=%d",
+            _model,
+            response_schema.__name__,
+            _max_tokens,
+        )
+
+        try:
+            response = client.beta.chat.completions.parse(
+                model=_model,
+                messages=api_messages,  # type: ignore[arg-type]
+                response_format=response_schema,
+                max_tokens=_max_tokens,
+                temperature=_temperature,
+            )
+        except Exception as exc:
+            raise LLMCallError(
+                f"OpenAI structured output call failed: {exc}"
+            ) from exc
+
+        choice = response.choices[0]
+        usage = response.usage
+
+        logger.info(
+            "LLM structured response: tokens=%d/%d finish=%s",
+            usage.prompt_tokens if usage else 0,
+            usage.completion_tokens if usage else 0,
+            choice.finish_reason,
+        )
+
+        if choice.finish_reason == "length":
+            raise LLMCallError(
+                f"LLM output truncated (finish_reason=length). "
+                f"Increase max_tokens or simplify the request. "
+                f"Schema: {response_schema.__name__}"
+            )
+
+        parsed = choice.message.parsed
+        if parsed is None:
+            raise LLMCallError(
+                f"LLM returned no parsed output for schema {response_schema.__name__}. "
+                f"finish_reason={choice.finish_reason!r}"
+            )
+
+        return parsed  # type: ignore[return-value]
 
 
 # Module-level singleton for worker reuse

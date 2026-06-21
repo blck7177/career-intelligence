@@ -1,7 +1,7 @@
 {
-  "agent": {
-    "default_model": "claude-opus-4-5"
-  },
+    "agent": {
+        "default_model": "openai/gpt-5.4-mini"
+    },
   "workspace": {
     "path": "/openclaw/workspace",
     "bootstrap_files": [

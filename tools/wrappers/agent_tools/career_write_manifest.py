@@ -42,12 +42,24 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, f"status must be one of {VALID_STATUSES}, got: {status!r}")
         sys.exit(1)
 
+    summary = spec.get("summary", {})
+
+    # Promote discovery summary fields to top-level so DiscoveryManifest.model_validate()
+    # can read them directly. The agent may supply them inside summary{} or at top-level;
+    # top-level wins, then summary, then default.
+    candidate_count = spec.get("candidate_count", summary.get("candidate_count", 0))
+    sources_tried = spec.get("sources_tried", summary.get("sources_tried", []))
+    sources_added = spec.get("sources_added", summary.get("sources_added", []))
+
     manifest = {
         "invocation_id": spec.get("invocation_id", ""),
         "status": status,
         "stop_reason": spec.get("stop_reason", ""),
         "artifact_paths": spec.get("artifact_paths", {}),
-        "summary": spec.get("summary", {}),
+        "summary": summary,
+        "candidate_count": candidate_count,
+        "sources_tried": sources_tried,
+        "sources_added": sources_added,
         "written_at": datetime.now(timezone.utc).isoformat(),
     }
 

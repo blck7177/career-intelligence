@@ -138,6 +138,11 @@ class TestDiscoveryManifestSmoke:
         )
         ledger_path = tmp_path / "search_ledger.jsonl"
         ledger_path.write_text("{}\n")
+        trace_path = tmp_path / "trace_events.jsonl"
+        trace_path.write_text(
+            json.dumps({"tool_name": "career_log_candidates", "status": "ok", "logged_count": 1})
+            + "\n"
+        )
 
         spec = make_spec("agent.job_discovery", invocation_id="ainv_smoke")
         manifest = DiscoveryManifest(
@@ -147,6 +152,7 @@ class TestDiscoveryManifestSmoke:
             artifact_paths={
                 "candidate_pool": str(pool_path),
                 "search_ledger": str(ledger_path),
+                "trace_events": str(trace_path),
             },
             candidate_count=1,
             sources_tried=["greenhouse.io"],

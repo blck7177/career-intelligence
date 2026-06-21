@@ -80,6 +80,21 @@ def main(task_spec: str, output: str) -> None:
 
     Path(output).write_text(json.dumps(result, indent=2))
 
+    # Append a trace event so ToolActivityValidator can confirm real discovery action occurred.
+    # Written even when logged_count == 0 (captures attempted log with validation errors).
+    if run_id and task_id:
+        trace_path = artifacts_dir / run_id / task_id / "trace_events.jsonl"
+        trace_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool_name": "career_log_candidates",
+            "run_id": run_id,
+            "task_id": task_id,
+            "status": "ok",
+            "logged_count": len(logged),
+        }
+        with trace_path.open("a") as f:
+            f.write(json.dumps(trace_entry) + "\n")
+
     if errors:
         click.echo(f"WARNING: {len(errors)} candidates skipped due to validation errors", err=True)
 

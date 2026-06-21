@@ -145,7 +145,7 @@ command: python tools/wrappers/agent_tools/career_search_status.py \
 |---|---|---|
 | `candidate_pool_path` | `candidate_pool.jsonl` | `career_log_candidates` wrapper 自动写入 |
 | `search_ledger_path` | `search_ledger.jsonl` | 你手动写（可选，记录每次搜索行动） |
-| `trace_events_path` | `trace_events.jsonl` | 平台自动记录 tool call trace |
+| `trace_events_path` | `trace_events.jsonl` | wrapper 自动追加（`career_log_candidates`、`career_fetch_source` 每次调用后各写一行） |
 | `coverage_report_path` | `coverage_report.md` | **你手动写（必须）** |
 | `output_manifest_path` | `output_manifest.json` | `career_write_manifest` wrapper 写入 |
 
@@ -188,6 +188,11 @@ Manifest 必须包含：
     "sources_added": [...]
   }
 }
+```
+
+**注意**：`career_write_manifest` wrapper 会自动把 `summary` 里的 `candidate_count`、`sources_tried`、`sources_added` 提升到 manifest 顶层（Validator Gate 从顶层字段读取）。你只需在 `summary` 里填写即可，无需额外操作。
+
+```json
 ```
 
 **可选：**
@@ -259,6 +264,8 @@ Manifest 必须包含：
 }
 // output 路径：payload.output_paths.output_manifest_path
 ```
+
+wrapper 会自动将 `summary.candidate_count`、`summary.sources_tried`、`summary.sources_added` 提升到 manifest 顶层，供 Validator Gate 读取。
 
 ---
 
