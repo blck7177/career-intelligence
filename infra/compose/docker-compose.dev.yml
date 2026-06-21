@@ -31,12 +31,16 @@ services:
       - ../../.env
     environment:
       OPENCLAW_STATE_DIR: /openclaw/state
-      OPENCLAW_CONFIG_PATH: /app/agent/openclaw/config/openclaw.json
+      # Points to the writable runtime volume. The entrypoint copies the repo
+      # source config here on each start so OpenClaw can do atomic saves.
+      OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
     volumes:
       - openclaw_state:/openclaw/state
+      # Writable runtime config: entrypoint materializes openclaw.json here.
+      - openclaw_config:/openclaw/config
       - openclaw_workspace:/openclaw/workspace
       - agent_artifacts:/app/data/agent_artifacts
-      # Mount skills and config from repo (dev: live reload)
+      # Repo source — read-only. Skills, agents, and wrappers are loaded from here.
       - ../../agent:/app/agent:ro
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
       # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
@@ -176,5 +180,6 @@ volumes:
   postgres_data:
   redis_data:
   openclaw_state:
+  openclaw_config:
   openclaw_workspace:
   agent_artifacts:
