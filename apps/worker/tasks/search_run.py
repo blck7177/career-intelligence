@@ -103,6 +103,27 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     profile_snapshot = _load_profile(frontend_input.profile_id)
 
     # ------------------------------------------------------------------
+    # Step 1c.5: Guard — profile_guided requires a non-empty profile
+    # ------------------------------------------------------------------
+    if frontend_input.search_mode == "profile_guided" and profile_snapshot.is_empty:
+        logger.warning(
+            "search_run: profile_guided requested but no valid profile available "
+            "(profile_id=%r) — marking needs_review",
+            frontend_input.profile_id,
+        )
+        _mark_needs_review(
+            env,
+            invocation_id=None,
+            reason=(
+                "search_mode=profile_guided requires a valid profile, "
+                f"but no profile is available (profile_id={frontend_input.profile_id!r}). "
+                "Please provide a profile or switch to exploratory mode."
+            ),
+            error_code="PROFILE_REQUIRED_FOR_PROFILE_GUIDED",
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
+
+    # ------------------------------------------------------------------
     # Step 1d: Intent Translation (LLM call)
     # ------------------------------------------------------------------
     with get_session() as session:
@@ -113,7 +134,8 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             event_type="intent_translation_started",
             message=(
                 f"Translating intent: mode={frontend_input.search_mode} "
-                f"depth={frontend_input.search_depth}"
+                f"depth={frontend_input.search_depth} "
+                f"profile={'provided' if not profile_snapshot.is_empty else 'none'}"
             ),
         )
 

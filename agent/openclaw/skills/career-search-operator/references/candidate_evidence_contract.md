@@ -1,8 +1,9 @@
 # Candidate Evidence Contract（最硬的操作规则）
 
-这是本 skill 里**最不可妥协**的部分。平台用真实 tool-call 做反捏造校验，违反会导致候选被拒或整个 run 中止。
+这是本 skill 里**最不可妥协**的部分。平台用 `trace_events.jsonl` 里的真实 tool-call 记录做反捏造校验，违反会导致整个 run 进入 `needs_review`。
 
 ## 目录
+
 - [入池必要条件](#入池必要条件)
 - [Accepted Evidence Paths](#accepted-evidence-paths)
 - [工具机制](#工具机制)
@@ -17,105 +18,111 @@
    - 不是搜索结果页（`google.com/search?q=...`、`linkedin.com/jobs/search?...`）
    - 不是公司主页 / about 页
    - 不是 career listing 页（listing 页上的具体岗位 URL 才是候选）
-2. 已经有 evidence（来自 web_fetch 确认、或 board_sync 直接出候选）
-3. 必填字段：`url`（非空真实 URL）、`title`、`company`
-4. 建议字段：`location`、`relevance`（`relevant` / `maybe`，默认 maybe）、`reason`、`workstream_hint`
+2. 已经有 evidence（来自 `web_fetch` 或 `career_fetch_source` 确认真实 JD 内容）
+3. 必填字段：`url`（非空真实 URL）、`title`、`company`、`source_type`
+4. 建议字段：`notes`（匹配原因、seniority 判断等）
 
-工具会硬拒（记入 `skipped_results.jsonl`）：
-- 无真实 URL → `rejected_no_url`
-- URL 是搜索结果/listing 页 → `rejected_search_page`
+wrapper 会硬拒（记入 `errors` 列表并跳过）：
+- 无真实 URL → `url must start with http:// or https://`
+- 缺少必填字段 → `Missing fields: {...}`
 
 ---
 
 ## Accepted Evidence Paths（候选必须来自其中一条）
 
-**Path A: Web Search → Web Fetch（发现新公司）**
+**Path A: Web Search → Web Fetch → Log**
+
 ```
-web_search
-  → career_search_session log-query   （每次 web_search 必做）
-  → web_fetch（逐个候选 URL 确认）
+web_search("<role keywords> <location>")
+  → 从结果中提取具体 job posting URL（不是搜索结果页本身）
+  → web_fetch（确认是真实 JD 页面，有 title / responsibilities / requirements）
   → career_log_candidates
 ```
 
-**Path B: Board Sync（已知 ATS 公司）**
+**Path B: Targeted ATS Search → career_fetch_source → Log**
+
 ```
-career_sync_board
-  → connector 直接写候选到 candidate_pool.jsonl
-  → （无需额外 career_log_candidates，board sync 自动完成）
+web_search("site:boards.greenhouse.io <keywords>")
+  OR web_search("site:jobs.lever.co <keywords>")
+  OR web_search("site:jobs.ashbyhq.com <keywords>")
+  → 提取具体 ATS job URL（如 greenhouse.io/<company>/jobs/<id>）
+  → career_fetch_source（fetch + normalize，返回 text 内容）
+  → 用 text 确认真实 JD 后 → career_log_candidates
 ```
 
-**Path C: Source Discovery → Board Sync（发现新 ATS）**
-```
-web_search / web_fetch（发现公司 ATS board URL）
-  → career_classify_source
-  → career_register_board
-  → career_sync_board
-  → connector 写候选
-```
+**Path C: Career Page Snowball → Log**
 
-**Path D: Career Page Snowball（HTML 公司）**
 ```
 web_fetch（公司 career listing 页）
-  → 从页面提取具体岗位 URL
-  → web_fetch（每个 detail URL 确认）
+  → 从页面内容提取具体岗位 detail URL
+  → web_fetch（每个 detail URL，确认真实 JD 内容）
   → career_log_candidates
 ```
 
 > **每条候选必须追溯到以上某条 evidence path。**
-> 平台入库 gate 会验证 discovery action 是否真实存在。
+> 平台 Validator Gate 会检查 `trace_events.jsonl` 里是否存在真实 discovery action。
 
 ---
 
 ## 工具机制（不是策略，是机制）
 
-- **写文件用 write tool**（写 query JSON、候选草稿、coverage report）。
-- **exec 只用于 `./wrappers/*`**（使用完整路径 `./wrappers/career_search_session`，或工作目录相对路径）。
-- **绝不**用 `exec python3 -c "..."` 或 heredoc 内联脚本——exec allowlist 只允许 wrappers。
-- **搜索只用 `web_search` 工具**；绝不用 `web_fetch` 抓 `google.com/search?...` 等搜索结果页代替。
+- **所有 wrapper 统一通过 `--task-spec <json文件> --output <json文件>` 调用。** 不使用旧的 `--session-id`、`--workspace-id`、`--url` 等独立 flag。
+- **exec 只用于 allowlist 内的 wrapper**，调用格式：
+  ```
+  tool: exec
+  name: career_log_candidates
+  args:
+    --task-spec /tmp/spec.json
+    --output /tmp/result.json
+  ```
+- **绝不**用 `exec python3 -c "..."` 或 heredoc 内联脚本——exec allowlist 只允许指定的 4 个 wrapper。
+- **搜索只用 `web_search` 工具**；绝不用 `web_fetch` 抓 `google.com/search?...` 等搜索结果页代替搜索。
+- **写临时 spec 文件用 write tool**（写候选列表 JSON、fetch_source spec 等）。
 
 ---
 
 ## Platform Provenance Gate（你不需要实现，但需要知道）
 
-**Tool 层（`career_log_candidates` 内置）：**
-- `candidate_pool` 为空（`queries_run=0` 且无 board sync）时拒绝候选
+**Wrapper 层（`career_log_candidates` 内置）：**
+- 每条候选验证 `url`、`title`、`company`、`source_type` 必填
+- URL 格式验证（必须 `http://` 或 `https://` 开头）
 
-**Run 层（worker 执行）：**
-- 无任何 discovery action（web_search + board_sync + classify_source 全为 0）→ `SearchValidationError`，run 中止
-- 有 discovery action 但 0 候选 → valid no-yield run，正常进入 pipeline（空 pool）
-- 候选存在但无 evidence path → pipeline admission gate 拒绝那些候选
+**Run 层（worker 执行 Validator Gate）：**
+- `candidate_count == 0` → valid no-yield run，正常通过（artifacts 合法即可）
+- `candidate_count > 0` 但 `trace_events.jsonl` 不存在或不包含任何 discovery tool action（`web_search` / `web_fetch` / `career_fetch_source` / `career_log_candidates`）→ `ToolActivityValidator` 失败，task → `needs_review`
+- manifest schema 不合法 / artifact 文件缺失 → `SchemaValidator` / `ProvenanceValidator` 失败
 
 ---
 
 ## Coverage Report 格式（run 结束前必须写）
 
-写到 spec 的 `expected_output_paths.coverage_report` 路径：
+写到 `payload.output_paths.coverage_report_path`：
 
 ```markdown
-# Coverage Report — Session <session_id>
+# Coverage Report — Run <run_id> / Task <task_id>
 
 ## Discovery Summary
-- Session: <session_id>
-- Discovery actions: web_search N queries, board_sync N companies, classify_source N
-- Total candidates logged: N
-  - Via board_sync: N
-  - Via web_search + web_fetch: N
-- Relevant: N / Maybe: N / Rejected: N
+- Run ID: <run_id>
+- Task ID: <task_id>
+- Discovery actions: web_search <N> queries, web_fetch <N> pages, career_fetch_source <N> fetches
+- Total candidates logged: <N>
+  - Via web_search + web_fetch: <N>
+  - Via targeted ATS search + career_fetch_source: <N>
+  - Via career page snowball: <N>
 
 ## Search Coverage
-- Workstreams targeted: （列出覆盖的 workstream）
-- Source types used: （company_career_page / ats_board / aggregator）
-- Companies / boards attempted: （列出尝试过的公司）
+- Role families targeted: （列出 payload.discovery_intent.target_role_families 里的 name）
+- Expansion scope: <narrow | standard>
+- Source types used: （greenhouse / lever / ashby / company_career_page / aggregator）
+- Companies / pages attempted: （列出尝试过的公司或 URL 前缀）
 
 ## What Worked
-（哪些 move / source 产出了真实候选？）
+（哪些 move / source 产出了真实候选？具体 query 模式、site: 前缀等）
 
 ## What Failed / Coverage Gaps
-（哪些方向无结果？failure mode？还缺哪些 workstream / company？）
-
-## New Sources Discovered
-（发现了哪些新 ATS board，是否注册？）
+（哪些方向无结果？failure mode？login wall / bot blocked / no results / irrelevant results？）
+（还缺哪些 role families / companies？）
 
 ## Recommended Next Direction
-（下一次 run 应该优先补充什么？）
+（下一次 run 应该优先补充什么？换哪个 source？用什么 query 模式？）
 ```

@@ -1,150 +1,159 @@
 # Discovery Moves
 
-这些 moves 可以**自由组合、不限顺序**。根据 task spec 的 `catalog_context` 和当前 discovery 状态选择最有效的 move。
+这些 moves 可以**自由组合、不限顺序**。根据 `payload.discovery_intent` 和当前 discovery 状态选择最有效的 move。
+
+**MVP allowlist 工具（全部通过 `--task-spec <json> --output <json>` 调用）：**
+
+```
+web_search          OpenClaw native — 发现 job posting URL / ATS URL
+web_fetch           OpenClaw native — 读取 job detail page / career listing page
+career_fetch_source wrapper — fetch + normalize 一个具体 ATS/job URL
+career_log_candidates wrapper — 把确认的候选写入 candidate_pool.jsonl
+career_search_status  wrapper — 查当前 budget / candidate_count 状态
+career_write_manifest wrapper — 写最终 output_manifest.json（只调一次）
+```
+
+**禁止：** `career_sync_board`、`career_classify_source`、`career_register_board`、`career_search_session`、bash/sh/python -c/curl/wget。这些不在 exec allowlist，调用会立即失败。
+
+---
 
 ## 目录
-- [Move 1: Board Sync](#move-1-board-sync)
-- [Move 2: Web Search](#move-2-web-search)
-- [Move 3: Source Classification & Board Registration](#move-3-source-classification--board-registration)
-- [Move 4: Targeted Site Search](#move-4-targeted-site-search)
-- [Move 5: Career Page Snowball](#move-5-career-page-snowball)
-- [Move 6: Query Expansion](#move-6-query-expansion)
-- [Move 7: Source Pivot](#move-7-source-pivot)
+
+- [Move 1: Direct Web Search](#move-1-direct-web-search)
+- [Move 2: Targeted ATS Search](#move-2-targeted-ats-search)
+- [Move 3: Career Page Snowball](#move-3-career-page-snowball)
+- [Move 4: Source Pivot](#move-4-source-pivot)
 - [Move 选择指南](#move-选择指南)
 
 ---
 
-## Move 1: Board Sync（优先用于已知 ATS 公司）
+## Move 1: Direct Web Search
 
-对 `configs/company_boards.yaml` 中 `status: active` 的公司，优先 board sync 而不是 web search。Board sync 比 HTML fetch 稳定，无 bot 保护问题，一次获取全部 published jobs。
-
-**调用前必须推断过滤参数（不能裸调）：**
-
-```bash
-# 1. 先 dry-run 检查预期命中数
-./wrappers/career_sync_board \
-  --source <ats_type> --slug <company_slug> \
-  --session-id <session_id> --workspace-id <workspace_id> \
-  --location-filter "<locations from profile>" \
-  --title-keywords "<keywords from profile>" \
-  --dry-run
-
-# 2. 满意后去掉 --dry-run 正式执行
-./wrappers/career_sync_board \
-  --source <ats_type> --slug <company_slug> \
-  --session-id <session_id> --workspace-id <workspace_id> \
-  --location-filter "<loc_1>,<loc_2>" \
-  --title-keywords "<keyword_1>,<keyword_2>,<keyword_3>"
-```
-
-- `would_keep = 0`：放宽 `--title-keywords`，或去掉 `--location-filter` 先看分布
-- `would_keep > 30`：收紧条件，或分批处理
-
-Board sync 候选自动写入 `candidate_pool.jsonl`，不需要额外调 `career_log_candidates`。
-
----
-
-## Move 2: Web Search（适合发现新公司 / 新来源）
-
-`web_search` tool → 从结果中提取具体 JD URL → 对每个候选 URL 单独 `web_fetch` 确认 → `career_log_candidates`。
+适合：探索新公司、新方向，在搜索结果里发现具体 JD URL。
 
 ```
-web_search("site:greenhouse.io <role_keywords> <location>")
-  → 提取 job detail URLs（不是搜索结果页本身）
-  → web_fetch 每个 URL 确认真实 JD 内容
+web_search("<role keywords> <location> jobs")
+  → 从搜索结果中提取具体 job posting URL（不是搜索结果页本身）
+  → web_fetch 每个候选 URL，确认是真实 JD 内容
   → career_log_candidates
-  → career_search_session log-query（每次 web_search 必做）
 ```
 
-**强制日志顺序（web search path）：**
-```
-web_search → career_search_session log-query → web_fetch → career_log_candidates
+**强制顺序：每条候选必须有 web_fetch 确认，再 career_log_candidates。**
+
+`career_log_candidates` task-spec 示例：
+
+```json
+{
+  "run_id": "<来自 input.json>",
+  "task_id": "<来自 input.json>",
+  "artifacts_dir": "/app/data/agent_artifacts",
+  "candidates": [
+    {
+      "url": "https://boards.greenhouse.io/acme/jobs/12345",
+      "title": "Market Risk Analyst",
+      "company": "Acme Bank",
+      "source_type": "greenhouse",
+      "notes": "Associate level, NYC, valuation control team"
+    }
+  ]
+}
 ```
 
-`log-query` 记录格式（inline 形式）：
-```bash
-./wrappers/career_search_session log-query \
-  --session-id <id> --workspace-id <id> \
-  --query-text "<actual query you searched>" \
-  --source-type <company_career_page|ats_board|aggregator|unknown> \
-  --valid-url-count <int> --candidate-yield <int> --failure-mode <none|blocked_403|no_results|other>
+调用方式：
+
+```
+tool: exec
+name: career_log_candidates
+args:
+  --task-spec /tmp/log_candidates_spec.json
+  --output /tmp/log_candidates_result.json
 ```
 
-`career_log_candidates`（单条）：
-```bash
-./wrappers/career_log_candidates \
-  --session-id <id> --workspace-id <id> \
-  --url "<job posting url>" --title "<title>" --company "<company>" \
-  --location "<loc>" --relevance relevant \
-  --reason "<why it matches the profile>" --workstream-hint "<workstream>"
-```
+返回：`logged_count`、`logged_urls`、`errors`
 
 ---
 
-## Move 3: Source Classification & Board Registration（发现新 ATS 时）
+## Move 2: Targeted ATS Search
 
-在 web_search / web_fetch 中发现 `configs/company_boards.yaml` 里没有的公司的 ATS board URL 时：
-
-```bash
-# 1. 分类 ATS 类型
-./wrappers/career_classify_source --url <url>
-
-# 2. 验证可访问性（Greenhouse: boards-api.greenhouse.io; Lever: api.lever.co）
-# 3. 注册
-./wrappers/career_register_board \
-  --slug <company_snake_case> \
-  --source <greenhouse|lever|ashby|workday|html> \
-  --board-token <token_from_url> \
-  --status <active|best_effort|hard_source> \
-  --verified-at <today_date> \
-  --notes "<说明：发现于搜索结果，已验证 API 可访问>"
-```
-
-注册后在同一 session 内即可用 `career_sync_board` 同步该公司（Move 1）。
-
-**注册时机：**
-- 发现新 greenhouse.io / lever.co / ashby.com URL → 立即注册
-- 发现某公司 career page 返回 403/blocked → 注册为 `status: hard_source`
-- 发现某公司用 Workday 但 detail page 可访问 → 注册为 `status: best_effort`
-
----
-
-## Move 4: Targeted Site Search
-
-对特定公司的 career page 做精准搜索：
+适合：已知某 ATS 平台（Greenhouse / Lever / Ashby）上有相关岗位，精准 site: 搜索。
 
 ```
-web_search("site:careers.<company>.com <role_keywords> <location>")
+web_search("site:boards.greenhouse.io <role keywords> <location>")
+  OR
+web_search("site:jobs.lever.co <role keywords>")
+  OR
+web_search("site:jobs.ashbyhq.com <role keywords>")
+  → 提取具体 job posting URL（形如 greenhouse.io/<company>/jobs/<id>）
+  → career_fetch_source（fetch + normalize ATS job page）
+  → career_log_candidates
 ```
 
-适用于：不在 boards 里的公司，或 board sync 结果为空时的补充。
+`career_fetch_source` task-spec 示例：
+
+```json
+{
+  "url": "https://boards.greenhouse.io/acme/jobs/12345",
+  "source_type": "greenhouse",
+  "run_id": "<来自 input.json>",
+  "task_id": "<来自 input.json>",
+  "artifacts_dir": "/app/data/agent_artifacts"
+}
+```
+
+调用方式：
+
+```
+tool: exec
+name: career_fetch_source
+args:
+  --task-spec /tmp/fetch_source_spec.json
+  --output /tmp/fetch_source_result.json
+```
+
+返回：`url`、`text`（最多 50k chars）、`final_url`、`content_length`
+
+用 `text` 内容确认是真实 JD 后，再调 `career_log_candidates`。
 
 ---
 
-## Move 5: Career Page Snowball
+## Move 3: Career Page Snowball
 
-`web_fetch` 公司 career page listing → 从页面上提取相关岗位 URL → `web_fetch` 每个 detail URL → `career_log_candidates`。
+适合：公司使用自建 HTML career page（非 Greenhouse/Lever/Ashby），或需要深入某公司岗位列表。
 
-适用于：HTML-based 公司（非 Greenhouse/Lever/Ashby），或需要深入某公司内部岗位结构的场景。
+```
+web_fetch("<company>/careers or <company>/jobs listing page")
+  → 从 listing 页面内容里提取具体岗位 detail URL
+  → 对每个 detail URL: web_fetch 确认真实 JD 内容
+  → career_log_candidates
+```
+
+关键规则：
+- listing page 本身不能成为候选 URL
+- 每条候选 URL 必须是具体职位的 detail page
+- `web_fetch` 到 403/blocked → 跳过该公司，在 coverage_report 里标注
 
 ---
 
-## Move 6: Query Expansion
+## Move 4: Source Pivot
 
-从 JD 内容里发现新术语 → 生成新 query：
-- 从 `web_fetch` 到的 JD 内容里提取 title 变体、技术词汇
-- 将这些术语用于下一组 web_search queries
+适合：当前 source / query 方向持续无结果或被封锁时，主动切换。
 
-例：fetch 到 `"<role abbreviation>"` JD 后 → 新 query `"<full role title> <location>"`
+**触发条件：**
+- `web_fetch` 返回 403 / 需要登录 / 无相关内容
+- 多次 `web_search` 只返回聚合器页面（LinkedIn jobs/search、Indeed search、Google jobs）
+- `career_fetch_source` 连续失败
 
----
+**pivot 动作：**
+- LinkedIn / Indeed 登录墙 → 改用 `site:boards.greenhouse.io` 或 `site:jobs.lever.co` targeted search
+- Workday blocked → 改用公司官网 career page 搜索（Move 3）
+- 大平台搜索结果太宽 → 加 `site:` 前缀精准 ATS 搜索（Move 2）
+- 某 role keyword 无结果 → 尝试 `discovery_intent.target_role_families` 里其他 family 的别名和同义词
 
-## Move 7: Source Pivot
+**记录规则：** 每次 pivot 原因必须在 `coverage_report.md` 里注明，格式：
 
-当一个 source 方向持续无结果时，切换：
-- Workday blocked → 改用 LinkedIn 公开搜索 + 公司官网 career page
-- LinkedIn 登录墙 → 改用 Indeed 公开页面
-- 大平台结果不精准 → 改用 `site:<specific_ats>` targeted search
+```markdown
+- <source/direction>: exhausted (<N> queries, <N> candidates) — reason: <failure mode>
+```
 
 ---
 
@@ -152,9 +161,26 @@ web_search("site:careers.<company>.com <role_keywords> <location>")
 
 | 场景 | 优先 Move |
 |---|---|
-| 已知 active ATS 公司 | Board Sync (Move 1) |
-| 发现新公司 ATS URL | Classify + Register (Move 3) → Board Sync |
-| 寻找新公司/新来源 | Web Search (Move 2) |
-| 某公司结果为空 | Targeted Site Search (Move 4) |
-| 发现新 JD 术语 | Query Expansion (Move 6) |
-| 当前 source blocked | Source Pivot (Move 7) |
+| 探索新公司 / 新方向 | Direct Web Search (Move 1) |
+| 已知是 Greenhouse / Lever / Ashby ATS | Targeted ATS Search (Move 2) |
+| 公司有自建 career page | Career Page Snowball (Move 3) |
+| 当前 source 被封 / 无结果 | Source Pivot (Move 4) |
+| budget 快用完 | 专注最高 yield 的已知方向，不再开新 source |
+
+---
+
+## Budget 追踪
+
+每 5 次 discovery action 后用 `career_search_status` 确认 budget：
+
+```
+tool: exec
+name: career_search_status
+args:
+  --task-spec /app/data/agent_artifacts/<run_id>/<task_id>/input.json
+  --output /tmp/status_result.json
+```
+
+返回：`candidates_logged`、`tool_calls_used`、`budget_remaining.candidates`、`budget_remaining.tool_calls`
+
+达到 `payload.budget.max_candidates` 或 `payload.budget.max_tool_calls` → 停止 discovery loop，进入收尾流程（写 coverage_report → career_write_manifest）。

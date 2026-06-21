@@ -1,5 +1,5 @@
 ---
-name: career-discovery-operator
+name: career-search-operator
 description: "Autonomous job discovery run. Use when the platform invokes you to discover job candidates for a search session. You own the discovery strategy; the worker owns lifecycle, validation, and persistence."
 ---
 

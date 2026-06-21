@@ -256,6 +256,126 @@ class BudgetValidator(Validator):
 
 
 # ---------------------------------------------------------------------------
+# Tool activity validator
+# ---------------------------------------------------------------------------
+
+
+class ToolActivityValidator(Validator):
+    """
+    Guards against phantom candidates — candidates logged with no real discovery
+    tool activity to support them.
+
+    Rules:
+      - candidate_count == 0 → always passes (valid no-yield run).
+      - candidate_count > 0 → trace_events artifact must exist AND contain
+        at least one reference to a known discovery tool action.
+
+    The check is content-based (substring search) so it works regardless of
+    the exact JSON structure OpenClaw writes to trace_events.jsonl.
+
+    First-version gate: run-level, not candidate-level. Candidate-level
+    provenance linking is a future upgrade.
+    """
+
+    name = "tool_activity"
+
+    DISCOVERY_TOOLS = frozenset(
+        {
+            "web_search",
+            "web_fetch",
+            "career_fetch_source",
+            "career_log_candidates",
+        }
+    )
+
+    def validate(
+        self,
+        manifest: AgentOutputManifest,
+        spec: AgentInvocationSpec,
+    ) -> AgentValidationResult:
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
+
+        # Only applies to discovery manifests
+        if not isinstance(manifest, DiscoveryManifest):
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="passed",
+                errors=[],
+                warnings=[],
+            )
+
+        # No candidates → valid no-yield; no evidence required
+        if manifest.candidate_count == 0:
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="passed",
+                errors=[],
+                warnings=[],
+            )
+
+        # Candidates present — require a trace_events artifact with discovery actions
+        trace_path_str = manifest.artifact_paths.get("trace_events")
+
+        if not trace_path_str:
+            errors.append(
+                ValidationError(
+                    field="artifact_paths.trace_events",
+                    message=(
+                        f"candidate_count={manifest.candidate_count} but "
+                        "trace_events artifact path is missing from manifest"
+                    ),
+                )
+            )
+        else:
+            trace_path = Path(trace_path_str)
+            if not trace_path.exists():
+                errors.append(
+                    ValidationError(
+                        field="artifact_paths.trace_events",
+                        message=(
+                            f"candidate_count={manifest.candidate_count} but "
+                            f"trace_events file does not exist: {trace_path_str}"
+                        ),
+                        value=trace_path_str,
+                    )
+                )
+            else:
+                try:
+                    content = trace_path.read_text()
+                    if not any(tool in content for tool in self.DISCOVERY_TOOLS):
+                        errors.append(
+                            ValidationError(
+                                field="artifact_paths.trace_events",
+                                message=(
+                                    f"candidate_count={manifest.candidate_count} but "
+                                    "no known discovery tool action found in trace_events "
+                                    f"(looked for: {sorted(self.DISCOVERY_TOOLS)})"
+                                ),
+                            )
+                        )
+                except OSError as exc:
+                    errors.append(
+                        ValidationError(
+                            field="artifact_paths.trace_events",
+                            message=f"Could not read trace_events file: {exc}",
+                            value=trace_path_str,
+                        )
+                    )
+
+        status = "failed" if errors else ("warning" if warnings else "passed")
+        return AgentValidationResult(
+            invocation_id=spec.invocation_id,
+            validator_name=self.name,
+            status=status,
+            errors=errors,
+            warnings=warnings,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Gate orchestrator
 # ---------------------------------------------------------------------------
 
@@ -278,6 +398,7 @@ class ValidatorGate:
             SchemaValidator(),
             ProvenanceValidator(),
             BudgetValidator(),
+            ToolActivityValidator(),
         ]
 
     def run(
