@@ -20,17 +20,17 @@
     "list": [
       {
         "id": "career-search-agent",
-        "workspace": "/app/agent/openclaw/agents/career-search-agent",
+        "workspace": "/openclaw/workspace/agents/career-search-agent",
         "skills": ["career-search-operator"]
       },
       {
         "id": "career-reflect-agent",
-        "workspace": "/app/agent/openclaw/agents/career-reflect-agent",
+        "workspace": "/openclaw/workspace/agents/career-reflect-agent",
         "skills": ["career-reflect-operator"]
       },
       {
         "id": "career-research-agent",
-        "workspace": "/app/agent/openclaw/agents/career-research-agent",
+        "workspace": "/openclaw/workspace/agents/career-research-agent",
         "skills": ["career-research-operator"]
       }
     ]
