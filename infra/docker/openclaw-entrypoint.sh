@@ -17,8 +17,10 @@
 # Gateway auth token (required by OpenClaw 2026.6+ when bind=lan):
 #   Priority: OPENCLAW_GATEWAY_TOKEN env > preserved token in existing runtime config > auto-generate
 #
-# Dev: re-copies config and workspaces on every container restart so repo edits
-# are picked up without rebuilding the image.
+# Dev: re-copies config on every container restart so repo edits are picked up
+# without rebuilding the image.
+# Agent workspaces are only materialized on first boot (directory absent).
+# To pick up workspace changes, delete the openclaw_workspace volume and restart.
 set -eu
 
 AGENT_SOURCE=/app/agent/openclaw
