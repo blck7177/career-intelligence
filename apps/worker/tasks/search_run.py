@@ -344,7 +344,19 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         return {"status": "needs_review", "task_id": env.task_id}
 
     # ------------------------------------------------------------------
-    # Step 7.5: Normalize candidate_pool artifact
+    # Step 7.5a: Canonicalize artifact_paths from task_spec.output_paths
+    # ------------------------------------------------------------------
+    # The agent must not be trusted to construct platform-side file paths.
+    # Overwrite artifact_paths with the deterministic paths built by the
+    # planner from run_id + task_id — the single authoritative source.
+    _canonicalize_discovery_artifact_paths(
+        manifest,
+        task_spec.output_paths,
+        manifest_path,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 7.5b: Normalize candidate_pool content format
     # ------------------------------------------------------------------
     # The agent may write a JSON array instead of JSONL, or omit the file
     # entirely when there are zero candidates.  Normalize here so the
@@ -467,6 +479,53 @@ def _fix_file_perms(path: Path) -> None:
         path.chmod(0o664)
     except PermissionError:
         logger.debug("search_run: file chown skipped for %s", path)
+
+
+def _canonicalize_discovery_artifact_paths(
+    manifest: DiscoveryManifest,
+    output_paths,
+    manifest_path: Path,
+) -> None:
+    """
+    Overwrite manifest.artifact_paths with paths derived from task_spec.output_paths.
+
+    Rationale: artifact_paths in the manifest are platform-managed paths
+    (run_id/task_id/filename).  The single authoritative source is the planner's
+    OutputPaths object built from run_id + task_id.  Agents must not be trusted
+    to construct these paths correctly.
+
+    Only overwrites keys that are present in output_paths; does not remove keys
+    the agent added for other artifact types.  Writes the corrected manifest back
+    to disk so downstream readers (e.g. artifact_repo.create) also see the right
+    paths.
+    """
+    canonical: dict[str, str] = {
+        "candidate_pool": output_paths.candidate_pool_path,
+        "search_ledger": output_paths.search_ledger_path,
+        "trace_events": output_paths.trace_events_path,
+        "coverage_report": output_paths.coverage_report_path,
+    }
+
+    changed = False
+    for artifact_type, canonical_path in canonical.items():
+        old_path = manifest.artifact_paths.get(artifact_type)
+        if old_path != canonical_path:
+            logger.warning(
+                "search_run: canonicalized artifact path %s: %r → %r",
+                artifact_type,
+                old_path,
+                canonical_path,
+            )
+            manifest.artifact_paths[artifact_type] = canonical_path
+            changed = True
+
+    if changed:
+        manifest_path.write_text(manifest.model_dump_json(indent=2))
+        _fix_file_perms(manifest_path)
+        logger.info(
+            "search_run: manifest artifact_paths canonicalized and written back to %s",
+            manifest_path,
+        )
 
 
 def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> None:
