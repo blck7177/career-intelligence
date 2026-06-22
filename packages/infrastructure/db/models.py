@@ -253,6 +253,14 @@ class AgentToolEvent(Base):
     One tool call made by the agent during an invocation.
     Written by agent tool wrappers (career_*.py) via the platform,
     NOT by OpenClaw directly.
+
+    Signed-ledger fields (added in migration c3d4e5f6a7b8):
+      event_id        — platform "tevt_<uuid4>" from ToolLedgerEvent
+      sequence        — 1-based within invocation
+      prev_event_hash — sha256 of previous event in chain
+      event_hash      — sha256 of canonical event JSON
+      signature       — HMAC-SHA256 of event_hash
+      raw_event_json  — full ToolLedgerEvent dict for audit/replay
     """
 
     __tablename__ = "agent_tool_events"
@@ -266,6 +274,13 @@ class AgentToolEvent(Base):
     input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="ok")
+    # Signed-ledger fields
+    event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
+    sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    prev_event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_event_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )

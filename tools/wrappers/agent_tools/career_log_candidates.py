@@ -14,7 +14,9 @@ This wrapper is in the OpenClaw exec allowlist.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,7 +82,7 @@ def main(task_spec: str, output: str) -> None:
 
     Path(output).write_text(json.dumps(result, indent=2))
 
-    # Append a trace event so ToolActivityValidator can confirm real discovery action occurred.
+    # Append a trace event for backward-compatibility (GatewayTransportValidator reads this).
     # Written even when logged_count == 0 (captures attempted log with validation errors).
     if run_id and task_id:
         trace_path = artifacts_dir / run_id / task_id / "trace_events.jsonl"
@@ -94,6 +96,33 @@ def main(task_spec: str, output: str) -> None:
         }
         with trace_path.open("a") as f:
             f.write(json.dumps(trace_entry) + "\n")
+
+    # Append a signed ledger event so ToolLedgerValidator can verify real discovery.
+    signing_key = os.environ.get("TOOL_LEDGER_SIGNING_KEY", "")
+    tool_events_path_str = spec.get("output_paths", {}).get("tool_events_path", "")
+    if tool_events_path_str and signing_key:
+        try:
+            from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
+
+            pool_hash = "sha256:" + hashlib.sha256(pool_path.read_bytes()).hexdigest()
+            invocation_id = spec.get("invocation_id", "")
+            append_signed_event(
+                Path(tool_events_path_str),
+                {
+                    "invocation_id": invocation_id,
+                    "run_id": run_id,
+                    "task_id": task_id,
+                    "tool_name": "career_log_candidates",
+                    "event_type": "candidate_log",
+                    "status": "ok",
+                    "candidate_count": len(logged),
+                    "output_path": str(pool_path),
+                    "output_hash": pool_hash,
+                },
+                signing_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            click.echo(f"WARNING: failed to append signed ledger event: {exc}", err=True)
 
     if errors:
         click.echo(f"WARNING: {len(errors)} candidates skipped due to validation errors", err=True)

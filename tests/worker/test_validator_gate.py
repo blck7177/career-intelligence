@@ -2,20 +2,19 @@
 Unit tests for the Validator Gate and individual validators.
 No IO — uses temp files and mocked manifests.
 
-Key behaviour changes tested (validator v2):
-  - stop_reason missing → SchemaValidator FAIL (was: warning)
-  - ToolActivityValidator three-state gate:
-      State A: no trace / no discovery tool → FAIL even when candidate_count==0
-      State B: trace + discovery tool + no candidates → PASS (valid no-yield)
-      State C: trace + discovery tool + candidates → PASS
-  - ToolActivityValidator now also covers ResearchManifest (citations_count > 0)
+Key behaviour changes tested (validator v3):
+  - stop_reason missing → SchemaValidator FAIL
+  - GatewayTransportValidator: embedded/fallback transport → FAIL; absent file → PASS
+  - ToolLedgerValidator: missing file → FAIL; bad sig → FAIL; broken chain → FAIL
+  - DiscoveryEvidenceValidator: 0-result → FAIL; candidates with valid log → PASS
   - ProvenanceValidator requires coverage_report artifact on non-failed discovery runs
-  - New DiscoveryCountValidator: manifest.candidate_count must match pool line count
+  - DiscoveryCountValidator: manifest.candidate_count must match pool line count
 """
 
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,11 +27,16 @@ from packages.contracts.agents.tool_activity import ToolActivitySummary
 from packages.infrastructure.agent_runtime.validator import (
     BudgetValidator,
     DiscoveryCountValidator,
+    DiscoveryEvidenceValidator,
+    GatewayTransportValidator,
     ProvenanceValidator,
     SchemaValidator,
-    ToolActivityValidator,
+    ToolLedgerValidator,
     ValidatorGate,
 )
+from packages.infrastructure.tool_ledger import append_signed_event, load_and_verify
+
+_TEST_SIGNING_KEY = "test-signing-key-thats-at-least-32-bytes-long"
 
 
 # ---------------------------------------------------------------------------
@@ -40,7 +44,8 @@ from packages.infrastructure.agent_runtime.validator import (
 # ---------------------------------------------------------------------------
 
 
-def make_spec(invocation_id: str = "ainv_test") -> AgentInvocationSpec:
+def make_spec(invocation_id: str = "ainv_test", tmp_path: Path | None = None) -> AgentInvocationSpec:
+    manifest_path = str(tmp_path / "output_manifest.json") if tmp_path else "/tmp/output_manifest.json"
     return AgentInvocationSpec(
         invocation_id=invocation_id,
         run_id="run_001",
@@ -50,7 +55,7 @@ def make_spec(invocation_id: str = "ainv_test") -> AgentInvocationSpec:
         skill_contract_version="career-search-v1",
         session_key="agent:career-search-agent:workspace:ws_001:run:run_001:task:task_001:attempt:1",
         input_spec_path="/tmp/input.json",
-        output_manifest_path="/tmp/output_manifest.json",
+        output_manifest_path=manifest_path,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -121,6 +126,41 @@ def write_gateway_summary(
     return path
 
 
+def write_ledger(
+    tmp_path: Path,
+    *,
+    invocation_id: str = "ainv_test",
+    event_count: int = 1,
+    signing_key: str = _TEST_SIGNING_KEY,
+    candidate_count: int = 3,
+    pool_path: Path | None = None,
+) -> Path:
+    """Write a valid signed tool_events.jsonl to tmp_path."""
+    ledger = tmp_path / "tool_events.jsonl"
+    pool_hash = None
+    if pool_path and pool_path.exists():
+        import hashlib
+        pool_hash = "sha256:" + hashlib.sha256(pool_path.read_bytes()).hexdigest()
+
+    for i in range(event_count):
+        append_signed_event(
+            ledger,
+            {
+                "invocation_id": invocation_id,
+                "run_id": "run_001",
+                "task_id": "task_001",
+                "tool_name": "career_log_candidates",
+                "event_type": "candidate_log",
+                "status": "ok",
+                "candidate_count": candidate_count,
+                "output_path": str(pool_path) if pool_path else None,
+                "output_hash": pool_hash,
+            },
+            signing_key,
+        )
+    return ledger
+
+
 # ---------------------------------------------------------------------------
 # SchemaValidator tests
 # ---------------------------------------------------------------------------
@@ -158,7 +198,7 @@ class TestSchemaValidator:
         assert any("partial" in w.message.lower() for w in result.warnings)
 
     def test_fails_when_stop_reason_missing(self):
-        """Missing stop_reason is now a hard error (v2 change)."""
+        """Missing stop_reason is a hard error."""
         spec = make_spec()
         manifest = make_discovery_manifest(stop_reason="")
         result = self.v.validate(manifest, spec)
@@ -176,7 +216,6 @@ class TestProvenanceValidator:
         self.v = ProvenanceValidator()
 
     def test_fails_when_no_coverage_report_for_completed_discovery(self):
-        """coverage_report is required for non-failed discovery runs (v2)."""
         spec = make_spec()
         manifest = make_discovery_manifest(artifact_paths={})
         result = self.v.validate(manifest, spec)
@@ -191,11 +230,9 @@ class TestProvenanceValidator:
         assert result.status == "passed"
 
     def test_does_not_require_coverage_report_for_failed_status(self):
-        """failed status is rejected by SchemaValidator; Provenance skips the requirement."""
         spec = make_spec()
         manifest = make_discovery_manifest(status="failed", artifact_paths={})
         result = self.v.validate(manifest, spec)
-        # No coverage_report error — SchemaValidator handles the rejection.
         assert not any("coverage_report" in e.field for e in result.errors)
 
     def test_fails_when_artifact_file_missing(self, tmp_path):
@@ -270,207 +307,251 @@ class TestBudgetValidator:
 
 
 # ---------------------------------------------------------------------------
-# ToolActivityValidator tests
+# GatewayTransportValidator tests
 # ---------------------------------------------------------------------------
 
 
-class TestToolActivityValidator:
+class TestGatewayTransportValidator:
     def setup_method(self):
-        self.v = ToolActivityValidator()
+        self.v = GatewayTransportValidator()
 
-    # --- Discovery: three-state gate ---
-
-    def test_fails_state_a_zero_candidates_no_trace(self):
-        """State A: zero discovery — completed run with no trace is rejected (v2)."""
+    def test_passes_when_no_gateway_summary(self):
+        """Absent gateway_tool_activity.json → pass (ledger is authoritative)."""
         spec = make_spec()
-        manifest = make_discovery_manifest(candidate_count=0, artifact_paths={})
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("trace_events" in e.field for e in result.errors)
-
-    def test_fails_state_a_partial_no_trace(self):
-        """Partial run with no trace is also State A."""
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=0, status="partial", artifact_paths={}
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-
-    def test_passes_state_b_zero_candidates_with_trace(self, tmp_path):
-        """State B: real search happened, nothing found — valid no-yield."""
-        trace = write_trace(tmp_path, "web_search")
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=0,
-            artifact_paths={"trace_events": str(trace)},
-        )
+        manifest = make_discovery_manifest()
         result = self.v.validate(manifest, spec)
         assert result.status == "passed"
 
-    def test_passes_state_c_candidates_with_trace(self, tmp_path):
-        """State C: real search + candidates found."""
-        trace = write_trace(tmp_path, "web_search")
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=5,
-            artifact_paths={"trace_events": str(trace)},
-        )
+    def test_passes_with_valid_gateway_transport(self, tmp_path):
+        write_gateway_summary(tmp_path, tools=["web_search"], transport="gateway")
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
         result = self.v.validate(manifest, spec)
         assert result.status == "passed"
 
-    def test_state_a_not_checked_when_status_is_failed(self):
-        """failed status manifest skips the activity gate (SchemaValidator handles it)."""
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=0, status="failed", artifact_paths={}
-        )
-        result = self.v.validate(manifest, spec)
-        # ToolActivityValidator passes — SchemaValidator is responsible for failed status.
-        assert result.status == "passed"
-
-    def test_fails_when_candidates_but_no_trace_events(self):
-        spec = make_spec()
-        manifest = make_discovery_manifest(candidate_count=5, artifact_paths={})
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("trace_events" in e.field for e in result.errors)
-
-    def test_fails_when_trace_file_missing_on_disk(self, tmp_path):
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=5,
-            artifact_paths={"trace_events": str(tmp_path / "nonexistent.jsonl")},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("does not exist" in e.message for e in result.errors)
-
-    def test_fails_when_trace_has_no_discovery_tools(self, tmp_path):
-        trace = tmp_path / "trace.jsonl"
-        trace.write_text('{"event": "agent_started"}\n')
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=5,
-            artifact_paths={"trace_events": str(trace)},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("no evidence" in e.message.lower() for e in result.errors)
-
-    def test_passes_with_web_search_in_trace(self, tmp_path):
-        trace = write_trace(tmp_path, "web_search")
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=3,
-            artifact_paths={"trace_events": str(trace)},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_passes_with_career_fetch_source_in_trace(self, tmp_path):
-        trace = write_trace(tmp_path, "career_fetch_source")
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=1,
-            artifact_paths={"trace_events": str(trace)},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    # --- Research gate ---
-
-    def test_passes_for_research_with_zero_citations(self):
-        """Research run with no citations needs no tool evidence."""
-        spec = make_spec()
-        manifest = ResearchManifest(
-            invocation_id="ainv_test",
-            status="completed",
-            stop_reason="done",
-            job_id="job_abc",
-            citations_count=0,
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_fails_research_with_citations_but_no_trace(self):
-        """Research manifest claiming citations but no tool evidence is rejected (v2)."""
-        spec = make_spec()
-        manifest = ResearchManifest(
-            invocation_id="ainv_test",
-            status="completed",
-            stop_reason="done",
-            job_id="job_abc",
-            citations_count=3,
-            artifact_paths={},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("trace_events" in e.field for e in result.errors)
-
-    def test_passes_research_with_citations_and_web_fetch_trace(self, tmp_path):
-        trace = write_trace(tmp_path, "web_fetch")
-        spec = make_spec()
-        manifest = ResearchManifest(
-            invocation_id="ainv_test",
-            status="completed",
-            stop_reason="done",
-            job_id="job_abc",
-            citations_count=3,
-            artifact_paths={"trace_events": str(trace)},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_passes_research_with_citations_and_fetch_source_trace(self, tmp_path):
-        trace = write_trace(tmp_path, "career_fetch_source")
-        spec = make_spec()
-        manifest = ResearchManifest(
-            invocation_id="ainv_test",
-            status="completed",
-            stop_reason="done",
-            job_id="job_abc",
-            citations_count=1,
-            artifact_paths={"trace_events": str(trace)},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_research_tool_check_skipped_when_status_failed(self):
-        spec = make_spec()
-        manifest = ResearchManifest(
-            invocation_id="ainv_test",
-            status="failed",
-            stop_reason="error",
-            job_id="job_abc",
-            citations_count=3,
-            artifact_paths={},
-        )
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_discovery_can_pass_from_gateway_summary_without_trace(self, tmp_path):
-        write_gateway_summary(tmp_path, tools=["web_search"])
-        spec = make_spec().model_copy(
-            update={"output_manifest_path": str(tmp_path / "output_manifest.json")}
-        )
-        manifest = make_discovery_manifest(candidate_count=0, artifact_paths={})
-        result = self.v.validate(manifest, spec)
-        assert result.status == "passed"
-
-    def test_embedded_transport_in_gateway_summary_fails(self, tmp_path):
+    def test_fails_embedded_transport(self, tmp_path):
         write_gateway_summary(tmp_path, tools=["web_search"], transport="embedded")
-        trace = write_trace(tmp_path, "web_search")
-        spec = make_spec().model_copy(
-            update={"output_manifest_path": str(tmp_path / "output_manifest.json")}
-        )
-        manifest = make_discovery_manifest(
-            candidate_count=1,
-            artifact_paths={"trace_events": str(trace)},
-        )
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
         result = self.v.validate(manifest, spec)
         assert result.status == "failed"
         assert any("transport" in e.field for e in result.errors)
+
+    def test_fails_fallback_from_gateway(self, tmp_path):
+        write_gateway_summary(tmp_path, tools=["web_search"], fallback_from="gateway")
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("fallback_from" in e.field for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# ToolLedgerValidator tests
+# ---------------------------------------------------------------------------
+
+
+class TestToolLedgerValidator:
+    def setup_method(self):
+        self.v = ToolLedgerValidator()
+
+    def test_ledger_validator_missing_file(self, tmp_path, monkeypatch):
+        """Missing tool_events.jsonl → failed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("not found" in e.message for e in result.errors)
+
+    def test_ledger_validator_missing_key(self, tmp_path, monkeypatch):
+        """Missing TOOL_LEDGER_SIGNING_KEY → failed (platform misconfiguration)."""
+        monkeypatch.delenv("TOOL_LEDGER_SIGNING_KEY", raising=False)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("TOOL_LEDGER_SIGNING_KEY" in e.field for e in result.errors)
+
+    def test_ledger_validator_valid_ledger_passes(self, tmp_path, monkeypatch):
+        """Valid signed ledger → passed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        write_ledger(tmp_path, pool_path=pool, candidate_count=3)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_ledger_validator_bad_signature(self, tmp_path, monkeypatch):
+        """Tampered signature → failed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        ledger_path = tmp_path / "tool_events.jsonl"
+        append_signed_event(
+            ledger_path,
+            {
+                "invocation_id": "ainv_test",
+                "run_id": "run_001",
+                "task_id": "task_001",
+                "tool_name": "career_log_candidates",
+                "event_type": "candidate_log",
+                "status": "ok",
+                "candidate_count": 3,
+                "output_path": str(pool),
+            },
+            _TEST_SIGNING_KEY,
+        )
+        # Tamper with the signature (Pydantic uses compact JSON — no space after colon)
+        content = ledger_path.read_text()
+        import re
+        content = re.sub(r'"signature":\s*"[^"]*"', '"signature":"deadbeef"', content)
+        ledger_path.write_text(content)
+
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("signature" in e.message or "hash" in e.message for e in result.errors)
+
+    def test_ledger_validator_broken_chain(self, tmp_path, monkeypatch):
+        """Broken prev_event_hash chain → failed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        ledger_path = write_ledger(tmp_path, event_count=2, pool_path=pool, candidate_count=3)
+
+        # Tamper with the second event's prev_event_hash
+        lines = ledger_path.read_text().splitlines()
+        import json as _json
+        second = _json.loads(lines[1])
+        second["prev_event_hash"] = "aaaa" * 16
+        lines[1] = _json.dumps(second)
+        ledger_path.write_text("\n".join(lines) + "\n")
+
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest()
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("chain" in e.message or "signature" in e.message for e in result.errors)
+
+    def test_ledger_validator_wrong_invocation_id(self, tmp_path, monkeypatch):
+        """Ledger contains only events for a different invocation → no events found → not failed by this validator (chain is empty)."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        # Write ledger for a DIFFERENT invocation
+        append_signed_event(
+            tmp_path / "tool_events.jsonl",
+            {
+                "invocation_id": "ainv_other",
+                "run_id": "run_001",
+                "task_id": "task_001",
+                "tool_name": "career_log_candidates",
+                "event_type": "candidate_log",
+                "status": "ok",
+                "candidate_count": 3,
+            },
+            _TEST_SIGNING_KEY,
+        )
+        spec = make_spec(tmp_path=tmp_path)  # invocation_id = "ainv_test"
+        manifest = make_discovery_manifest()
+        # File exists, no events for this invocation → passes ToolLedgerValidator
+        # (DiscoveryEvidenceValidator will catch the missing log evidence)
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_ledger_validator_non_discovery_manifest_passes(self, tmp_path, monkeypatch):
+        """Non-discovery manifests are skipped by ToolLedgerValidator."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = ResearchManifest(
+            invocation_id="ainv_test",
+            status="completed",
+            stop_reason="done",
+            job_id="job_abc",
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+
+# ---------------------------------------------------------------------------
+# DiscoveryEvidenceValidator tests
+# ---------------------------------------------------------------------------
+
+
+class TestDiscoveryEvidenceValidator:
+    def setup_method(self):
+        self.v = DiscoveryEvidenceValidator()
+
+    def test_discovery_evidence_zero_candidates(self, tmp_path, monkeypatch):
+        """0-result run: no signed search proof in v1 → failed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 0)
+        write_ledger(tmp_path, pool_path=pool, candidate_count=0)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(candidate_count=0)
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("0-result" in e.message for e in result.errors)
+
+    def test_discovery_evidence_no_candidates_no_signed_log(self, tmp_path, monkeypatch):
+        """Candidates > 0 but no ledger file → failed (State A)."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(candidate_count=5)
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("candidate_log" in e.message for e in result.errors)
+
+    def test_discovery_evidence_candidates_valid_log(self, tmp_path, monkeypatch):
+        """Candidates > 0 with valid signed candidate_log → passed (State C)."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        write_ledger(tmp_path, pool_path=pool, candidate_count=3)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(
+            candidate_count=3,
+            artifact_paths={"candidate_pool": str(pool)},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_discovery_evidence_log_hash_mismatch(self, tmp_path, monkeypatch):
+        """Pool file tampered after logging → hash mismatch → failed."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        pool = write_pool(tmp_path, 3)
+        write_ledger(tmp_path, pool_path=pool, candidate_count=3)
+        # Tamper with pool after signing
+        with pool.open("a") as f:
+            f.write(json.dumps({"url": "https://evil.com/job/9", "title": "Ghost", "source_type": "ats"}) + "\n")
+
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(
+            candidate_count=3,
+            artifact_paths={"candidate_pool": str(pool)},
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "failed"
+        assert any("hash" in e.message for e in result.errors)
+
+    def test_discovery_evidence_skipped_for_failed_status(self, tmp_path, monkeypatch):
+        """Failed manifests are not checked by DiscoveryEvidenceValidator."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(candidate_count=5, status="failed")
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
+
+    def test_discovery_evidence_non_discovery_manifest_passes(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = ResearchManifest(
+            invocation_id="ainv_test",
+            status="completed",
+            stop_reason="done",
+            job_id="job_abc",
+        )
+        result = self.v.validate(manifest, spec)
+        assert result.status == "passed"
 
 
 # ---------------------------------------------------------------------------
@@ -534,52 +615,37 @@ class TestDiscoveryCountValidator:
 
 
 class TestValidatorGate:
-    def _make_clean_discovery(self, tmp_path: Path) -> tuple[DiscoveryManifest, AgentInvocationSpec]:
+    def _make_clean_discovery(
+        self, tmp_path: Path, monkeypatch
+    ) -> tuple[DiscoveryManifest, AgentInvocationSpec]:
         """Build a fully valid discovery manifest with all required artifacts."""
-        trace = write_trace(tmp_path, "web_search")
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
         pool = write_pool(tmp_path, 3)
         report = write_coverage_report(tmp_path)
-        spec = make_spec()
+        write_ledger(tmp_path, pool_path=pool, candidate_count=3)
+        spec = make_spec(tmp_path=tmp_path)
         manifest = make_discovery_manifest(
             candidate_count=3,
             artifact_paths={
-                "trace_events": str(trace),
                 "candidate_pool": str(pool),
                 "coverage_report": str(report),
             },
         )
         return manifest, spec
 
-    def test_all_passed_returns_true_for_clean_manifest(self, tmp_path):
+    def test_all_passed_returns_true_for_clean_manifest(self, tmp_path, monkeypatch):
         """Fully valid discovery manifest passes all gates."""
-        manifest, spec = self._make_clean_discovery(tmp_path)
+        manifest, spec = self._make_clean_discovery(tmp_path, monkeypatch)
         gate = ValidatorGate()
         results = gate.run(manifest, spec)
         assert gate.all_passed(results) is True, [
             r.model_dump() for r in results if not r.passed
         ]
 
-    def test_all_passed_returns_true_for_valid_no_yield(self, tmp_path):
-        """State B: real search, no candidates — valid no-yield passes."""
-        trace = write_trace(tmp_path, "web_search")
-        report = write_coverage_report(tmp_path)
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=0,
-            artifact_paths={
-                "trace_events": str(trace),
-                "coverage_report": str(report),
-            },
-        )
-        gate = ValidatorGate()
-        results = gate.run(manifest, spec)
-        assert gate.all_passed(results) is True, [
-            r.model_dump() for r in results if not r.passed
-        ]
-
-    def test_fails_for_placeholder_state_a_run(self):
-        """State A: no trace, no real work — gate must reject this (placeholder guard)."""
-        spec = make_spec()
+    def test_fails_for_state_a_no_ledger(self, tmp_path, monkeypatch):
+        """No tool_events.jsonl → ToolLedgerValidator fails."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
         manifest = make_discovery_manifest(
             candidate_count=0,
             artifact_paths={},
@@ -588,24 +654,9 @@ class TestValidatorGate:
         results = gate.run(manifest, spec)
         assert gate.all_passed(results) is False
         failed_names = {r.validator_name for r in results if r.status == "failed"}
-        assert "tool_activity" in failed_names
+        assert "tool_ledger" in failed_names
 
-    def test_fails_for_partial_placeholder_with_no_trace(self):
-        """Partial run with no real tool activity is rejected."""
-        spec = make_spec()
-        manifest = make_discovery_manifest(
-            candidate_count=0,
-            status="partial",
-            stop_reason="Bounded test run with no live search",
-            artifact_paths={},
-        )
-        gate = ValidatorGate()
-        results = gate.run(manifest, spec)
-        assert gate.all_passed(results) is False
-        failed_names = {r.validator_name for r in results if r.status == "failed"}
-        assert "tool_activity" in failed_names
-
-    def test_all_passed_returns_false_when_any_failed(self):
+    def test_fails_when_any_validator_fails(self):
         spec = make_spec()
         manifest = make_discovery_manifest(status="failed")
         gate = ValidatorGate()
@@ -626,16 +677,16 @@ class TestValidatorGate:
         assert results[0].status == "failed"
         assert not gate.all_passed(results)
 
-    def test_discovery_count_mismatch_fails_gate(self, tmp_path):
+    def test_discovery_count_mismatch_fails_gate(self, tmp_path, monkeypatch):
         """manifest.candidate_count != pool lines → gate rejects."""
-        trace = write_trace(tmp_path, "web_search")
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
         pool = write_pool(tmp_path, 2)
         report = write_coverage_report(tmp_path)
-        spec = make_spec()
+        write_ledger(tmp_path, pool_path=pool, candidate_count=2)
+        spec = make_spec(tmp_path=tmp_path)
         manifest = make_discovery_manifest(
             candidate_count=5,  # lies about count
             artifact_paths={
-                "trace_events": str(trace),
                 "candidate_pool": str(pool),
                 "coverage_report": str(report),
             },
@@ -645,3 +696,24 @@ class TestValidatorGate:
         assert gate.all_passed(results) is False
         failed_names = {r.validator_name for r in results if r.status == "failed"}
         assert "discovery_count" in failed_names
+
+    def test_embedded_transport_fails_gate(self, tmp_path, monkeypatch):
+        """Embedded transport in gateway summary → gate rejects."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        write_gateway_summary(tmp_path, tools=["web_search"], transport="embedded")
+        pool = write_pool(tmp_path, 3)
+        report = write_coverage_report(tmp_path)
+        write_ledger(tmp_path, pool_path=pool, candidate_count=3)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(
+            candidate_count=3,
+            artifact_paths={
+                "candidate_pool": str(pool),
+                "coverage_report": str(report),
+            },
+        )
+        gate = ValidatorGate()
+        results = gate.run(manifest, spec)
+        assert gate.all_passed(results) is False
+        failed_names = {r.validator_name for r in results if r.status == "failed"}
+        assert "gateway_transport" in failed_names

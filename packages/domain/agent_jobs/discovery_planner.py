@@ -78,6 +78,7 @@ def build_output_paths(
         trace_events_path=str(base / "trace_events.jsonl"),
         coverage_report_path=str(base / "coverage_report.md"),
         output_manifest_path=str(base / "output_manifest.json"),
+        tool_events_path=str(base / "tool_events.jsonl"),
     )
 
 

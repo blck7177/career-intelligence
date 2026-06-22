@@ -43,6 +43,7 @@ services:
       # source config here on each start so OpenClaw can do atomic saves.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
       OPENCLAW_WORKSPACE_DIR: /openclaw/workspace
+      TOOL_LEDGER_SIGNING_KEY: ${TOOL_LEDGER_SIGNING_KEY}
     volumes:
       - openclaw_state:/openclaw/state
       # Writable runtime config: entrypoint materializes openclaw.json here.
@@ -141,6 +142,7 @@ services:
       # Read-only: gives the CLI the agent list so it can route --agent calls
       # to the gateway. The worker does NOT own or write this config.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
+      TOOL_LEDGER_SIGNING_KEY: ${TOOL_LEDGER_SIGNING_KEY}
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
       - openclaw_state:/openclaw/state

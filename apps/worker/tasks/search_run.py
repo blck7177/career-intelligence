@@ -46,6 +46,7 @@ from packages.infrastructure.agent_runtime.openclaw import create_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
+    AgentToolEventRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
     RunRepository,
@@ -397,6 +398,11 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
+    # ------------------------------------------------------------------
+    # Step 10a: Ingest signed tool events into Postgres
+    # ------------------------------------------------------------------
+    _ingest_tool_events(task_spec, invocation_id)
+
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
@@ -600,6 +606,72 @@ def _load_profile(profile_id: str | None) -> ProfileSnapshot:
             profile_id,
         )
     return ProfileSnapshot.empty()
+
+
+def _ingest_tool_events(task_spec, invocation_id: str) -> None:
+    """
+    Load verified tool events from the signed ledger and persist them to
+    agent_tool_events in Postgres.
+
+    Called after the validator gate passes so we only ingest events from
+    runs that passed all checks.  Errors are logged as warnings — a failure
+    here must not block task completion.
+    """
+    signing_key = os.environ.get("TOOL_LEDGER_SIGNING_KEY", "")
+    if not signing_key:
+        logger.warning(
+            "search_run: TOOL_LEDGER_SIGNING_KEY not set — skipping tool event ingestion"
+        )
+        return
+
+    ledger_path = Path(task_spec.output_paths.tool_events_path)
+    if not ledger_path.exists():
+        logger.info(
+            "search_run: tool_events.jsonl not found at %s — no events to ingest", ledger_path
+        )
+        return
+
+    try:
+        from packages.infrastructure.tool_ledger import load_and_verify  # noqa: PLC0415
+
+        events, errors = load_and_verify(ledger_path, invocation_id, signing_key)
+        if errors:
+            logger.warning(
+                "search_run: tool ledger verification errors during ingestion (non-blocking): %s",
+                errors,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("search_run: failed to load tool ledger for ingestion: %s", exc)
+        return
+
+    if not events:
+        return
+
+    try:
+        with get_session() as session:
+            tool_event_repo = AgentToolEventRepository(session)
+            for ev in events:
+                tool_event_repo.append(
+                    invocation_id=invocation_id,
+                    tool_name=ev.tool_name,
+                    action=ev.event_type,
+                    input_hash=None,
+                    output_hash=ev.output_hash,
+                    status=ev.status,
+                    event_id=ev.event_id,
+                    sequence=ev.sequence,
+                    prev_event_hash=ev.prev_event_hash,
+                    event_hash=ev.event_hash,
+                    signature=ev.signature,
+                    raw_event_json=ev.model_dump(),
+                )
+        logger.info(
+            "search_run: ingested %d tool events for invocation %s",
+            len(events),
+            invocation_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("search_run: failed to persist tool events (non-blocking): %s", exc)
 
 
 def _mark_needs_review(

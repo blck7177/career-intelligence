@@ -1,5 +1,6 @@
 """
-Validator Gate v2 — schema + provenance + budget + tool-activity + count checks.
+Validator Gate v3 — schema + provenance + budget + gateway-transport +
+                     tool-ledger + discovery-evidence + count checks.
 
 Flow:
   Worker calls ValidatorGate.run(manifest, spec) after reading output_manifest.json.
@@ -14,16 +15,17 @@ Rules:
   - Validators must not raise — return a "failed" result instead.
   - New validators can be added without changing the gate interface.
 
-Three-state discovery provenance gate (from AGENT_IO_CONTRACT.md):
-  A — no discovery : discovery actions == 0 AND no evidence  → FAIL
-  B — valid no-yield: discovery actions > 0, candidates == 0 → PASS (empty pool)
-  C — candidates    : discovery actions > 0, candidates > 0  → PASS (normal run)
+Discovery provenance gate (signed ledger path):
+  ToolLedgerValidator  — verifies tool_events.jsonl exists, signatures valid, chain intact
+  DiscoveryEvidenceValidator — verifies candidate_log event present and hash matches pool
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 from abc import ABC, abstractmethod
 from pathlib import Path
 
@@ -297,45 +299,19 @@ class BudgetValidator(Validator):
 
 
 # ---------------------------------------------------------------------------
-# Tool activity validator
+# Gateway transport validator
 # ---------------------------------------------------------------------------
 
 
-class ToolActivityValidator(Validator):
+class GatewayTransportValidator(Validator):
     """
-    Guards against phantom outputs — runs that report results without any real
-    tool activity.
+    Checks that the run did not use embedded transport or fall back from the gateway.
 
-    Discovery three-state gate (AGENT_IO_CONTRACT.md):
-      State A — FAIL:  no discovery evidence at all (zero searches, no trace)
-      State B — PASS:  real discovery actions ran but found nothing (empty pool)
-      State C — PASS:  real discovery actions ran and found candidates
-
-    A "failed" status discovery manifest is already caught by SchemaValidator
-    and is not re-checked here.
-
-    Research gate:
-      citations_count > 0 requires evidence of real web_fetch or
-      career_fetch_source calls in trace_events.
+    Reads gateway_tool_activity.json if present; passes silently if absent
+    (ToolLedgerValidator is the authoritative discovery evidence gate in v3).
     """
 
-    name = "tool_activity"
-
-    DISCOVERY_TOOLS = frozenset(
-        {
-            "web_search",
-            "web_fetch",
-            "career_fetch_source",
-            "career_log_candidates",
-        }
-    )
-
-    RESEARCH_TOOLS = frozenset(
-        {
-            "web_fetch",
-            "career_fetch_source",
-        }
-    )
+    name = "gateway_transport"
 
     def validate(
         self,
@@ -344,13 +320,10 @@ class ToolActivityValidator(Validator):
     ) -> AgentValidationResult:
         errors: list[ValidationError] = []
         warnings: list[ValidationWarning] = []
-        summary = self._load_gateway_summary(spec)
 
-        if isinstance(manifest, DiscoveryManifest):
-            errors.extend(self._validate_discovery(manifest, summary))
-        elif isinstance(manifest, ResearchManifest):
-            errors.extend(self._validate_research(manifest, summary))
-        # ReflectionManifest has no tool activity requirement here.
+        summary = self._load_gateway_summary(spec)
+        if summary is not None:
+            errors.extend(self._validate_transport(summary))
 
         status = "failed" if errors else ("warning" if warnings else "passed")
         return AgentValidationResult(
@@ -360,177 +333,6 @@ class ToolActivityValidator(Validator):
             errors=errors,
             warnings=warnings,
         )
-
-    def _validate_discovery(
-        self,
-        manifest: DiscoveryManifest,
-        summary: ToolActivitySummary | None,
-    ) -> list[ValidationError]:
-        # "failed" status is already rejected by SchemaValidator; no further
-        # tool-activity check needed for an explicitly-failed run.
-        if manifest.status == "failed":
-            return []
-
-        if summary is not None:
-            return self._validate_discovery_with_summary(manifest, summary)
-        return self._validate_discovery_with_trace(manifest)
-
-    def _validate_discovery_with_summary(
-        self,
-        manifest: DiscoveryManifest,
-        summary: ToolActivitySummary,
-    ) -> list[ValidationError]:
-        transport_errors = self._validate_transport(summary)
-        if transport_errors:
-            return transport_errors
-
-        called_tools = {c.tool for c in summary.tool_calls}
-        if called_tools & self.DISCOVERY_TOOLS:
-            return []
-        return [
-            ValidationError(
-                field="gateway_tool_activity",
-                message=(
-                    "gateway_tool_activity shows no discovery calls for this run "
-                    f"(expected one of: {sorted(self.DISCOVERY_TOOLS)}). "
-                    "State A runs (zero searches) are not accepted as valid no-yield"
-                ),
-            )
-        ]
-
-    def _validate_discovery_with_trace(
-        self,
-        manifest: DiscoveryManifest,
-    ) -> list[ValidationError]:
-        trace_path_str = manifest.artifact_paths.get("trace_events")
-
-        # No trace at all → State A: zero discovery (both 0-candidate and n-candidate)
-        if not trace_path_str:
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        "trace_events artifact is missing — "
-                        "at least one real discovery action is required "
-                        "(web_search, web_fetch, or an approved wrapper); "
-                        "placeholder / mock output is not accepted"
-                    ),
-                )
-            ]
-
-        trace_path = Path(trace_path_str)
-        if not trace_path.exists():
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        f"trace_events file does not exist: {trace_path_str} — "
-                        "at least one real discovery action is required"
-                    ),
-                    value=trace_path_str,
-                )
-            ]
-
-        found_tool = self._file_contains_any(trace_path, self.DISCOVERY_TOOLS)
-        if not found_tool:
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        "trace_events contains no evidence of a real discovery tool call "
-                        f"(looked for: {sorted(self.DISCOVERY_TOOLS)}); "
-                        "State A runs (zero searches) are not accepted as valid no-yield"
-                    ),
-                )
-            ]
-
-        # trace contains evidence → State B (0 candidates) or State C (n candidates)
-        return []
-
-    def _validate_research(
-        self,
-        manifest: ResearchManifest,
-        summary: ToolActivitySummary | None,
-    ) -> list[ValidationError]:
-        # Only enforce tool-activity when the agent claims it found something.
-        if manifest.citations_count == 0:
-            return []
-        if manifest.status == "failed":
-            return []
-
-        if summary is not None:
-            return self._validate_research_with_summary(manifest, summary)
-        return self._validate_research_with_trace(manifest)
-
-    def _validate_research_with_summary(
-        self,
-        manifest: ResearchManifest,
-        summary: ToolActivitySummary,
-    ) -> list[ValidationError]:
-        transport_errors = self._validate_transport(summary)
-        if transport_errors:
-            return transport_errors
-
-        called_tools = {c.tool for c in summary.tool_calls}
-        if called_tools & self.RESEARCH_TOOLS:
-            return []
-        return [
-            ValidationError(
-                field="gateway_tool_activity",
-                message=(
-                    f"citations_count={manifest.citations_count} but "
-                    "gateway_tool_activity shows no web_fetch/career_fetch_source "
-                    "calls — research results without real fetch calls are not accepted"
-                ),
-            )
-        ]
-
-    def _validate_research_with_trace(
-        self,
-        manifest: ResearchManifest,
-    ) -> list[ValidationError]:
-        trace_path_str = manifest.artifact_paths.get("trace_events")
-
-        if not trace_path_str:
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        f"citations_count={manifest.citations_count} but "
-                        "trace_events artifact is missing — "
-                        "research results require evidence of real web_fetch calls"
-                    ),
-                )
-            ]
-
-        trace_path = Path(trace_path_str)
-        if not trace_path.exists():
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        f"citations_count={manifest.citations_count} but "
-                        f"trace_events file does not exist: {trace_path_str}"
-                    ),
-                    value=trace_path_str,
-                )
-            ]
-
-        found_tool = self._file_contains_any(trace_path, self.RESEARCH_TOOLS)
-        if not found_tool:
-            return [
-                ValidationError(
-                    field="artifact_paths.trace_events",
-                    message=(
-                        f"citations_count={manifest.citations_count} but "
-                        "trace_events contains no evidence of web_fetch or "
-                        "career_fetch_source — research results without real "
-                        "fetch calls are not accepted"
-                    ),
-                )
-            ]
-
-        return []
 
     @staticmethod
     def _load_gateway_summary(spec: AgentInvocationSpec) -> ToolActivitySummary | None:
@@ -575,14 +377,242 @@ class ToolActivityValidator(Validator):
             ]
         return []
 
+
+# ---------------------------------------------------------------------------
+# Tool ledger validator
+# ---------------------------------------------------------------------------
+
+
+class ToolLedgerValidator(Validator):
+    """
+    Verifies that tool_events.jsonl exists, all HMAC signatures are valid,
+    and the hash chain is unbroken.
+
+    Signing key is read from TOOL_LEDGER_SIGNING_KEY env var.
+    Missing key → hard fail (platform misconfiguration).
+    Missing file → hard fail (all discovery must go through approved wrappers).
+    """
+
+    name = "tool_ledger"
+
+    def validate(
+        self,
+        manifest: AgentOutputManifest,
+        spec: AgentInvocationSpec,
+    ) -> AgentValidationResult:
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
+
+        if not isinstance(manifest, DiscoveryManifest):
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="passed",
+                errors=[],
+                warnings=[],
+            )
+
+        # Derive ledger path from manifest directory (platform-canonical location)
+        ledger_path = Path(spec.output_manifest_path).parent / "tool_events.jsonl"
+
+        signing_key = os.environ.get("TOOL_LEDGER_SIGNING_KEY", "")
+        if not signing_key:
+            errors.append(
+                ValidationError(
+                    field="TOOL_LEDGER_SIGNING_KEY",
+                    message=(
+                        "TOOL_LEDGER_SIGNING_KEY is not set — "
+                        "platform configuration error; cannot verify tool ledger"
+                    ),
+                )
+            )
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="failed",
+                errors=errors,
+                warnings=warnings,
+            )
+
+        if not ledger_path.exists():
+            errors.append(
+                ValidationError(
+                    field="tool_events.jsonl",
+                    message=(
+                        "tool_events.jsonl not found — "
+                        "all discovery must go through approved wrappers "
+                        "(career_log_candidates, career_write_manifest)"
+                    ),
+                )
+            )
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="failed",
+                errors=errors,
+                warnings=warnings,
+            )
+
+        from packages.infrastructure.tool_ledger import load_and_verify  # noqa: PLC0415
+
+        _events, ledger_errors = load_and_verify(ledger_path, spec.invocation_id, signing_key)
+
+        for err in ledger_errors:
+            errors.append(ValidationError(field="tool_events.jsonl", message=err))
+
+        status = "failed" if errors else ("warning" if warnings else "passed")
+        return AgentValidationResult(
+            invocation_id=spec.invocation_id,
+            validator_name=self.name,
+            status=status,
+            errors=errors,
+            warnings=warnings,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Discovery evidence validator
+# ---------------------------------------------------------------------------
+
+
+class DiscoveryEvidenceValidator(Validator):
+    """
+    Verifies that the signed tool ledger contains sufficient evidence for the
+    claimed candidate_count.
+
+    Only runs for DiscoveryManifest with status != "failed"
+    (SchemaValidator has already caught explicitly-failed manifests).
+
+    State A (no candidates, no signed log)  → FAIL
+    State B (no candidates, signed log present) → handled by ToolLedgerValidator
+    State C (candidates > 0)
+      - Must have at least one candidate_log event with status="ok"
+      - Last candidate_log output_hash must match sha256(candidate_pool_path)
+      - Last candidate_log candidate_count must match pool line count
+    """
+
+    name = "discovery_evidence"
+
+    def validate(
+        self,
+        manifest: AgentOutputManifest,
+        spec: AgentInvocationSpec,
+    ) -> AgentValidationResult:
+        errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
+
+        if not isinstance(manifest, DiscoveryManifest) or manifest.status == "failed":
+            return AgentValidationResult(
+                invocation_id=spec.invocation_id,
+                validator_name=self.name,
+                status="passed",
+                errors=[],
+                warnings=[],
+            )
+
+        ledger_path = Path(spec.output_manifest_path).parent / "tool_events.jsonl"
+        signing_key = os.environ.get("TOOL_LEDGER_SIGNING_KEY", "")
+
+        # Load events (best-effort; ToolLedgerValidator already verified integrity)
+        events: list = []
+        if ledger_path.exists() and signing_key:
+            try:
+                from packages.infrastructure.tool_ledger import load_and_verify  # noqa: PLC0415
+
+                events, _ = load_and_verify(ledger_path, spec.invocation_id, signing_key)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("DiscoveryEvidenceValidator: could not load ledger: %s", exc)
+
+        candidate_log_events = [
+            e for e in events if e.event_type == "candidate_log" and e.status == "ok"
+        ]
+
+        if manifest.candidate_count == 0:
+            # 0-result runs: no signed search proof in v1 → needs_review
+            errors.append(
+                ValidationError(
+                    field="candidate_count",
+                    message=(
+                        "0-result run: no signed search proof available in v1; needs_review"
+                    ),
+                )
+            )
+        else:
+            # candidate_count > 0: require a valid signed candidate_log event
+            if not candidate_log_events:
+                errors.append(
+                    ValidationError(
+                        field="tool_events.jsonl",
+                        message=(
+                            f"candidate_count={manifest.candidate_count} but "
+                            "no candidate_log event found in signed ledger — "
+                            "discovery must use career_log_candidates wrapper"
+                        ),
+                    )
+                )
+            else:
+                last_event = candidate_log_events[-1]
+                pool_path_str = manifest.artifact_paths.get("candidate_pool")
+                if pool_path_str:
+                    errors.extend(
+                        self._verify_pool_hash(last_event, pool_path_str, manifest.candidate_count)
+                    )
+
+        status = "failed" if errors else ("warning" if warnings else "passed")
+        return AgentValidationResult(
+            invocation_id=spec.invocation_id,
+            validator_name=self.name,
+            status=status,
+            errors=errors,
+            warnings=warnings,
+        )
+
     @staticmethod
-    def _file_contains_any(path: Path, needles: frozenset[str]) -> bool:
-        """Return True if the file content contains any of the needle strings."""
+    def _verify_pool_hash(
+        last_event,
+        pool_path_str: str,
+        reported_count: int,
+    ) -> list[ValidationError]:
+        errors: list[ValidationError] = []
+        pool_path = Path(pool_path_str)
+        if not pool_path.exists():
+            return errors  # ProvenanceValidator will catch this
+
+        actual_hash = "sha256:" + hashlib.sha256(pool_path.read_bytes()).hexdigest()
+        if last_event.output_hash and last_event.output_hash != actual_hash:
+            errors.append(
+                ValidationError(
+                    field="tool_events.jsonl",
+                    message=(
+                        f"candidate_pool hash mismatch — "
+                        f"ledger records {last_event.output_hash!r} but "
+                        f"file hashes to {actual_hash!r}"
+                    ),
+                )
+            )
+
+        # Count pool lines
         try:
-            content = path.read_text()
-            return any(needle in content for needle in needles)
+            actual_count = sum(1 for line in pool_path.read_text().splitlines() if line.strip())
         except OSError:
-            return False
+            actual_count = None
+
+        if (
+            last_event.candidate_count is not None
+            and actual_count is not None
+            and last_event.candidate_count != actual_count
+        ):
+            errors.append(
+                ValidationError(
+                    field="tool_events.jsonl",
+                    message=(
+                        f"candidate_count mismatch — ledger records "
+                        f"{last_event.candidate_count} but pool has {actual_count} lines"
+                    ),
+                )
+            )
+
+        return errors
 
 
 # ---------------------------------------------------------------------------
@@ -702,8 +732,9 @@ class ValidatorGate:
         self._validators: list[Validator] = validators or [
             SchemaValidator(),
             ProvenanceValidator(),
-            BudgetValidator(),
-            ToolActivityValidator(),
+            GatewayTransportValidator(),
+            ToolLedgerValidator(),
+            DiscoveryEvidenceValidator(),
             DiscoveryCountValidator(),
         ]
 

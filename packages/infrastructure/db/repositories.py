@@ -374,6 +374,13 @@ class AgentToolEventRepository:
         input_hash: str | None = None,
         output_hash: str | None = None,
         status: str = "ok",
+        # Signed-ledger fields (optional for backward compatibility)
+        event_id: str | None = None,
+        sequence: int | None = None,
+        prev_event_hash: str | None = None,
+        event_hash: str | None = None,
+        signature: str | None = None,
+        raw_event_json: dict | None = None,
     ) -> AgentToolEvent:
         event = AgentToolEvent(
             invocation_id=invocation_id,
@@ -382,6 +389,12 @@ class AgentToolEventRepository:
             input_hash=input_hash,
             output_hash=output_hash,
             status=status,
+            event_id=event_id,
+            sequence=sequence,
+            prev_event_hash=prev_event_hash,
+            event_hash=event_hash,
+            signature=signature,
+            raw_event_json=raw_event_json,
         )
         self._s.add(event)
         self._s.flush()

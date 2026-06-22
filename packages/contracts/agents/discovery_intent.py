@@ -256,6 +256,7 @@ class OutputPaths(BaseModel):
     trace_events_path: str
     coverage_report_path: str
     output_manifest_path: str
+    tool_events_path: str  # platform-written signed ledger (not agent-written)
 
 
 class DiscoveryTaskSpec(BaseModel):
