@@ -2,14 +2,14 @@
   "version": 1,
   "defaults": {
     "security": "deny",
-    "ask": "on-miss",
+    "ask": "never",
     "askFallback": "deny",
     "autoAllowSkills": false
   },
   "agents": {
     "career-search-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0001-4000-8000-career000001",
@@ -39,7 +39,7 @@
     },
     "career-reflect-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0005-4000-8000-career000005",
@@ -51,7 +51,7 @@
     },
     "career-research-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0006-4000-8000-career000006",
