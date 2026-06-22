@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
+from packages.contracts.profile.candidate import CandidateProfile
 from packages.contracts.reports.fit_report import FitReportStructured
 from packages.domain.reports.cache_keys import fit_report_cache_key
 from packages.infrastructure.db.repositories import (
@@ -77,6 +78,12 @@ def create_fit_report(
             "Passing only candidate_profile_id without profile_snapshot is not supported yet — "
             "the system cannot resolve the profile from the database."
         )
+
+    try:
+        validated_profile = CandidateProfile.model_validate(profile_snapshot)
+    except Exception as exc:
+        raise ValueError(f"Invalid profile_snapshot: {exc}") from exc
+    profile_snapshot = validated_profile.model_dump(exclude_none=False)
 
     report_repo = JobReportRepository(session)
     fit_repo = FitReportRepository(session)
