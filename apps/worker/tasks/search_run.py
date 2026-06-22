@@ -220,10 +220,12 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     )
 
     run_dir = Path(_ARTIFACTS_DIR) / env.run_id / env.task_id
-    run_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_agent_run_dir(run_dir)
 
     input_json_path = Path(spec.input_spec_path)
     input_json_path.write_text(task_input.model_dump_json(indent=2))
+    # Ensure gateway (uid=1000) can read input.json written by this process.
+    _fix_file_perms(input_json_path)
     logger.info("search_run: wrote input.json to %s", input_json_path)
 
     # ------------------------------------------------------------------
@@ -425,6 +427,46 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# Artifact writer identity — must match openclaw-gateway's node user (uid=1000).
+# All containers that write to the shared agent_artifacts volume run as this UID.
+_ARTIFACT_UID = 1000
+_ARTIFACT_GID = 1000
+
+
+def _prepare_agent_run_dir(run_dir: Path) -> None:
+    """
+    Create the run/task artifact directory and fix ownership so openclaw-gateway
+    (uid=1000/node) can write output artifacts into it.
+
+    This is a defensive shim: with unified UID across all writer containers the
+    chown calls are no-ops.  If a container ever runs as root, this corrects the
+    directory before OpenClaw is invoked.
+    """
+    import os
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chown(run_dir, _ARTIFACT_UID, _ARTIFACT_GID)
+        os.chown(run_dir.parent, _ARTIFACT_UID, _ARTIFACT_GID)
+        # 775: owner+group can read/write/execute; others read+execute only.
+        run_dir.chmod(0o775)
+        run_dir.parent.chmod(0o755)
+    except PermissionError:
+        # Already running as uid=1000 — chown to same uid is a no-op on Linux
+        # but raises PermissionError on strict kernels. Safe to ignore.
+        logger.debug("search_run: chown skipped (already correct user)")
+
+
+def _fix_file_perms(path: Path) -> None:
+    """Set 664 on a file so both owner and group (1000:1000) can read/write it."""
+    import os
+
+    try:
+        os.chown(path, _ARTIFACT_UID, _ARTIFACT_GID)
+        path.chmod(0o664)
+    except PermissionError:
+        logger.debug("search_run: file chown skipped for %s", path)
 
 
 def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> None:
