@@ -59,9 +59,9 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
                      message="input_snapshot must contain job_id or job_snapshot")
         return {"status": "failed", "task_id": env.task_id}
 
-    if not profile_snapshot and not candidate_profile_id:
+    if not profile_snapshot:
         _mark_failed(env, error_code="MISSING_PROFILE_INPUT",
-                     message="input_snapshot must contain profile_snapshot or candidate_profile_id")
+                     message="input_snapshot must contain profile_snapshot (candidate_profile_id alone is not supported in MVP)")
         return {"status": "failed", "task_id": env.task_id}
 
     try:

@@ -71,8 +71,12 @@ def create_fit_report(
     """
     if not job_id and not job_snapshot:
         raise ValueError("Either job_id or job_snapshot must be provided.")
-    if not profile_snapshot and not candidate_profile_id:
-        raise ValueError("Either profile_snapshot or candidate_profile_id must be provided.")
+    if not profile_snapshot:
+        raise ValueError(
+            "profile_snapshot is required for MVP. "
+            "Passing only candidate_profile_id without profile_snapshot is not supported yet — "
+            "the system cannot resolve the profile from the database."
+        )
 
     report_repo = JobReportRepository(session)
     fit_repo = FitReportRepository(session)
@@ -126,6 +130,7 @@ def create_fit_report(
     # 6. Cache check
     if not force_refresh:
         cached = fit_repo.get_active(
+            workspace_id=workspace_id,
             job_id=job_id,
             job_report_id=job_report_id,
             candidate_profile_id=effective_profile_id,
@@ -152,6 +157,7 @@ def create_fit_report(
         if job_orm:
             job_record = {
                 "id": job_orm.id,
+                "job_id": job_orm.id,
                 "title": job_orm.title,
                 "company": job_orm.company,
                 "location": job_orm.location or "",
@@ -221,7 +227,7 @@ def create_fit_report(
         workspace_id=workspace_id,
         job_id=job_id,
         job_report_id=job_report_id,
-        candidate_profile_id=candidate_profile_id,
+        candidate_profile_id=effective_profile_id,
         profile_hash=profile_hash,
         prompt_version=FIT_PROMPT_VERSION,
         overall_match_score=structured_fit.overall_match_score,

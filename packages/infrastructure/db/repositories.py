@@ -607,6 +607,7 @@ class FitReportRepository:
     def get_active(
         self,
         *,
+        workspace_id: str,
         job_id: str,
         job_report_id: str,
         candidate_profile_id: Optional[str],
@@ -618,8 +619,10 @@ class FitReportRepository:
         stmt = (
             select(FitReport)
             .where(
+                FitReport.workspace_id == workspace_id,
                 FitReport.job_id == job_id,
                 FitReport.job_report_id == job_report_id,
+                FitReport.candidate_profile_id == candidate_profile_id,
                 FitReport.profile_hash == profile_hash,
                 FitReport.prompt_version == prompt_version,
                 FitReport.status == "active",

@@ -81,3 +81,58 @@ export async function listAgentInvocations(runId: string): Promise<AgentInvocati
 export async function cancelRun(runId: string): Promise<RunRead> {
   return req<RunRead>(`/api/runs/${runId}/cancel`, { method: "POST" });
 }
+
+// ---------------------------------------------------------------------------
+// Reports
+// ---------------------------------------------------------------------------
+
+export interface JobReportResponse {
+  id: string;
+  job_id: string;
+  status: string;
+  jd_hash: string;
+  prompt_version: string;
+  used_research: boolean;
+  research_bundle_hash?: string | null;
+  structured_json: Record<string, unknown>;
+  summary_json: Record<string, unknown>;
+  narrative_artifact_id?: string | null;
+  structured_artifact_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FitReportResponse {
+  id: string;
+  workspace_id: string;
+  job_id: string;
+  job_report_id: string;
+  candidate_profile_id?: string | null;
+  overall_match_score: number;
+  status: string;
+  prompt_version: string;
+  structured_json: Record<string, unknown>;
+  summary_json: Record<string, unknown>;
+  narrative_artifact_id?: string | null;
+  structured_artifact_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getRunReport(
+  runId: string
+): Promise<JobReportResponse | FitReportResponse> {
+  return req<JobReportResponse | FitReportResponse>(`/api/runs/${runId}/report`);
+}
+
+export async function getJobReport(jobReportId: string): Promise<JobReportResponse> {
+  return req<JobReportResponse>(`/api/job-reports/${jobReportId}`);
+}
+
+export async function getFitReport(fitReportId: string): Promise<FitReportResponse> {
+  return req<FitReportResponse>(`/api/fit-reports/${fitReportId}`);
+}
+
+export async function getLatestJobReport(jobId: string): Promise<JobReportResponse> {
+  return req<JobReportResponse>(`/api/jobs/${encodeURIComponent(jobId)}/job-reports/latest`);
+}
