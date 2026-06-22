@@ -25,7 +25,7 @@ from apps.worker.tasks.research_run import handle_research_run
 from apps.worker.tasks.search_run import handle_search_run
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.routing import ExecutionMode
-from packages.infrastructure.db.repositories import TaskEventRepository, TaskRepository
+from packages.infrastructure.db.repositories import RunRepository, TaskEventRepository, TaskRepository
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.observability.logging import set_correlation_id
 
@@ -65,9 +65,11 @@ def execute_task(self, *, envelope: dict) -> dict:
 
     with get_session() as session:
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
 
         task_repo.mark_running(env.task_id)
+        run_repo.set_status(env.run_id, "running")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -86,12 +88,14 @@ def execute_task(self, *, envelope: dict) -> dict:
         logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="TASK_EXCEPTION",
                 error_message=str(exc)[:500],
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
@@ -115,12 +119,14 @@ def _run_openclaw_task(env: TaskEnvelope) -> dict:
         )
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="UNKNOWN_OPENCLAW_TASK_TYPE",
                 error_message=f"No OPENCLAW handler for task_type={env.task_type!r}",
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
@@ -143,12 +149,14 @@ def _run_deterministic_task(env: TaskEnvelope) -> dict:
         )
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="UNKNOWN_TASK_TYPE",
                 error_message=f"No handler for task_type={env.task_type!r}",
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,

@@ -95,6 +95,19 @@ for AGENT_ID in career-search-agent career-reflect-agent career-research-agent; 
     fi
 done
 
+# --- exec-approvals ---
+# Copy exec-approvals.json from repo source into the writable state volume on
+# every startup so OpenClaw can read it without EBUSY errors from the :ro bind.
+EXEC_APPROVALS_SRC="$AGENT_SOURCE/config/exec-approvals.json"
+EXEC_APPROVALS_DST="${OPENCLAW_STATE_DIR}/exec-approvals.json"
+if [ -f "$EXEC_APPROVALS_SRC" ]; then
+    rm -f "$EXEC_APPROVALS_DST"
+    cp "$EXEC_APPROVALS_SRC" "$EXEC_APPROVALS_DST"
+    echo "[openclaw-entrypoint] exec-approvals materialized: $EXEC_APPROVALS_DST"
+else
+    echo "[openclaw-entrypoint] WARNING: exec-approvals source not found at $EXEC_APPROVALS_SRC"
+fi
+
 # --- sync gateway token to state-level client config ---
 # The CLI reads $OPENCLAW_STATE_DIR/openclaw.json for gateway auth.
 # Write the resolved token there so CLI clients (worker-agent) can authenticate

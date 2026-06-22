@@ -341,6 +341,14 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
+    # ------------------------------------------------------------------
+    # Step 7.5: Normalize candidate_pool artifact
+    # ------------------------------------------------------------------
+    # The agent may write a JSON array instead of JSONL, or omit the file
+    # entirely when there are zero candidates.  Normalize here so the
+    # ValidatorGate always sees consistent JSONL content.
+    _normalize_candidate_pool(manifest, run_dir)
+
     gate = ValidatorGate()
     validation_results = gate.run(manifest, spec)
 
@@ -378,6 +386,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
 
         for artifact_type, path_str in manifest.artifact_paths.items():
@@ -390,6 +399,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             )
 
         task_repo.mark_succeeded(env.task_id)
+        run_repo.set_status(env.run_id, "succeeded")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -417,6 +427,64 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> None:
+    """
+    Ensure candidate_pool artifact is valid JSONL before the validator gate runs.
+
+    Two cases we fix:
+      1. Agent wrote a JSON array  → convert to one JSON object per line (JSONL).
+      2. Zero-candidate run with no pool artifact → create an empty file and
+         register it in the manifest so the validator sees a consistent artifact.
+
+    This is worker-side normalization: we prefer fixing the format here rather
+    than loosening the validator contract.
+    """
+    pool_path_str = manifest.artifact_paths.get("candidate_pool")
+
+    if pool_path_str:
+        pool_path = Path(pool_path_str)
+        if pool_path.exists() and pool_path.stat().st_size > 0:
+            try:
+                raw = pool_path.read_text().strip()
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    # Convert JSON array to JSONL in-place.
+                    lines = "\n".join(json.dumps(item) for item in parsed)
+                    pool_path.write_text(lines + "\n" if lines else "")
+                    logger.info(
+                        "search_run: normalized candidate_pool from JSON array "
+                        "to JSONL (%d records) at %s",
+                        len(parsed),
+                        pool_path,
+                    )
+                # If it's already a dict (single object without newlines) wrap it.
+                elif isinstance(parsed, dict):
+                    pool_path.write_text(json.dumps(parsed) + "\n")
+                    logger.info(
+                        "search_run: normalized candidate_pool from bare JSON "
+                        "object to JSONL at %s",
+                        pool_path,
+                    )
+                # Otherwise it's already JSONL or some other structure — leave it
+                # for the validator to catch.
+            except json.JSONDecodeError:
+                # Already JSONL or invalid — validator will surface the error.
+                pass
+        return
+
+    # No candidate_pool in manifest at all.
+    if manifest.candidate_count == 0:
+        # Create an empty file so the validator sees a declared artifact.
+        empty_path = run_dir / "candidate_pool.jsonl"
+        empty_path.touch()
+        manifest.artifact_paths["candidate_pool"] = str(empty_path)
+        logger.info(
+            "search_run: created empty candidate_pool.jsonl for zero-candidate "
+            "run at %s",
+            empty_path,
+        )
+
+
 def _load_profile(profile_id: str | None) -> ProfileSnapshot:
     """
     Load a ProfileSnapshot for the given profile_id.
@@ -440,15 +508,17 @@ def _mark_needs_review(
     reason: str,
     error_code: str = "VALIDATOR_GATE_FAILED",
 ) -> None:
-    """Helper: mark task as needs_review and append event."""
+    """Helper: mark task and run as needs_review and append event."""
     with get_session() as session:
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
         task_repo.mark_needs_review(
             env.task_id,
             error_code=error_code,
             error_message=reason[:500],
         )
+        run_repo.set_status(env.run_id, "needs_review")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,

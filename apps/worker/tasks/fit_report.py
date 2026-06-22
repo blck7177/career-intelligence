@@ -92,7 +92,9 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
     with get_session() as session:
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
+        run_repo = RunRepository(session)
         task_repo.mark_succeeded(env.task_id)
+        run_repo.set_status(env.run_id, "succeeded")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -124,7 +126,9 @@ def _mark_failed(env: TaskEnvelope, *, error_code: str, message: str) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
+        run_repo = RunRepository(session)
         task_repo.mark_failed(env.task_id, error_code=error_code, error_message=message)
+        run_repo.set_status(env.run_id, "failed")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,

@@ -52,8 +52,8 @@ services:
       # Repo source — read-only. Skills, agents, and wrappers are loaded from here.
       - ../../agent:/app/agent:ro
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
-      # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
-      - ../../agent/openclaw/config/exec-approvals.json:/openclaw/state/exec-approvals.json:ro
+      # exec-approvals.json is materialized by the entrypoint on every startup
+      # (cp from /app/agent/openclaw/config → /openclaw/state). No bind mount needed.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
       interval: 10s
