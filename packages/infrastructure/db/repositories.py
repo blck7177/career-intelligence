@@ -19,6 +19,9 @@ from packages.infrastructure.db.models import (
     AgentToolEvent,
     AgentValidationResult,
     Artifact,
+    FitReport,
+    Job,
+    JobReport,
     Run,
     Task,
     TaskEvent,
@@ -264,6 +267,9 @@ class ArtifactRepository:
         self._s.flush()
         return artifact
 
+    def get(self, artifact_id: str) -> Optional[Artifact]:
+        return self._s.get(Artifact, artifact_id)
+
     def list_for_run(self, run_id: str) -> list[Artifact]:
         return (
             self._s.query(Artifact)
@@ -418,3 +424,264 @@ class AgentValidationResultRepository:
             .order_by(AgentValidationResult.created_at)
             .all()
         )
+
+
+# ---------------------------------------------------------------------------
+# Job
+# ---------------------------------------------------------------------------
+
+
+class JobRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, job_id: str) -> Optional[Job]:
+        return self._s.get(Job, job_id)
+
+    def get_or_raise(self, job_id: str) -> Job:
+        job = self.get(job_id)
+        if job is None:
+            raise ValueError(f"Job not found: {job_id}")
+        return job
+
+    def get_reportable(self, job_id: str) -> Job:
+        """Return job only if status is 'reportable'. Raises ValueError otherwise."""
+        job = self.get_or_raise(job_id)
+        if job.status != "reportable":
+            raise ValueError(
+                f"Job {job_id} is not reportable (status={job.status!r}). "
+                "Only jobs with status='reportable' can have reports generated."
+            )
+        return job
+
+    def get_by_canonical_url(self, canonical_url: str) -> Optional[Job]:
+        from sqlalchemy import select
+        stmt = select(Job).where(Job.canonical_url == canonical_url)
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def create(
+        self,
+        *,
+        canonical_url: str,
+        source_url: str,
+        source_type: str,
+        title: str,
+        company: str,
+        jd_text: str,
+        jd_hash: str,
+        location: Optional[str] = None,
+        raw_payload_json: Optional[dict] = None,
+        status: str = "discovered",
+        discovered_run_id: Optional[str] = None,
+        discovered_task_id: Optional[str] = None,
+    ) -> Job:
+        job = Job(
+            canonical_url=canonical_url,
+            source_url=source_url,
+            source_type=source_type,
+            title=title,
+            company=company,
+            jd_text=jd_text,
+            jd_hash=jd_hash,
+            location=location,
+            raw_payload_json=raw_payload_json,
+            status=status,
+            discovered_run_id=discovered_run_id,
+            discovered_task_id=discovered_task_id,
+        )
+        self._s.add(job)
+        self._s.flush()
+        return job
+
+    def set_status(self, job_id: str, status: str) -> None:
+        job = self.get_or_raise(job_id)
+        job.status = status
+        self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# JobReport
+# ---------------------------------------------------------------------------
+
+
+class JobReportRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, report_id: str) -> Optional[JobReport]:
+        return self._s.get(JobReport, report_id)
+
+    def get_active(
+        self,
+        job_id: str,
+        jd_hash: str,
+        prompt_version: str,
+        research_bundle_hash: str,
+    ) -> Optional[JobReport]:
+        """Return an active cached report matching exact cache key, or None."""
+        from sqlalchemy import select
+        stmt = (
+            select(JobReport)
+            .where(
+                JobReport.job_id == job_id,
+                JobReport.jd_hash == jd_hash,
+                JobReport.prompt_version == prompt_version,
+                JobReport.research_bundle_hash == research_bundle_hash,
+                JobReport.status == "active",
+            )
+            .order_by(JobReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def get_latest_active(self, job_id: str) -> Optional[JobReport]:
+        """Return the most recent active report for a job, regardless of cache key."""
+        from sqlalchemy import select
+        stmt = (
+            select(JobReport)
+            .where(JobReport.job_id == job_id, JobReport.status == "active")
+            .order_by(JobReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def supersede_prior(self, job_id: str) -> None:
+        """Mark all existing active reports for this job as superseded."""
+        from sqlalchemy import update
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(JobReport)
+            .where(JobReport.job_id == job_id, JobReport.status == "active")
+            .values(status="superseded", superseded_at=now, updated_at=now)
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+    def create(
+        self,
+        *,
+        job_id: str,
+        jd_hash: str,
+        prompt_version: str,
+        analysis_version: str = "1.0",
+        used_research: bool = False,
+        research_artifact_id: Optional[str] = None,
+        research_bundle_hash: str = "none",
+        narrative_artifact_id: Optional[str] = None,
+        structured_artifact_id: Optional[str] = None,
+        structured_json: Optional[dict] = None,
+        summary_json: Optional[dict] = None,
+        status: str = "active",
+    ) -> JobReport:
+        row = JobReport(
+            job_id=job_id,
+            jd_hash=jd_hash,
+            prompt_version=prompt_version,
+            analysis_version=analysis_version,
+            used_research=used_research,
+            research_artifact_id=research_artifact_id,
+            research_bundle_hash=research_bundle_hash,
+            narrative_artifact_id=narrative_artifact_id,
+            structured_artifact_id=structured_artifact_id,
+            structured_json=structured_json,
+            summary_json=summary_json,
+            status=status,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+
+# ---------------------------------------------------------------------------
+# FitReport
+# ---------------------------------------------------------------------------
+
+
+class FitReportRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, report_id: str) -> Optional[FitReport]:
+        return self._s.get(FitReport, report_id)
+
+    def get_active(
+        self,
+        *,
+        job_id: str,
+        job_report_id: str,
+        candidate_profile_id: Optional[str],
+        profile_hash: str,
+        prompt_version: str,
+    ) -> Optional[FitReport]:
+        """Return active cached fit report matching exact cache key, or None."""
+        from sqlalchemy import select
+        stmt = (
+            select(FitReport)
+            .where(
+                FitReport.job_id == job_id,
+                FitReport.job_report_id == job_report_id,
+                FitReport.profile_hash == profile_hash,
+                FitReport.prompt_version == prompt_version,
+                FitReport.status == "active",
+            )
+            .order_by(FitReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def supersede_prior(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        candidate_profile_id: Optional[str],
+        profile_hash: str,
+    ) -> None:
+        from sqlalchemy import update
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(FitReport)
+            .where(
+                FitReport.workspace_id == workspace_id,
+                FitReport.job_id == job_id,
+                FitReport.profile_hash == profile_hash,
+                FitReport.status == "active",
+            )
+            .values(status="superseded", superseded_at=now, updated_at=now)
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        job_report_id: str,
+        candidate_profile_id: Optional[str] = None,
+        profile_hash: str,
+        prompt_version: str,
+        overall_match_score: int = 0,
+        structured_artifact_id: Optional[str] = None,
+        narrative_artifact_id: Optional[str] = None,
+        structured_json: Optional[dict] = None,
+        summary_json: Optional[dict] = None,
+        status: str = "active",
+    ) -> FitReport:
+        row = FitReport(
+            workspace_id=workspace_id,
+            job_id=job_id,
+            job_report_id=job_report_id,
+            candidate_profile_id=candidate_profile_id,
+            profile_hash=profile_hash,
+            prompt_version=prompt_version,
+            overall_match_score=overall_match_score,
+            structured_artifact_id=structured_artifact_id,
+            narrative_artifact_id=narrative_artifact_id,
+            structured_json=structured_json,
+            summary_json=summary_json,
+            status=status,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
