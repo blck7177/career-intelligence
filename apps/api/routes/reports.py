@@ -35,7 +35,7 @@ from packages.infrastructure.db.repositories import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api", tags=["reports"])
+router = APIRouter(prefix="/api/app", tags=["reports"])
 
 
 # ---------------------------------------------------------------------------

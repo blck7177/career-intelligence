@@ -35,8 +35,8 @@ class ProfileSnapshot(BaseModel):
     All fields are optional. An empty profile is valid — agents should
     treat it as "no profile context available" and proceed on intent alone.
 
-    MVP: profiles are not yet persisted in DB. ProfileSnapshot.empty()
-    is always used until workspace_profiles table exists.
+    Persisted in candidate_profiles table (one per workspace).
+    Loaded by the worker via ProfileRepository.get_for_workspace().
     """
 
     profile_id: Optional[str] = None

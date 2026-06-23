@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { getRun } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import {
@@ -16,7 +16,7 @@ import { DisplayPanel } from "./DisplayPanel";
 const POLL_INTERVAL_MS = 3000;
 
 export function WorkspaceShell() {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [state, setState] = useState<WorkspaceState>(DEFAULT_WORKSPACE_STATE);
   const [activeRun, setActiveRun] = useState<RunRead | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);

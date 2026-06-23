@@ -1,5 +1,5 @@
 /**
- * Typed API client for Career OpenClaw.
+ * Typed API client for Career OpenClaw — product (user-facing) endpoints.
  *
  * All types are derived from the generated schema — do NOT hand-write types here.
  * Re-run `npm run gen:types` after any FastAPI route or Pydantic model change.
@@ -9,8 +9,12 @@
  *   - SSR:      NEXT_PUBLIC_API_URL env var (or http://api:8000 in Docker)
  *
  * Auth:
- *   Every request includes the Clerk Bearer token obtained from useAuth().getToken().
+ *   Every request includes the Bearer token obtained from useApiToken()().
  *   Server-side calls (SSR/RSC) use auth().getToken() from @clerk/nextjs/server.
+ *
+ * Route prefix:
+ *   All product endpoints live under /api/app/*.
+ *   Admin/debug endpoints are in adminClient.ts under /api/admin/*.
  */
 
 import type { components } from "@/api/generated/schema";
@@ -48,7 +52,7 @@ const BASE =
  *
  * - Server Components / Route Handlers: import and call getServerToken() directly.
  * - Client Components: pass the token as a parameter to client functions,
- *   obtained via `const { getToken } = useAuth(); const t = await getToken();`
+ *   obtained via `const getToken = useApiToken(); const t = await getToken();`
  *
  * The req() helper accepts an optional token parameter; when omitted it
  * attempts a server-side fetch via @clerk/nextjs/server.
@@ -92,68 +96,91 @@ async function req<T>(path: string, init?: RequestInit, token?: string | null): 
 }
 
 // ---------------------------------------------------------------------------
-// Runs
+// Runs  (/api/app/runs/*)
 // ---------------------------------------------------------------------------
 
 export async function createRun(body: RunCreate, token?: string | null): Promise<RunRead> {
-  return req<RunRead>("/api/runs", { method: "POST", body: JSON.stringify(body) }, token);
+  return req<RunRead>("/api/app/runs", { method: "POST", body: JSON.stringify(body) }, token);
 }
 
 export async function listRuns(token?: string | null): Promise<RunList> {
-  return req<RunList>("/api/runs", undefined, token);
+  return req<RunList>("/api/app/runs", undefined, token);
 }
 
 export async function getRun(runId: string, token?: string | null): Promise<RunRead> {
-  return req<RunRead>(`/api/runs/${runId}`, undefined, token);
-}
-
-export async function listTasks(runId: string, token?: string | null): Promise<TaskRead[]> {
-  return req<TaskRead[]>(`/api/runs/${runId}/tasks`, undefined, token);
-}
-
-export async function listEvents(runId: string, token?: string | null): Promise<TaskEventRead[]> {
-  return req<TaskEventRead[]>(`/api/runs/${runId}/events`, undefined, token);
-}
-
-export async function listAgentInvocations(runId: string, token?: string | null): Promise<AgentInvocationRead[]> {
-  return req<AgentInvocationRead[]>(`/api/runs/${runId}/agent-invocations`, undefined, token);
+  return req<RunRead>(`/api/app/runs/${runId}`, undefined, token);
 }
 
 export async function cancelRun(runId: string, token?: string | null): Promise<RunRead> {
-  return req<RunRead>(`/api/runs/${runId}/cancel`, { method: "POST" }, token);
+  return req<RunRead>(`/api/app/runs/${runId}/cancel`, { method: "POST" }, token);
 }
 
 // ---------------------------------------------------------------------------
-// Reports
+// Reports  (/api/app/*)
 // ---------------------------------------------------------------------------
 
 export async function getRunReport(
   runId: string,
   token?: string | null,
 ): Promise<JobReportResponse | FitReportResponse> {
-  return req<JobReportResponse | FitReportResponse>(`/api/runs/${runId}/report`, undefined, token);
+  return req<JobReportResponse | FitReportResponse>(`/api/app/runs/${runId}/report`, undefined, token);
 }
 
 export async function getJobReport(jobReportId: string, token?: string | null): Promise<JobReportResponse> {
-  return req<JobReportResponse>(`/api/job-reports/${jobReportId}`, undefined, token);
+  return req<JobReportResponse>(`/api/app/job-reports/${jobReportId}`, undefined, token);
 }
 
 export async function getFitReport(fitReportId: string, token?: string | null): Promise<FitReportResponse> {
-  return req<FitReportResponse>(`/api/fit-reports/${fitReportId}`, undefined, token);
+  return req<FitReportResponse>(`/api/app/fit-reports/${fitReportId}`, undefined, token);
 }
 
 export async function getLatestJobReport(jobId: string, token?: string | null): Promise<JobReportResponse> {
-  return req<JobReportResponse>(`/api/jobs/${encodeURIComponent(jobId)}/job-reports/latest`, undefined, token);
+  return req<JobReportResponse>(`/api/app/jobs/${encodeURIComponent(jobId)}/job-reports/latest`, undefined, token);
 }
 
 // ---------------------------------------------------------------------------
-// Jobs
+// Jobs  (/api/app/jobs/*)
 // ---------------------------------------------------------------------------
 
 export async function listJobs(token?: string | null): Promise<JobList> {
-  return req<JobList>("/api/jobs", undefined, token);
+  return req<JobList>("/api/app/jobs", undefined, token);
 }
 
 export async function getJob(jobId: string, token?: string | null): Promise<JobRead> {
-  return req<JobRead>(`/api/jobs/${encodeURIComponent(jobId)}`, undefined, token);
+  return req<JobRead>(`/api/app/jobs/${encodeURIComponent(jobId)}`, undefined, token);
+}
+
+// ---------------------------------------------------------------------------
+// Profile  (/api/app/profile)
+// ---------------------------------------------------------------------------
+
+export interface ProfileRead {
+  id: string;
+  workspace_id: string;
+  summary: string | null;
+  experience_summary: string | null;
+  education_summary: string | null;
+  technical_skills: string[] | null;
+  domain_areas: string[] | null;
+  preferences_json: Record<string, unknown> | null;
+  years_of_experience: number | null;
+  profile_hash: string;
+}
+
+export interface ProfileUpdate {
+  summary?: string | null;
+  experience_summary?: string | null;
+  education_summary?: string | null;
+  technical_skills?: string[] | null;
+  domain_areas?: string[] | null;
+  preferences_json?: Record<string, unknown> | null;
+  years_of_experience?: number | null;
+}
+
+export async function getProfile(token?: string | null): Promise<ProfileRead> {
+  return req<ProfileRead>("/api/app/profile", undefined, token);
+}
+
+export async function upsertProfile(body: ProfileUpdate, token?: string | null): Promise<ProfileRead> {
+  return req<ProfileRead>("/api/app/profile", { method: "PUT", body: JSON.stringify(body) }, token);
 }

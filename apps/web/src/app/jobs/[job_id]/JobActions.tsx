@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, FileText, UserCheck, ChevronDown, ChevronUp, Play } from "lucide-react";
@@ -23,7 +23,7 @@ function FitReportForm({
   onCancel: () => void;
 }) {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobReportId, setJobReportId] = useState("");
@@ -136,7 +136,7 @@ interface JobActionsProps {
 
 export function JobActions({ jobId, hasExistingReport }: JobActionsProps) {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [fitOpen, setFitOpen] = useState(false);

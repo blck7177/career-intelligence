@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { getJob, getLatestJobReport, createRun } from "@/api/client";
 import type { JobRead, JobReportResponse } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -83,7 +83,7 @@ function JobReportContent({ report }: { report: JobReportResponse }) {
 }
 
 export function JobDetailView({ jobId, onRunCreated }: JobDetailViewProps) {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [job, setJob] = useState<JobRead | null>(null);
   const [report, setReport] = useState<JobReportResponse | null>(null);
   const [loading, setLoading] = useState(true);

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { listJobs } from "@/api/client";
 import type { JobRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -62,7 +62,7 @@ function JobRow({ job }: { job: JobRead }) {
 }
 
 export default function JobsPage() {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [allJobs, setAllJobs] = useState<JobRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);

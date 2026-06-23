@@ -27,7 +27,11 @@ from sqlalchemy.orm import Session
 
 from apps.api.dependencies.db import get_db
 from packages.infrastructure.db.models import User, Workspace
-from packages.infrastructure.db.repositories import UserRepository, WorkspaceRepository
+from packages.infrastructure.db.repositories import (
+    UserIdentityRepository,
+    UserRepository,
+    WorkspaceRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +117,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Token missing 'sub' claim.")
 
     user_repo = UserRepository(db)
-    user = user_repo.get_by_clerk_id(clerk_user_id)
+    user = user_repo.get_by_provider("clerk", clerk_user_id)
 
     if user is None:
         # Auto-provision user + workspace on first login.
@@ -146,6 +150,18 @@ def get_current_workspace(
     return workspace
 
 
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency for admin-only endpoints.
+    Raises 403 unless the resolved user has is_admin=True.
+    Set is_admin=true in Postgres for developer/ops accounts:
+      UPDATE users SET is_admin=true WHERE email='admin@example.com';
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return user
+
+
 # ---------------------------------------------------------------------------
 # Provisioning helper (called by get_current_user on first login)
 # ---------------------------------------------------------------------------
@@ -153,13 +169,20 @@ def get_current_workspace(
 
 def _provision_user(db: Session, *, clerk_user_id: str, email: str) -> User:
     """
-    Create User + Workspace + WorkspaceMember in a single flush.
+    Create User + UserIdentity + Workspace + WorkspaceMember in a single flush.
     Called inside the existing db session from get_current_user.
     """
     user_repo = UserRepository(db)
+    identity_repo = UserIdentityRepository(db)
     ws_repo = WorkspaceRepository(db)
 
-    user = user_repo.create(clerk_user_id=clerk_user_id, email=email)
+    user = user_repo.create(email=email)
+    identity_repo.create(
+        user_id=user.id,
+        provider="clerk",
+        provider_user_id=clerk_user_id,
+        email=email,
+    )
 
     workspace_name = email.split("@")[0] if "@" in email else clerk_user_id
     workspace = ws_repo.create(name=workspace_name)

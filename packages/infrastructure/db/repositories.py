@@ -19,6 +19,7 @@ from packages.infrastructure.db.models import (
     AgentToolEvent,
     AgentValidationResult,
     Artifact,
+    CandidateProfile,
     FitReport,
     Job,
     JobReport,
@@ -26,6 +27,7 @@ from packages.infrastructure.db.models import (
     Task,
     TaskEvent,
     User,
+    UserIdentity,
     Workspace,
     WorkspaceMember,
 )
@@ -40,16 +42,47 @@ class UserRepository:
     def __init__(self, session: Session) -> None:
         self._s = session
 
-    def get_by_clerk_id(self, clerk_user_id: str) -> Optional[User]:
+    def get_by_provider(self, provider: str, provider_user_id: str) -> Optional[User]:
+        """Look up a local User by external provider identity."""
         from sqlalchemy import select
-        stmt = select(User).where(User.clerk_user_id == clerk_user_id)
+        stmt = (
+            select(User)
+            .join(UserIdentity, UserIdentity.user_id == User.id)
+            .where(
+                UserIdentity.provider == provider,
+                UserIdentity.provider_user_id == provider_user_id,
+            )
+        )
         return self._s.execute(stmt).scalar_one_or_none()
 
-    def create(self, *, clerk_user_id: str, email: str) -> User:
-        user = User(clerk_user_id=clerk_user_id, email=email)
+    def create(self, *, email: str) -> User:
+        user = User(email=email)
         self._s.add(user)
         self._s.flush()
         return user
+
+
+class UserIdentityRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        provider_user_id: str,
+        email: Optional[str] = None,
+    ) -> UserIdentity:
+        identity = UserIdentity(
+            user_id=user_id,
+            provider=provider,
+            provider_user_id=provider_user_id,
+            email=email,
+        )
+        self._s.add(identity)
+        self._s.flush()
+        return identity
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +195,13 @@ class RunRepository:
             .limit(limit)
             .all()
         )
+
+    def list_all(self, limit: int = 100, status: str | None = None) -> list[Run]:
+        """Return runs across all workspaces (admin use only)."""
+        q = self._s.query(Run)
+        if status:
+            q = q.filter(Run.status == status)
+        return q.order_by(Run.created_at.desc()).limit(limit).all()
 
 
 # ---------------------------------------------------------------------------
@@ -784,3 +824,52 @@ class FitReportRepository:
         self._s.add(row)
         self._s.flush()
         return row
+
+
+# ---------------------------------------------------------------------------
+# CandidateProfile
+# ---------------------------------------------------------------------------
+
+
+class ProfileRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_workspace(self, workspace_id: str) -> Optional[CandidateProfile]:
+        """Return the workspace's profile, or None if not yet created."""
+        return (
+            self._s.query(CandidateProfile)
+            .filter(CandidateProfile.workspace_id == workspace_id)
+            .first()
+        )
+
+    def upsert(
+        self,
+        workspace_id: str,
+        *,
+        summary: Optional[str] = None,
+        experience_summary: Optional[str] = None,
+        education_summary: Optional[str] = None,
+        technical_skills: Optional[list] = None,
+        domain_areas: Optional[list] = None,
+        preferences_json: Optional[dict] = None,
+        years_of_experience: Optional[int] = None,
+        profile_hash: str = "empty",
+    ) -> CandidateProfile:
+        """Create or update the profile for a workspace."""
+        profile = self.get_for_workspace(workspace_id)
+        if profile is None:
+            profile = CandidateProfile(workspace_id=workspace_id)
+            self._s.add(profile)
+
+        profile.summary = summary
+        profile.experience_summary = experience_summary
+        profile.education_summary = education_summary
+        profile.technical_skills = technical_skills
+        profile.domain_areas = domain_areas
+        profile.preferences_json = preferences_json
+        profile.years_of_experience = years_of_experience
+        profile.profile_hash = profile_hash
+
+        self._s.flush()
+        return profile

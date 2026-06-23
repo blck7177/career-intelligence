@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Play } from "lucide-react";
@@ -18,7 +18,7 @@ function csvToList(val: string): string[] {
 }
 
 export function FitReportPanel({ onRunCreated }: FitReportPanelProps) {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [jobId, setJobId] = useState("");
   const [jobReportId, setJobReportId] = useState("");
   const [forceRefresh, setForceRefresh] = useState(false);

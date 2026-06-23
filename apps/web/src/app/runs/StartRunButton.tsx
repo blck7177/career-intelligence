@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { Button } from "@/components/ui/button";
 import { createRun } from "@/api/client";
 import { Plus, Loader2, X, ChevronDown } from "lucide-react";
@@ -310,7 +310,7 @@ function FitReportForm({
 
 export function StartRunButton() {
   const router = useRouter();
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>("none");

@@ -25,7 +25,7 @@ from packages.infrastructure.db.repositories import JobRepository, RunRepository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+router = APIRouter(prefix="/api/app/jobs", tags=["jobs"])
 
 
 @router.get("", response_model=JobList)

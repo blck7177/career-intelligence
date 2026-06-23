@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { href: "/jobs", label: "Jobs" },
   { href: "/workspace", label: "Workspace" },
   { href: "/runs", label: "Activity" },
+  { href: "/profile", label: "Profile" },
 ];
 
 export function Nav() {

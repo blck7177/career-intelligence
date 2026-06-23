@@ -1,18 +1,18 @@
 """
-Runs API — create a run, read status, list events, list agent invocations.
+Runs API — create a run, read status, cancel.
 
 Contract:
-  POST   /api/runs                           → RunRead
-  GET    /api/runs/{run_id}                  → RunRead
-  GET    /api/runs                           → RunList
-  GET    /api/runs/{run_id}/tasks            → list[TaskRead]
-  GET    /api/runs/{run_id}/events           → list[TaskEventRead]
-  GET    /api/runs/{run_id}/agent-invocations → list[AgentInvocationRead]
-  POST   /api/runs/{run_id}/cancel          → RunRead
+  POST   /api/app/runs                    → RunRead
+  GET    /api/app/runs                    → RunList
+  GET    /api/app/runs/{run_id}           → RunRead
+  POST   /api/app/runs/{run_id}/cancel   → RunRead
 
 Auth:
   All endpoints require a valid Clerk Bearer JWT.
   workspace_id is resolved server-side from the authenticated user — never from the request body.
+
+Debug endpoints (tasks / events / agent-invocations) have been moved to
+  /api/admin/runs/{run_id}/... (apps/api/routes/admin_runs.py).
 """
 
 from __future__ import annotations
@@ -27,25 +27,20 @@ from sqlalchemy.orm import Session
 from apps.api.dependencies.auth import get_current_workspace
 from apps.api.dependencies.db import get_db
 from packages.contracts.api.runs import (
-    AgentInvocationRead,
     RunCreate,
     RunList,
     RunRead,
-    TaskEventRead,
-    TaskRead,
 )
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.models import Workspace
 from packages.infrastructure.db.repositories import (
-    AgentInvocationRepository,
     RunRepository,
-    TaskEventRepository,
     TaskRepository,
 )
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/runs", tags=["runs"])
+router = APIRouter(prefix="/api/app/runs", tags=["runs"])
 
 
 def _get_celery() -> Celery:
@@ -158,48 +153,6 @@ def get_run(
         raise HTTPException(status_code=404, detail="Run not found")
     _assert_run_owned(run, workspace)
     return RunRead.model_validate(run)
-
-
-@router.get("/{run_id}/tasks", response_model=list[TaskRead])
-def list_tasks(
-    run_id: str,
-    db: Session = Depends(get_db),
-    workspace: Workspace = Depends(get_current_workspace),
-) -> list[TaskRead]:
-    run = RunRepository(db).get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    _assert_run_owned(run, workspace)
-    tasks = TaskRepository(db).list_for_run(run_id)
-    return [TaskRead.model_validate(t) for t in tasks]
-
-
-@router.get("/{run_id}/events", response_model=list[TaskEventRead])
-def list_events(
-    run_id: str,
-    db: Session = Depends(get_db),
-    workspace: Workspace = Depends(get_current_workspace),
-) -> list[TaskEventRead]:
-    run = RunRepository(db).get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    _assert_run_owned(run, workspace)
-    events = TaskEventRepository(db).list_for_run(run_id)
-    return [TaskEventRead.model_validate(e) for e in events]
-
-
-@router.get("/{run_id}/agent-invocations", response_model=list[AgentInvocationRead])
-def list_agent_invocations(
-    run_id: str,
-    db: Session = Depends(get_db),
-    workspace: Workspace = Depends(get_current_workspace),
-) -> list[AgentInvocationRead]:
-    run = RunRepository(db).get(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="Run not found")
-    _assert_run_owned(run, workspace)
-    invocations = AgentInvocationRepository(db).list_for_run(run_id)
-    return [AgentInvocationRead.model_validate(inv) for inv in invocations]
 
 
 @router.post("/{run_id}/cancel", response_model=RunRead)

@@ -47,13 +47,17 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    """Platform user. Created on first successful Clerk authentication."""
+    """Platform user — provider-agnostic identity anchor.
+
+    Auth provider details (e.g. Clerk user id) live in UserIdentity,
+    not here. This table is the source of truth for all business data.
+    """
 
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    clerk_user_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -64,9 +68,39 @@ class User(Base):
         nullable=False,
     )
 
+    identities: Mapped[list["UserIdentity"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
     workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(
         back_populates="user"
     )
+
+
+class UserIdentity(Base):
+    """External auth provider identity linked to a local User.
+
+    One row per (user, provider) pair. Allows a user to authenticate
+    via multiple providers (Clerk, GitHub, Google, enterprise SSO) or
+    migrate between providers without touching business tables.
+
+    provider examples: "clerk", "github", "google", "password"
+    provider_user_id: the external id (e.g. Clerk JWT sub claim).
+    """
+
+    __tablename__ = "user_identities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="identities")
 
 
 class WorkspaceMember(Base):
@@ -458,3 +492,32 @@ class FitReport(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CandidateProfile(Base):
+    """Workspace-private career profile used for profile-guided search and fit reports.
+
+    One profile per workspace at beta (one-per-user model).
+    Maps to ProfileSnapshot in packages/contracts/agents/discovery_intent.py.
+    """
+
+    __tablename__ = "candidate_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+    )
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    education_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    technical_skills: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    domain_areas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    preferences_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    years_of_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

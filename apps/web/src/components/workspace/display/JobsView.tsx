@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { listJobs } from "@/api/client";
 import type { JobRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -21,7 +21,7 @@ function jobStatusBg(status: string): string {
 }
 
 export function JobsView({ activeJobId, onJobSelected }: JobsViewProps) {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [jobs, setJobs] = useState<JobRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   const [runs, setRuns] = useState<RunRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

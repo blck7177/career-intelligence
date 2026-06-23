@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useApiToken } from "@/hooks/useApiToken";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Play, ChevronDown, ChevronUp } from "lucide-react";
@@ -22,7 +22,7 @@ function csvToList(val: string): string[] {
 }
 
 export function DiscoveryPanel({ onRunCreated }: DiscoveryPanelProps) {
-  const { getToken } = useAuth();
+  const getToken = useApiToken();
   // Core required fields
   const [rawUserRequest, setRawUserRequest] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("exploratory");

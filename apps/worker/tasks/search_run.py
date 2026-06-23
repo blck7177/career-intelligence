@@ -50,6 +50,7 @@ from packages.infrastructure.db.repositories import (
     AgentValidationResultRepository,
     ArtifactRepository,
     JobRepository,
+    ProfileRepository,
     RunRepository,
     TaskEventRepository,
     TaskRepository,
@@ -99,9 +100,9 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         return {"status": "needs_review", "task_id": env.task_id}
 
     # ------------------------------------------------------------------
-    # Step 1c: Load ProfileSnapshot (MVP: always empty default)
+    # Step 1c: Load ProfileSnapshot from DB (falls back to empty if none)
     # ------------------------------------------------------------------
-    profile_snapshot = _load_profile(frontend_input.profile_id)
+    profile_snapshot = _load_profile(workspace_id=workspace_id)
 
     # ------------------------------------------------------------------
     # Step 1c.5: Guard — profile_guided requires a non-empty profile
@@ -675,20 +676,34 @@ def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> Non
         )
 
 
-def _load_profile(profile_id: str | None) -> ProfileSnapshot:
+def _load_profile(workspace_id: str) -> ProfileSnapshot:
     """
-    Load a ProfileSnapshot for the given profile_id.
+    Load a ProfileSnapshot from the candidate_profiles table for the given workspace.
+    Returns ProfileSnapshot.empty() if no profile has been created yet.
+    """
+    with get_session() as session:
+        row = ProfileRepository(session).get_for_workspace(workspace_id)
 
-    MVP: always returns an empty profile. Future: query workspace_profiles
-    table and return a populated snapshot.
-    """
-    if profile_id:
-        logger.debug(
-            "search_run: profile_id=%r provided but workspace_profiles not yet "
-            "implemented — using empty profile",
-            profile_id,
-        )
-    return ProfileSnapshot.empty()
+    if row is None:
+        logger.debug("search_run: no profile found for workspace %s — using empty profile", workspace_id)
+        return ProfileSnapshot.empty()
+
+    snapshot = ProfileSnapshot(
+        profile_id=row.id,
+        summary=row.summary,
+        experience_summary=row.experience_summary,
+        education_summary=row.education_summary,
+        technical_skills=row.technical_skills or [],
+        domain_areas=row.domain_areas or [],
+        years_of_experience=row.years_of_experience,
+    )
+    logger.debug(
+        "search_run: loaded profile %s for workspace %s (is_empty=%s)",
+        row.id,
+        workspace_id,
+        snapshot.is_empty,
+    )
+    return snapshot
 
 
 def _persist_discovered_jobs(
