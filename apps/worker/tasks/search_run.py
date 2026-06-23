@@ -94,6 +94,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             invocation_id=None,
             reason=f"Invalid job_discovery input_snapshot: {exc}",
             error_code="INVALID_FRONTEND_INPUT",
+            phase="input_validation",
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -120,6 +121,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 "Please provide a profile or switch to exploratory mode."
             ),
             error_code="PROFILE_REQUIRED_FOR_PROFILE_GUIDED",
+            phase="input_validation",
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -159,6 +161,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             invocation_id=None,
             reason=str(exc),
             error_code=error_code,
+            phase="intent_translation",
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -314,6 +317,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             invocation_id=invocation_id,
             reason=reason,
             error_code=error_code,
+            phase="agent_invocation",
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -330,6 +334,13 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             env,
             invocation_id=invocation_id,
             reason="output_manifest.json not found after agent completion",
+            error_code="MANIFEST_NOT_FOUND",
+            phase="manifest_read",
+            result_summary_extra={
+                "artifact_paths": {
+                    "output_manifest_path": task_spec.output_paths.output_manifest_path,
+                }
+            },
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -342,6 +353,13 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             env,
             invocation_id=invocation_id,
             reason=f"output_manifest.json parse error: {exc}",
+            error_code="MANIFEST_PARSE_ERROR",
+            phase="manifest_read",
+            result_summary_extra={
+                "artifact_paths": {
+                    "output_manifest_path": task_spec.output_paths.output_manifest_path,
+                }
+            },
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -396,6 +414,22 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             env,
             invocation_id=invocation_id,
             reason=f"Validator gate failed: {failed_validators}",
+            phase="validator_gate",
+            result_summary_extra={
+                "failed_validators": [
+                    {
+                        "name": r.validator_name,
+                        "errors": [e.model_dump() for e in r.errors],
+                    }
+                    for r in validation_results
+                    if r.status == "failed"
+                ],
+                "candidate_count": manifest.candidate_count,
+                "artifact_paths": {
+                    "output_manifest_path": task_spec.output_paths.output_manifest_path,
+                    "tool_events_path": task_spec.output_paths.tool_events_path,
+                },
+            },
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
@@ -524,7 +558,12 @@ def _canonicalize_discovery_artifact_paths(
     the agent added for other artifact types.  Writes the corrected manifest back
     to disk so downstream readers (e.g. artifact_repo.create) also see the right
     paths.
+
+    Also strips any platform-owned keys the agent should never declare
+    (e.g. tool_events) — prevents agents from claiming ownership of
+    platform-managed artifacts.
     """
+    # Keys the agent is allowed to report; overwritten with platform-canonical paths.
     canonical: dict[str, str] = {
         "candidate_pool": output_paths.candidate_pool_path,
         "search_ledger": output_paths.search_ledger_path,
@@ -532,7 +571,20 @@ def _canonicalize_discovery_artifact_paths(
         "coverage_report": output_paths.coverage_report_path,
     }
 
+    # Keys that are platform-managed and must never appear in agent-reported manifest.
+    _PLATFORM_ONLY_KEYS = {"tool_events"}
+
     changed = False
+
+    for key in _PLATFORM_ONLY_KEYS:
+        if key in manifest.artifact_paths:
+            logger.warning(
+                "search_run: agent claimed platform-owned artifact key %r — removing from manifest",
+                key,
+            )
+            del manifest.artifact_paths[key]
+            changed = True
+
     for artifact_type, canonical_path in canonical.items():
         old_path = manifest.artifact_paths.get(artifact_type)
         if old_path != canonical_path:
@@ -795,8 +847,28 @@ def _mark_needs_review(
     invocation_id: str | None,
     reason: str,
     error_code: str = "VALIDATOR_GATE_FAILED",
+    phase: str = "unknown",
+    result_summary_extra: dict | None = None,
 ) -> None:
-    """Helper: mark task and run as needs_review and append event."""
+    """
+    Mark task and run as needs_review, append a task event, and write a
+    structured result_summary_json so the UI can surface diagnostics without
+    cross-querying task_events / agent_validation_results / artifact files.
+
+    phase:  which execution stage failed (input_validation, intent_translation,
+            agent_invocation, manifest_read, validator_gate).
+    result_summary_extra:  caller-provided fields merged into the base summary
+            (e.g. failed_validators, candidate_count, artifact_paths).
+    """
+    result_summary: dict = {
+        "validation_status": "failed",
+        "phase": phase,
+        "error_code": error_code,
+        "invocation_id": invocation_id,
+    }
+    if result_summary_extra:
+        result_summary.update(result_summary_extra)
+
     with get_session() as session:
         task_repo = TaskRepository(session)
         run_repo = RunRepository(session)
@@ -806,7 +878,7 @@ def _mark_needs_review(
             error_code=error_code,
             error_message=reason[:500],
         )
-        run_repo.set_status(env.run_id, "needs_review")
+        run_repo.complete(env.run_id, status="needs_review", result_summary=result_summary)
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,

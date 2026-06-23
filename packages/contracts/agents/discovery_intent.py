@@ -249,7 +249,34 @@ class PreviousRunDiagnostics(BaseModel):
 
 
 class OutputPaths(BaseModel):
-    """Paths on the agent_artifacts volume that the agent must write."""
+    """
+    Platform-owned artifact paths for a discovery run.
+
+    All paths are derived deterministically from (artifacts_dir, run_id, task_id)
+    by build_output_paths(). That function is the single authoritative source —
+    no other code may construct these paths.
+
+    Two categories of artifacts:
+
+      Agent-reported (declared by the agent in manifest.artifact_paths):
+        candidate_pool_path, search_ledger_path, trace_events_path,
+        coverage_report_path, output_manifest_path
+
+      Platform-managed (written by platform wrappers; never in manifest.artifact_paths):
+        tool_events_path  — HMAC-signed ledger written by career_log_candidates
+                            and career_write_manifest; validators read this
+                            from OutputPaths, not from the agent manifest.
+
+    Rules:
+      - Agents must not construct, rewrite, or claim these paths.
+      - Validators must derive platform-managed paths from OutputPaths, not
+        from manifest.artifact_paths (which is agent-reported, not authoritative).
+      - Adding a new platform-managed file requires exactly four steps:
+          1. Add a field here.
+          2. Construct it in build_output_paths().
+          3. Pass it through task_spec.output_paths into input.json.
+          4. Read it in the validator from OutputPaths — not from the manifest.
+    """
 
     candidate_pool_path: str
     search_ledger_path: str
