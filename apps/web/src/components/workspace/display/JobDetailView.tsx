@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { getJob, getLatestJobReport, createRun } from "@/api/client";
 import type { JobRead, JobReportResponse } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +20,6 @@ import {
 
 interface JobDetailViewProps {
   jobId: string;
-  workspaceId: string;
   onRunCreated: (runId: string) => void;
 }
 
@@ -82,7 +82,8 @@ function JobReportContent({ report }: { report: JobReportResponse }) {
   );
 }
 
-export function JobDetailView({ jobId, workspaceId, onRunCreated }: JobDetailViewProps) {
+export function JobDetailView({ jobId, onRunCreated }: JobDetailViewProps) {
+  const { getToken } = useAuth();
   const [job, setJob] = useState<JobRead | null>(null);
   const [report, setReport] = useState<JobReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,32 +96,34 @@ export function JobDetailView({ jobId, workspaceId, onRunCreated }: JobDetailVie
     setError(null);
     setReport(null);
 
-    Promise.all([
-      getJob(jobId),
-      getLatestJobReport(jobId).catch(() => null),
-    ])
+    getToken().then((token) =>
+      Promise.all([
+        getJob(jobId, token),
+        getLatestJobReport(jobId, token).catch(() => null),
+      ])
+    )
       .then(([j, r]) => {
         setJob(j);
         setReport(r);
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load job"))
       .finally(() => setLoading(false));
-  }, [jobId]);
+  }, [jobId, getToken]);
 
   async function handleGenerateReport() {
     if (!job) return;
     setReportLoading(true);
     setReportError(null);
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "job_report",
-        workspace_id: workspaceId,
         input_snapshot: {
           job_id: jobId,
           use_research: false,
           force_refresh: false,
         },
-      });
+      }, token);
       onRunCreated(run.id);
     } catch (err) {
       setReportError(err instanceof Error ? err.message : "Failed to start job report run");

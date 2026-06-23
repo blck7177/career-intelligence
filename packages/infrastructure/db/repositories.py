@@ -25,8 +25,31 @@ from packages.infrastructure.db.models import (
     Run,
     Task,
     TaskEvent,
+    User,
     Workspace,
+    WorkspaceMember,
 )
+
+
+# ---------------------------------------------------------------------------
+# User
+# ---------------------------------------------------------------------------
+
+
+class UserRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_by_clerk_id(self, clerk_user_id: str) -> Optional[User]:
+        from sqlalchemy import select
+        stmt = select(User).where(User.clerk_user_id == clerk_user_id)
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def create(self, *, clerk_user_id: str, email: str) -> User:
+        user = User(clerk_user_id=clerk_user_id, email=email)
+        self._s.add(user)
+        self._s.flush()
+        return user
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +77,24 @@ class WorkspaceRepository:
         self._s.add(ws)
         self._s.flush()
         return ws
+
+    def get_for_user(self, user_id: str) -> Optional[Workspace]:
+        """Return the first workspace the user is a member of."""
+        from sqlalchemy import select
+        stmt = (
+            select(Workspace)
+            .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+            .where(WorkspaceMember.user_id == user_id)
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def add_member(self, *, workspace_id: str, user_id: str, role: str = "owner") -> WorkspaceMember:
+        """Add a user as a workspace member."""
+        member = WorkspaceMember(workspace_id=workspace_id, user_id=user_id, role=role)
+        self._s.add(member)
+        self._s.flush()
+        return member
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +585,13 @@ class JobRepository:
     def set_status(self, job_id: str, status: str) -> None:
         job = self.get_or_raise(job_id)
         job.status = status
+        self._s.flush()
+
+    def update_jd(self, job_id: str, jd_text: str, jd_hash: str) -> None:
+        """Backfill jd_text and jd_hash after a research run completes."""
+        job = self.get_or_raise(job_id)
+        job.jd_text = jd_text
+        job.jd_hash = jd_hash
         self._s.flush()
 
 

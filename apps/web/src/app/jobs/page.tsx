@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { listJobs } from "@/api/client";
 import type { JobRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtTs } from "@/lib/utils";
 import { Building2, MapPin, Plus, ExternalLink, Search } from "lucide-react";
-
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
 
 type StatusFilter = "all" | "discovered" | "reportable" | "stale" | "invalid";
 type SortKey = "newest" | "oldest" | "company";
@@ -63,6 +62,7 @@ function JobRow({ job }: { job: JobRead }) {
 }
 
 export default function JobsPage() {
+  const { getToken } = useAuth();
   const [allJobs, setAllJobs] = useState<JobRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -74,11 +74,12 @@ export default function JobsPage() {
   useEffect(() => {
     setLoading(true);
     setFetchError(null);
-    listJobs(WORKSPACE_ID)
+    getToken()
+      .then((token) => listJobs(token))
       .then((list) => setAllJobs(list.items))
       .catch((err) => setFetchError(err instanceof Error ? err.message : "Failed to load jobs"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [getToken]);
 
   const filteredJobs = useMemo(() => {
     let jobs = allJobs;

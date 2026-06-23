@@ -8,7 +8,6 @@ import {
   UserCheck,
   Activity,
   Briefcase,
-  Bug,
 } from "lucide-react";
 
 interface FunctionPanelProps {
@@ -22,7 +21,6 @@ const ICONS: Record<WorkspaceFunctionId, React.ReactNode> = {
   fit_report: <UserCheck size={15} />,
   runs: <Activity size={15} />,
   jobs: <Briefcase size={15} />,
-  debug: <Bug size={15} />,
 };
 
 export function FunctionPanel({ activeFunction, onSelect }: FunctionPanelProps) {

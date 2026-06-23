@@ -14,8 +14,7 @@ export type WorkspaceFunctionId =
   | "job_report"
   | "fit_report"
   | "runs"
-  | "jobs"
-  | "debug";
+  | "jobs";
 
 export interface WorkspaceFunctionMeta {
   id: WorkspaceFunctionId;
@@ -30,7 +29,6 @@ export const WORKSPACE_FUNCTIONS: WorkspaceFunctionMeta[] = [
   { id: "fit_report", label: "Fit Report", available: true },
   { id: "runs", label: "Runs", available: true },
   { id: "jobs", label: "Jobs", available: true },
-  { id: "debug", label: "Debug", available: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -42,8 +40,6 @@ export type DisplayTab =
   | "tasks"
   | "events"
   | "report"
-  | "raw"
-  | "invocations"
   | "jobs"
   | "job_detail";
 
@@ -57,8 +53,6 @@ export const ALL_DISPLAY_TABS: DisplayTabMeta[] = [
   { id: "tasks", label: "Tasks" },
   { id: "events", label: "Events" },
   { id: "report", label: "Report" },
-  { id: "raw", label: "Raw" },
-  { id: "invocations", label: "Invocations" },
   { id: "jobs", label: "Jobs" },
   { id: "job_detail", label: "Job Detail" },
 ];
@@ -80,19 +74,15 @@ export function getVisibleTabs(
 
   const base: DisplayTab[] = ["status", "tasks", "events"];
 
-  if (activeFunction === "debug") {
-    return [...base, "invocations", "raw"];
-  }
-
   const isReportRun =
     runType === "job_report" || runType === "fit_report";
   const reportReady = isReportRun && runStatus === "succeeded";
 
   if (reportReady || activeFunction === "job_report" || activeFunction === "fit_report") {
-    return [...base, "report", "raw"];
+    return [...base, "report"];
   }
 
-  return [...base, "raw"];
+  return base;
 }
 
 // ---------------------------------------------------------------------------

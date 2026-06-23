@@ -8,8 +8,6 @@ import { Building2, MapPin, Plus, ExternalLink, Database, BarChart3, FileSearch,
 
 export const dynamic = "force-dynamic";
 
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
-
 function jobStatusBg(status: string): string {
   if (status === "reportable") return "bg-emerald-100 text-emerald-800";
   if (status === "discovered") return "bg-blue-100 text-blue-800";
@@ -81,7 +79,7 @@ export default async function HomePage() {
   let fetchError: string | null = null;
 
   try {
-    const list = await listJobs(WORKSPACE_ID);
+    const list = await listJobs();
     jobs = list.items;
   } catch (err) {
     fetchError = err instanceof Error ? err.message : "Failed to load jobs";

@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Play, ChevronDown, ChevronUp } from "lucide-react";
 
 interface DiscoveryPanelProps {
-  workspaceId: string;
   onRunCreated: (runId: string) => void;
 }
 
@@ -21,7 +21,8 @@ function csvToList(val: string): string[] {
     .filter(Boolean);
 }
 
-export function DiscoveryPanel({ workspaceId, onRunCreated }: DiscoveryPanelProps) {
+export function DiscoveryPanel({ onRunCreated }: DiscoveryPanelProps) {
+  const { getToken } = useAuth();
   // Core required fields
   const [rawUserRequest, setRawUserRequest] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("exploratory");
@@ -50,9 +51,9 @@ export function DiscoveryPanel({ workspaceId, onRunCreated }: DiscoveryPanelProp
     setError(null);
 
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "job_discovery",
-        workspace_id: workspaceId,
         input_snapshot: {
           raw_user_request: rawUserRequest.trim(),
           search_mode: searchMode,
@@ -68,7 +69,7 @@ export function DiscoveryPanel({ workspaceId, onRunCreated }: DiscoveryPanelProp
           },
           profile_id: undefined,
         },
-      });
+      }, token);
       onRunCreated(run.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start discovery run");

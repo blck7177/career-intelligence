@@ -21,11 +21,43 @@ RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "ne
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "needs_review"]
 
 
+class FailedValidatorSummary(BaseModel):
+    """One validator's failure detail within a needs_review result_summary."""
+
+    name: str
+    errors: list[dict] = Field(default_factory=list)
+
+
+class RunResultSummary(BaseModel):
+    """
+    Structured diagnostic payload written by the worker at run completion.
+
+    Populated for both terminal statuses:
+      - validation_status="passed"  → run succeeded; candidate_count / job_ids present
+      - validation_status="failed"  → run needs_review; phase / failed_validators present
+
+    All fields except validation_status are Optional because the exact set depends
+    on which execution phase produced the summary.
+    """
+
+    validation_status: Literal["passed", "failed"]
+    phase: Optional[str] = None
+    error_code: Optional[str] = None
+    invocation_id: Optional[str] = None
+    candidate_count: Optional[int] = None
+    sources_tried: Optional[int] = None
+    # succeeded path
+    job_ids: Optional[list[str]] = None
+    artifact_ids: Optional[list[str]] = None
+    # needs_review path
+    failed_validators: Optional[list[FailedValidatorSummary]] = None
+    artifact_paths: Optional[dict[str, str]] = None
+
+
 class RunCreate(BaseModel):
     """Request body for POST /api/runs."""
 
     run_type: str = Field(..., examples=["job_discovery"])
-    workspace_id: str
     input_snapshot: dict = Field(default_factory=dict)
 
 
@@ -40,10 +72,11 @@ class RunRead(BaseModel):
     schema_version: str = "v1"
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+    result_summary: Optional[RunResultSummary] = Field(None, alias="result_summary_json")
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class RunList(BaseModel):

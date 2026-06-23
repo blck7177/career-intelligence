@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Play } from "lucide-react";
 
 interface FitReportPanelProps {
-  workspaceId: string;
   onRunCreated: (runId: string) => void;
 }
 
@@ -17,7 +17,8 @@ function csvToList(val: string): string[] {
     .filter(Boolean);
 }
 
-export function FitReportPanel({ workspaceId, onRunCreated }: FitReportPanelProps) {
+export function FitReportPanel({ onRunCreated }: FitReportPanelProps) {
+  const { getToken } = useAuth();
   const [jobId, setJobId] = useState("");
   const [jobReportId, setJobReportId] = useState("");
   const [forceRefresh, setForceRefresh] = useState(false);
@@ -53,16 +54,16 @@ export function FitReportPanel({ workspaceId, onRunCreated }: FitReportPanelProp
     };
 
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "fit_report",
-        workspace_id: workspaceId,
         input_snapshot: {
           job_id: jobId.trim(),
           job_report_id: jobReportId.trim() || undefined,
           profile_snapshot: profileSnapshot,
           force_refresh: forceRefresh,
         },
-      });
+      }, token);
       onRunCreated(run.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start fit report run");

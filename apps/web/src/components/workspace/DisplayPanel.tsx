@@ -7,8 +7,6 @@ import { RunStatusView } from "./display/RunStatusView";
 import { TasksView } from "./display/TasksView";
 import { EventsView } from "./display/EventsView";
 import { ReportView } from "./display/ReportView";
-import { RawView } from "./display/RawView";
-import { AgentInvocationsView } from "./display/AgentInvocationsView";
 import { JobsView } from "./display/JobsView";
 import { JobDetailView } from "./display/JobDetailView";
 
@@ -17,7 +15,6 @@ interface DisplayPanelProps {
   activeRunId?: string;
   activeRun: RunRead | null;
   activeJobId?: string;
-  workspaceId: string;
   activeDisplayTab: DisplayTab;
   visibleTabs: DisplayTab[];
   onTabChange: (tab: DisplayTab) => void;
@@ -32,7 +29,6 @@ function EmptyState({ activeFunction }: { activeFunction: WorkspaceFunctionId })
     job_report: "Enter a Job ID and generate a report.",
     fit_report: "Enter a Job ID and your profile, then generate a fit report.",
     runs: "Select a run from the list to inspect its details.",
-    debug: "Select a run to inspect debug data.",
   };
 
   return (
@@ -51,7 +47,6 @@ export function DisplayPanel({
   activeRunId,
   activeRun,
   activeJobId,
-  workspaceId,
   activeDisplayTab,
   visibleTabs,
   onTabChange,
@@ -84,7 +79,6 @@ export function DisplayPanel({
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {activeDisplayTab === "jobs" && (
             <JobsView
-              workspaceId={workspaceId}
               activeJobId={activeJobId}
               onJobSelected={onJobSelected}
             />
@@ -92,7 +86,6 @@ export function DisplayPanel({
           {activeDisplayTab === "job_detail" && activeJobId && (
             <JobDetailView
               jobId={activeJobId}
-              workspaceId={workspaceId}
               onRunCreated={onRunCreated}
             />
           )}
@@ -124,10 +117,6 @@ export function DisplayPanel({
         return <EventsView runId={activeRunId!} />;
       case "report":
         return <ReportView run={activeRun!} />;
-      case "raw":
-        return <RawView run={activeRun!} />;
-      case "invocations":
-        return <AgentInvocationsView runId={activeRunId!} />;
       default:
         return null;
     }

@@ -21,6 +21,7 @@ Full flow (per architecture.md Agent Execution Flow):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
+    JobRepository,
     RunRepository,
     TaskEventRepository,
     TaskRepository,
@@ -253,6 +255,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
+        job_repo = JobRepository(session)
 
         for artifact_type, path_str in manifest.artifact_paths.items():
             artifact_repo.create(
@@ -263,6 +266,25 @@ def handle_research_run(env: TaskEnvelope) -> dict:
                 metadata_json={"invocation_id": invocation_id, "job_id": job_id},
             )
 
+        # Backfill JD text into the jobs table and promote to reportable.
+        # The research agent fetches the JD from source_url and writes it
+        # to the manifest so the worker can persist it here without doing IO.
+        if manifest.jd_text:
+            jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()
+            job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
+            job_repo.set_status(job_id, "reportable")
+            logger.info(
+                "research_run: backfilled jd_text for job_id=%s (hash=%s), status→reportable",
+                job_id,
+                jd_hash,
+            )
+        else:
+            logger.warning(
+                "research_run: manifest.jd_text missing for job_id=%s; "
+                "job stays in 'discovered' status, report generation will use JD-only fallback",
+                job_id,
+            )
+
         task_repo.mark_succeeded(env.task_id)
         event_repo.append(
             task_id=env.task_id,
@@ -270,21 +292,24 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             event_type="task_succeeded",
             message=(
                 f"Research complete: job_id={job_id}, "
-                f"citations={manifest.citations_count}"
+                f"citations={manifest.citations_count}, "
+                f"jd_backfilled={bool(manifest.jd_text)}"
             ),
         )
 
     logger.info(
-        "research_run: task_id=%s succeeded, job_id=%s citations=%d",
+        "research_run: task_id=%s succeeded, job_id=%s citations=%d jd_backfilled=%s",
         env.task_id,
         job_id,
         manifest.citations_count,
+        bool(manifest.jd_text),
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "job_id": job_id,
         "citations_count": manifest.citations_count,
+        "jd_backfilled": bool(manifest.jd_text),
     }
 
 

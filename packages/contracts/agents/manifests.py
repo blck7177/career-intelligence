@@ -7,7 +7,7 @@ The worker validator reads it to decide what to persist.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -50,6 +50,7 @@ class ResearchManifest(AgentOutputManifest):
 
     job_id: str
     citations_count: int = 0
+    jd_text: Optional[str] = None
 
     # artifact_paths keys expected:
     #   "research_notes"  → research_notes.md

@@ -33,6 +33,9 @@ dependencies = [
 
     # CLI
     "click>=8.1",
+
+    # Auth — Clerk JWT verification
+    "PyJWT[crypto]>=2.8",
 ]
 
 [project.optional-dependencies]

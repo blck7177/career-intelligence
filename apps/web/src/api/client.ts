@@ -7,6 +7,10 @@
  * Base URL:
  *   - Browser:  requests go through Next.js rewrites (/api/* → FastAPI)
  *   - SSR:      NEXT_PUBLIC_API_URL env var (or http://api:8000 in Docker)
+ *
+ * Auth:
+ *   Every request includes the Clerk Bearer token obtained from useAuth().getToken().
+ *   Server-side calls (SSR/RSC) use auth().getToken() from @clerk/nextjs/server.
  */
 
 import type { components } from "@/api/generated/schema";
@@ -36,12 +40,48 @@ const BASE =
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://api:8000");
 
 // ---------------------------------------------------------------------------
+// Auth token resolver
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve the Clerk Bearer token for the current context.
+ *
+ * - Server Components / Route Handlers: import and call getServerToken() directly.
+ * - Client Components: pass the token as a parameter to client functions,
+ *   obtained via `const { getToken } = useAuth(); const t = await getToken();`
+ *
+ * The req() helper accepts an optional token parameter; when omitted it
+ * attempts a server-side fetch via @clerk/nextjs/server.
+ */
+async function resolveToken(token?: string | null): Promise<string | null> {
+  if (token !== undefined) return token;
+  // Server-side: use Clerk server auth
+  if (typeof window === "undefined") {
+    try {
+      const { auth } = await import("@clerk/nextjs/server");
+      const { getToken } = await auth();
+      return await getToken();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Request helper
 // ---------------------------------------------------------------------------
 
-async function req<T>(path: string, init?: RequestInit): Promise<T> {
+async function req<T>(path: string, init?: RequestInit, token?: string | null): Promise<T> {
+  const resolvedToken = await resolveToken(token);
+  const authHeader = resolvedToken ? { Authorization: `Bearer ${resolvedToken}` } : {};
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers as Record<string, string>) },
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader,
+      ...(init?.headers as Record<string, string>),
+    },
     ...init,
   });
   if (!res.ok) {
@@ -55,35 +95,32 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 // Runs
 // ---------------------------------------------------------------------------
 
-export async function createRun(body: RunCreate): Promise<RunRead> {
-  return req<RunRead>("/api/runs", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+export async function createRun(body: RunCreate, token?: string | null): Promise<RunRead> {
+  return req<RunRead>("/api/runs", { method: "POST", body: JSON.stringify(body) }, token);
 }
 
-export async function listRuns(workspaceId: string): Promise<RunList> {
-  return req<RunList>(`/api/runs?workspace_id=${encodeURIComponent(workspaceId)}`);
+export async function listRuns(token?: string | null): Promise<RunList> {
+  return req<RunList>("/api/runs", undefined, token);
 }
 
-export async function getRun(runId: string): Promise<RunRead> {
-  return req<RunRead>(`/api/runs/${runId}`);
+export async function getRun(runId: string, token?: string | null): Promise<RunRead> {
+  return req<RunRead>(`/api/runs/${runId}`, undefined, token);
 }
 
-export async function listTasks(runId: string): Promise<TaskRead[]> {
-  return req<TaskRead[]>(`/api/runs/${runId}/tasks`);
+export async function listTasks(runId: string, token?: string | null): Promise<TaskRead[]> {
+  return req<TaskRead[]>(`/api/runs/${runId}/tasks`, undefined, token);
 }
 
-export async function listEvents(runId: string): Promise<TaskEventRead[]> {
-  return req<TaskEventRead[]>(`/api/runs/${runId}/events`);
+export async function listEvents(runId: string, token?: string | null): Promise<TaskEventRead[]> {
+  return req<TaskEventRead[]>(`/api/runs/${runId}/events`, undefined, token);
 }
 
-export async function listAgentInvocations(runId: string): Promise<AgentInvocationRead[]> {
-  return req<AgentInvocationRead[]>(`/api/runs/${runId}/agent-invocations`);
+export async function listAgentInvocations(runId: string, token?: string | null): Promise<AgentInvocationRead[]> {
+  return req<AgentInvocationRead[]>(`/api/runs/${runId}/agent-invocations`, undefined, token);
 }
 
-export async function cancelRun(runId: string): Promise<RunRead> {
-  return req<RunRead>(`/api/runs/${runId}/cancel`, { method: "POST" });
+export async function cancelRun(runId: string, token?: string | null): Promise<RunRead> {
+  return req<RunRead>(`/api/runs/${runId}/cancel`, { method: "POST" }, token);
 }
 
 // ---------------------------------------------------------------------------
@@ -91,33 +128,32 @@ export async function cancelRun(runId: string): Promise<RunRead> {
 // ---------------------------------------------------------------------------
 
 export async function getRunReport(
-  runId: string
+  runId: string,
+  token?: string | null,
 ): Promise<JobReportResponse | FitReportResponse> {
-  return req<JobReportResponse | FitReportResponse>(`/api/runs/${runId}/report`);
+  return req<JobReportResponse | FitReportResponse>(`/api/runs/${runId}/report`, undefined, token);
 }
 
-export async function getJobReport(jobReportId: string): Promise<JobReportResponse> {
-  return req<JobReportResponse>(`/api/job-reports/${jobReportId}`);
+export async function getJobReport(jobReportId: string, token?: string | null): Promise<JobReportResponse> {
+  return req<JobReportResponse>(`/api/job-reports/${jobReportId}`, undefined, token);
 }
 
-export async function getFitReport(fitReportId: string, workspaceId: string): Promise<FitReportResponse> {
-  return req<FitReportResponse>(
-    `/api/fit-reports/${fitReportId}?workspace_id=${encodeURIComponent(workspaceId)}`
-  );
+export async function getFitReport(fitReportId: string, token?: string | null): Promise<FitReportResponse> {
+  return req<FitReportResponse>(`/api/fit-reports/${fitReportId}`, undefined, token);
 }
 
-export async function getLatestJobReport(jobId: string): Promise<JobReportResponse> {
-  return req<JobReportResponse>(`/api/jobs/${encodeURIComponent(jobId)}/job-reports/latest`);
+export async function getLatestJobReport(jobId: string, token?: string | null): Promise<JobReportResponse> {
+  return req<JobReportResponse>(`/api/jobs/${encodeURIComponent(jobId)}/job-reports/latest`, undefined, token);
 }
 
 // ---------------------------------------------------------------------------
 // Jobs
 // ---------------------------------------------------------------------------
 
-export async function listJobs(workspaceId: string): Promise<JobList> {
-  return req<JobList>(`/api/jobs?workspace_id=${encodeURIComponent(workspaceId)}`);
+export async function listJobs(token?: string | null): Promise<JobList> {
+  return req<JobList>("/api/jobs", undefined, token);
 }
 
-export async function getJob(jobId: string): Promise<JobRead> {
-  return req<JobRead>(`/api/jobs/${encodeURIComponent(jobId)}`);
+export async function getJob(jobId: string, token?: string | null): Promise<JobRead> {
+  return req<JobRead>(`/api/jobs/${encodeURIComponent(jobId)}`, undefined, token);
 }

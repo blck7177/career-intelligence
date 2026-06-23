@@ -2,6 +2,7 @@
 SQLAlchemy ORM models.
 
 Tables:
+  Auth:   users, workspace_members
   Core:   workspaces, runs, tasks, task_events, artifacts
   Agent:  agent_invocations, agent_tool_events, agent_validation_results
 
@@ -41,6 +42,54 @@ class Base(DeclarativeBase):
 
 
 # ---------------------------------------------------------------------------
+# Auth tables
+# ---------------------------------------------------------------------------
+
+
+class User(Base):
+    """Platform user. Created on first successful Clerk authentication."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    clerk_user_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(
+        back_populates="user"
+    )
+
+
+class WorkspaceMember(Base):
+    """Membership record linking a user to a workspace with a role."""
+
+    __tablename__ = "workspace_members"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), primary_key=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="owner")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="workspace_memberships")
+    workspace: Mapped["Workspace"] = relationship(back_populates="members")
+
+
+# ---------------------------------------------------------------------------
 # Core tables
 # ---------------------------------------------------------------------------
 
@@ -63,6 +112,7 @@ class Workspace(Base):
     )
 
     runs: Mapped[list["Run"]] = relationship(back_populates="workspace")
+    members: Mapped[list["WorkspaceMember"]] = relationship(back_populates="workspace")
 
 
 class Run(Base):

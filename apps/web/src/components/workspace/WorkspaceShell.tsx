@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getRun } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import {
@@ -12,10 +13,10 @@ import { FunctionPanel } from "./FunctionPanel";
 import { MiddlePanel } from "./MiddlePanel";
 import { DisplayPanel } from "./DisplayPanel";
 
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
 const POLL_INTERVAL_MS = 3000;
 
 export function WorkspaceShell() {
+  const { getToken } = useAuth();
   const [state, setState] = useState<WorkspaceState>(DEFAULT_WORKSPACE_STATE);
   const [activeRun, setActiveRun] = useState<RunRead | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -26,13 +27,14 @@ export function WorkspaceShell() {
 
   const fetchRun = useCallback(async (runId: string) => {
     try {
-      const run = await getRun(runId);
+      const token = await getToken();
+      const run = await getRun(runId, token);
       setActiveRun(run);
       return run;
     } catch {
       return null;
     }
-  }, []);
+  }, [getToken]);
 
   useEffect(() => {
     if (pollRef.current) {
@@ -146,7 +148,6 @@ export function WorkspaceShell() {
       <div className="w-[420px] shrink-0 border-r border-zinc-200 overflow-y-auto">
         <MiddlePanel
           activeFunction={state.activeFunction}
-          workspaceId={WORKSPACE_ID}
           activeRunId={state.activeRunId}
           activeJobId={state.activeJobId}
           onRunCreated={handleRunCreated}
@@ -162,7 +163,6 @@ export function WorkspaceShell() {
           activeRunId={state.activeRunId}
           activeRun={activeRun}
           activeJobId={state.activeJobId}
-          workspaceId={WORKSPACE_ID}
           activeDisplayTab={safeDisplayTab}
           visibleTabs={visibleTabs}
           onTabChange={setActiveDisplayTab}

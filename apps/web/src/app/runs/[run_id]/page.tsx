@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRun, listTasks, listEvents, listAgentInvocations, getRunReport } from "@/api/client";
-import type { RunRead, TaskRead, TaskEventRead, AgentInvocationRead, JobReportResponse, FitReportResponse } from "@/api/client";
+import { getRun, listTasks, listEvents, getRunReport } from "@/api/client";
+import type { RunRead, TaskRead, TaskEventRead, JobReportResponse, FitReportResponse } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CheckCircle2, XCircle, Circle, AlertCircle, Clock } from "lucide-react";
@@ -52,29 +52,6 @@ function EventRow({ event }: { event: TaskEventRead }) {
   );
 }
 
-function AgentRow({ inv }: { inv: AgentInvocationRead }) {
-  const dur =
-    inv.started_at && inv.finished_at
-      ? `${Math.round((new Date(inv.finished_at).getTime() - new Date(inv.started_at).getTime()) / 1000)}s`
-      : null;
-
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-zinc-100 last:border-0">
-      <div className="flex items-center gap-2">
-        <StatusIcon status={inv.status} />
-        <div>
-          <p className="text-xs font-medium">{inv.agent_id}</p>
-          <p className="text-xs text-zinc-500">
-            {inv.skill_contract_version}
-            {dur && ` · ${dur}`}
-            {inv.exit_code != null && ` · exit ${inv.exit_code}`}
-          </p>
-        </div>
-      </div>
-      <Badge className={statusBg(inv.status) + " text-xs"}>{inv.status}</Badge>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Report viewer helpers
@@ -345,10 +322,9 @@ export default async function RunDetailPage({ params }: PageProps) {
 
   const isReportRun = run.run_type === "job_report" || run.run_type === "fit_report";
 
-  const [tasks, events, invocations, report] = await Promise.all([
+  const [tasks, events, report] = await Promise.all([
     listTasks(run_id).catch(() => [] as TaskRead[]),
     listEvents(run_id).catch(() => [] as TaskEventRead[]),
-    listAgentInvocations(run_id).catch(() => [] as AgentInvocationRead[]),
     isReportRun && run.status === "succeeded"
       ? getRunReport(run_id).catch(() => null)
       : Promise.resolve(null),
@@ -422,29 +398,6 @@ export default async function RunDetailPage({ params }: PageProps) {
         <FitReportSection report={report as FitReportResponse} />
       )}
 
-      {/* Agent Invocations */}
-      {invocations.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Agent Invocations ({invocations.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {invocations.map((inv) => (
-              <AgentRow key={inv.id} inv={inv} />
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Raw JSON (dev only) */}
-      <details className="text-xs">
-        <summary className="cursor-pointer text-zinc-400 hover:text-zinc-600">
-          Raw run data
-        </summary>
-        <pre className="mt-2 overflow-auto rounded-lg bg-zinc-50 p-4 text-zinc-600 max-h-64">
-          {JSON.stringify(run, null, 2)}
-        </pre>
-      </details>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { listJobs } from "@/api/client";
 import type { JobRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,6 @@ import { fmtTs } from "@/lib/utils";
 import { Building2, MapPin, RefreshCw } from "lucide-react";
 
 interface JobsViewProps {
-  workspaceId: string;
   activeJobId?: string;
   onJobSelected: (id: string) => void;
 }
@@ -20,7 +20,8 @@ function jobStatusBg(status: string): string {
   return "bg-zinc-100 text-zinc-600";
 }
 
-export function JobsView({ workspaceId, activeJobId, onJobSelected }: JobsViewProps) {
+export function JobsView({ activeJobId, onJobSelected }: JobsViewProps) {
+  const { getToken } = useAuth();
   const [jobs, setJobs] = useState<JobRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +30,8 @@ export function JobsView({ workspaceId, activeJobId, onJobSelected }: JobsViewPr
     setLoading(true);
     setError(null);
     try {
-      const list = await listJobs(workspaceId);
+      const token = await getToken();
+      const list = await listJobs(token);
       setJobs(list.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load jobs");
@@ -41,7 +43,7 @@ export function JobsView({ workspaceId, activeJobId, onJobSelected }: JobsViewPr
   useEffect(() => {
     fetchJobs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, []);
 
   if (loading) {
     return <p className="text-xs text-zinc-400 py-8 text-center">Loading jobs…</p>;

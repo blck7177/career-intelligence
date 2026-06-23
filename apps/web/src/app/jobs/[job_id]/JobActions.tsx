@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, FileText, UserCheck, ChevronDown, ChevronUp, Play } from "lucide-react";
-
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
 
 function csvToList(val: string): string[] {
   return val.split(",").map((s) => s.trim()).filter(Boolean);
@@ -24,6 +23,7 @@ function FitReportForm({
   onCancel: () => void;
 }) {
   const router = useRouter();
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobReportId, setJobReportId] = useState("");
@@ -40,9 +40,9 @@ function FitReportForm({
     setLoading(true);
     setError(null);
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "fit_report",
-        workspace_id: WORKSPACE_ID,
         input_snapshot: {
           job_id: jobId,
           job_report_id: jobReportId.trim() || undefined,
@@ -58,7 +58,7 @@ function FitReportForm({
           },
           force_refresh: false,
         },
-      });
+      }, token);
       router.push(`/runs/${run.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start fit report run");
@@ -136,6 +136,7 @@ interface JobActionsProps {
 
 export function JobActions({ jobId, hasExistingReport }: JobActionsProps) {
   const router = useRouter();
+  const { getToken } = useAuth();
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [fitOpen, setFitOpen] = useState(false);
@@ -144,15 +145,15 @@ export function JobActions({ jobId, hasExistingReport }: JobActionsProps) {
     setReportLoading(true);
     setReportError(null);
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "job_report",
-        workspace_id: WORKSPACE_ID,
         input_snapshot: {
           job_id: jobId,
           use_research: false,
           force_refresh: false,
         },
-      });
+      }, token);
       router.push(`/runs/${run.id}`);
     } catch (err) {
       setReportError(err instanceof Error ? err.message : "Failed to start job report run");

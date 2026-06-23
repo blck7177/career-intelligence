@@ -8,8 +8,6 @@ import { fmtTs, statusBg } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
-
 function StatusIcon({ status }: { status: string }) {
   if (status === "succeeded") return <CheckCircle2 size={14} className="text-emerald-500" />;
   if (status === "failed") return <XCircle size={14} className="text-rose-500" />;
@@ -43,7 +41,7 @@ export default async function RunsPage() {
   let fetchError: string | null = null;
 
   try {
-    const list = await listRuns(WORKSPACE_ID);
+    const list = await listRuns();
     runs = list.items;
   } catch (err) {
     fetchError = err instanceof Error ? err.message : "Failed to load runs";

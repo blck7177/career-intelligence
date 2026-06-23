@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { createRun } from "@/api/client";
 import { Plus, Loader2, X, ChevronDown } from "lucide-react";
-
-const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
 
 type FormMode = "none" | "job_report" | "fit_report" | "discovery";
 
@@ -311,6 +310,7 @@ function FitReportForm({
 
 export function StartRunButton() {
   const router = useRouter();
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>("none");
@@ -320,11 +320,8 @@ export function StartRunButton() {
     setLoading(true);
     setError(null);
     try {
-      const run = await createRun({
-        run_type: runType,
-        workspace_id: WORKSPACE_ID,
-        input_snapshot: inputSnapshot,
-      });
+      const token = await getToken();
+      const run = await createRun({ run_type: runType, input_snapshot: inputSnapshot }, token);
       setFormMode("none");
       router.push(`/runs/${run.id}`);
     } catch (err) {

@@ -1,16 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, Play } from "lucide-react";
 
 interface JobReportPanelProps {
-  workspaceId: string;
   onRunCreated: (runId: string) => void;
 }
 
-export function JobReportPanel({ workspaceId, onRunCreated }: JobReportPanelProps) {
+export function JobReportPanel({ onRunCreated }: JobReportPanelProps) {
+  const { getToken } = useAuth();
   const [jobId, setJobId] = useState("");
   const [useResearch, setUseResearch] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
@@ -25,15 +26,15 @@ export function JobReportPanel({ workspaceId, onRunCreated }: JobReportPanelProp
     setError(null);
 
     try {
+      const token = await getToken();
       const run = await createRun({
         run_type: "job_report",
-        workspace_id: workspaceId,
         input_snapshot: {
           job_id: jobId.trim(),
           use_research: useResearch,
           force_refresh: forceRefresh,
         },
-      });
+      }, token);
       onRunCreated(run.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start job report run");

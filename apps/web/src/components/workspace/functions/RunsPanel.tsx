@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,6 @@ import { statusBg, fmtTs } from "@/lib/utils";
 import { CheckCircle2, XCircle, Circle, AlertCircle, RefreshCw } from "lucide-react";
 
 interface RunsPanelProps {
-  workspaceId: string;
   activeRunId?: string;
   onSelectRun: (runId: string) => void;
 }
@@ -21,7 +21,8 @@ function StatusIcon({ status }: { status: string }) {
   return <Circle size={12} className="text-zinc-400 shrink-0" />;
 }
 
-export function RunsPanel({ workspaceId, activeRunId, onSelectRun }: RunsPanelProps) {
+export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
+  const { getToken } = useAuth();
   const [runs, setRuns] = useState<RunRead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +31,8 @@ export function RunsPanel({ workspaceId, activeRunId, onSelectRun }: RunsPanelPr
     setLoading(true);
     setError(null);
     try {
-      const list = await listRuns(workspaceId);
+      const token = await getToken();
+      const list = await listRuns(token);
       setRuns(list.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load runs");
@@ -42,7 +44,7 @@ export function RunsPanel({ workspaceId, activeRunId, onSelectRun }: RunsPanelPr
   useEffect(() => {
     fetchRuns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]);
+  }, []);
 
   return (
     <div className="p-4 space-y-3">
