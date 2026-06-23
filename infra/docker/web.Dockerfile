@@ -4,6 +4,7 @@ WORKDIR /app
 COPY apps/web/package*.json ./
 RUN npm ci
 COPY apps/web/ .
+RUN npm run gen:types
 RUN npm run build
 
 FROM node:20-alpine AS runner
