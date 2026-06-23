@@ -29,7 +29,7 @@ export const WORKSPACE_FUNCTIONS: WorkspaceFunctionMeta[] = [
   { id: "job_report", label: "Job Report", available: true },
   { id: "fit_report", label: "Fit Report", available: true },
   { id: "runs", label: "Runs", available: true },
-  { id: "jobs", label: "Jobs", available: false, comingSoon: true },
+  { id: "jobs", label: "Jobs", available: true },
   { id: "debug", label: "Debug", available: true },
 ];
 
@@ -43,7 +43,9 @@ export type DisplayTab =
   | "events"
   | "report"
   | "raw"
-  | "invocations";
+  | "invocations"
+  | "jobs"
+  | "job_detail";
 
 export interface DisplayTabMeta {
   id: DisplayTab;
@@ -57,17 +59,25 @@ export const ALL_DISPLAY_TABS: DisplayTabMeta[] = [
   { id: "report", label: "Report" },
   { id: "raw", label: "Raw" },
   { id: "invocations", label: "Invocations" },
+  { id: "jobs", label: "Jobs" },
+  { id: "job_detail", label: "Job Detail" },
 ];
 
 /**
- * Returns the tabs that are visible for a given function + run context.
- * Report tab is only active when we have a succeeded report run.
+ * Returns the tabs that are visible for a given function + run/job context.
  */
 export function getVisibleTabs(
   activeFunction: WorkspaceFunctionId,
   runType?: string,
   runStatus?: string,
+  activeJobId?: string,
 ): DisplayTab[] {
+  if (activeFunction === "jobs") {
+    const tabs: DisplayTab[] = ["jobs"];
+    if (activeJobId) tabs.push("job_detail");
+    return tabs;
+  }
+
   const base: DisplayTab[] = ["status", "tasks", "events"];
 
   if (activeFunction === "debug") {
@@ -92,12 +102,16 @@ export function getVisibleTabs(
 export interface WorkspaceState {
   activeFunction: WorkspaceFunctionId;
   activeRunId?: string;
+  activeJobId?: string;
+  activeReportId?: string;
   activeDisplayTab: DisplayTab;
 }
 
 export const DEFAULT_WORKSPACE_STATE: WorkspaceState = {
   activeFunction: "discovery",
   activeRunId: undefined,
+  activeJobId: undefined,
+  activeReportId: undefined,
   activeDisplayTab: "status",
 };
 

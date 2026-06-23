@@ -108,14 +108,23 @@ export function WorkspaceShell() {
     setActiveRun(updatedRun);
   }, []);
 
+  const handleJobSelected = useCallback((jobId: string) => {
+    setState((prev) => ({
+      ...prev,
+      activeJobId: jobId,
+      activeDisplayTab: "job_detail",
+    }));
+  }, []);
+
   // ---------------------------------------------------------------------------
-  // Derived: visible tabs based on current function + run state
+  // Derived: visible tabs based on current function + run/job state
   // ---------------------------------------------------------------------------
 
   const visibleTabs = getVisibleTabs(
     state.activeFunction,
     activeRun?.run_type,
     activeRun?.status,
+    state.activeJobId,
   );
 
   // Reset tab if current tab is no longer visible
@@ -139,8 +148,10 @@ export function WorkspaceShell() {
           activeFunction={state.activeFunction}
           workspaceId={WORKSPACE_ID}
           activeRunId={state.activeRunId}
+          activeJobId={state.activeJobId}
           onRunCreated={handleRunCreated}
           onSelectRun={setActiveRunId}
+          onJobSelected={handleJobSelected}
         />
       </div>
 
@@ -150,10 +161,14 @@ export function WorkspaceShell() {
           activeFunction={state.activeFunction}
           activeRunId={state.activeRunId}
           activeRun={activeRun}
+          activeJobId={state.activeJobId}
+          workspaceId={WORKSPACE_ID}
           activeDisplayTab={safeDisplayTab}
           visibleTabs={visibleTabs}
           onTabChange={setActiveDisplayTab}
           onRunCancelled={handleRunCancelled}
+          onJobSelected={handleJobSelected}
+          onRunCreated={handleRunCreated}
         />
       </div>
     </div>

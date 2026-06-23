@@ -14,8 +14,10 @@ interface MiddlePanelProps {
   activeFunction: WorkspaceFunctionId;
   workspaceId: string;
   activeRunId?: string;
+  activeJobId?: string;
   onRunCreated: (runId: string) => void;
   onSelectRun: (runId: string) => void;
+  onJobSelected: (id: string) => void;
 }
 
 const SYSTEM_PLACEHOLDER: AgentMessage = {
@@ -29,8 +31,10 @@ export function MiddlePanel({
   activeFunction,
   workspaceId,
   activeRunId,
+  activeJobId,
   onRunCreated,
   onSelectRun,
+  onJobSelected,
 }: MiddlePanelProps) {
   function renderPanel() {
     switch (activeFunction) {
@@ -64,7 +68,13 @@ export function MiddlePanel({
           />
         );
       case "jobs":
-        return <JobsPanel />;
+        return (
+          <JobsPanel
+            workspaceId={workspaceId}
+            activeJobId={activeJobId}
+            onJobSelected={onJobSelected}
+          />
+        );
       case "debug":
         return <DebugPanel workspaceId={workspaceId} activeRunId={activeRunId} />;
       default:
