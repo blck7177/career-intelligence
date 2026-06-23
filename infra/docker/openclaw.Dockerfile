@@ -6,13 +6,16 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip ca-certificates curl && \
     ln -sf /usr/bin/python3 /usr/local/bin/python3 && \
-    python3 -m pip install --break-system-packages --no-cache-dir click httpx && \
+    python3 -m pip install --break-system-packages --no-cache-dir click httpx pydantic && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+COPY packages/ /app/packages/
 COPY tools/wrappers/agent_tools/ /app/tools/wrappers/agent_tools/
 COPY agent/openclaw/ /app/agent/openclaw/
+
+ENV PYTHONPATH=/app
 COPY infra/docker/openclaw-entrypoint.sh /usr/local/bin/openclaw-entrypoint.sh
 
 # openclaw/config is the writable runtime config volume (see openclaw-entrypoint.sh).

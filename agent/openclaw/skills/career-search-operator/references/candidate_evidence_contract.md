@@ -1,6 +1,6 @@
 # Candidate Evidence Contract（最硬的操作规则）
 
-这是本 skill 里**最不可妥协**的部分。平台用 `trace_events.jsonl` 里的真实 tool-call 记录做反捏造校验，违反会导致整个 run 进入 `needs_review`。
+这是本 skill 里**最不可妥协**的部分。平台用 `tool_events.jsonl` 里的 HMAC 签名 ledger 做反捏造校验，违反会导致整个 run 进入 `needs_review`。
 
 ## 目录
 
@@ -60,7 +60,7 @@ web_fetch（公司 career listing 页）
 ```
 
 > **每条候选必须追溯到以上某条 evidence path。**
-> 平台 Validator Gate 会检查 `trace_events.jsonl` 里是否存在真实 discovery action。
+> 平台 Validator Gate 会检查 `tool_events.jsonl` 里是否存在有效的 signed `candidate_log` event。
 
 ---
 
@@ -86,11 +86,14 @@ web_fetch（公司 career listing 页）
 **Wrapper 层（`career_log_candidates` 内置）：**
 - 每条候选验证 `url`、`title`、`company`、`source_type` 必填
 - URL 格式验证（必须 `http://` 或 `https://` 开头）
+- 写入 `output_paths.tool_events_path` 所指的 HMAC 签名 ledger（`tool_events.jsonl`）
 
 **Run 层（worker 执行 Validator Gate）：**
-- `candidate_count == 0` → valid no-yield run，正常通过（artifacts 合法即可）
-- `candidate_count > 0` 但 `trace_events.jsonl` 不存在或不包含任何 discovery tool action（`web_search` / `web_fetch` / `career_fetch_source` / `career_log_candidates`）→ `ToolActivityValidator` 失败，task → `needs_review`
-- manifest schema 不合法 / artifact 文件缺失 → `SchemaValidator` / `ProvenanceValidator` 失败
+- `manifest schema 不合法 / artifact 文件缺失` → `SchemaValidator` / `ProvenanceValidator` 失败
+- `tool_events.jsonl` 不存在 或 HMAC 签名/hash chain 无效 → `ToolLedgerValidator` 失败，task → `needs_review`
+- `candidate_count == 0` → `DiscoveryEvidenceValidator` 失败（0-result run 在 v1 没有 signed search proof），task → `needs_review`
+- `candidate_count > 0` 但 ledger 里没有 `candidate_log` event，或 `candidate_count` 与 pool 实际行数不匹配 → `DiscoveryEvidenceValidator` 失败，task → `needs_review`
+- manifest 声明的 `candidate_count` 与 pool 实际行数不一致 → `DiscoveryCountValidator` 失败
 
 ---
 

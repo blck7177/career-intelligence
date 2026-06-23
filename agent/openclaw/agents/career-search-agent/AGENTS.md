@@ -76,6 +76,7 @@ This is the structured output of the Intent Translator. It is your primary direc
 | `output_paths.candidate_pool_path` | Path for `career_log_candidates` |
 | `output_paths.search_ledger_path` | Path for search activity log |
 | `output_paths.trace_events_path` | Path for tool call trace |
+| `output_paths.tool_events_path` | Path for HMAC-signed tool event ledger (required by ValidatorGate) |
 | `output_paths.coverage_report_path` | Path for coverage report (required) |
 | `output_paths.output_manifest_path` | Path for final output manifest (required) |
 

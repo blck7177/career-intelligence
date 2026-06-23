@@ -57,4 +57,4 @@ Service owns canonical database.
 
 ## 完成标志
 
-`coverage_report.md` 已写到 `payload.output_paths.coverage_report_path`，`output_manifest.json` 已由 `career_write_manifest` 写到 `payload.output_paths.output_manifest_path`，且 run 里有至少一个真实 discovery action（`web_search` / `web_fetch` / `career_fetch_source`）——平台用 trace_events 里的真实 tool-call 做反捏造校验。
+`coverage_report.md` 已写到 `payload.output_paths.coverage_report_path`，`output_manifest.json` 已由 `career_write_manifest` 写到 `payload.output_paths.output_manifest_path`，且 wrapper 已向 `payload.output_paths.tool_events_path` 写入 HMAC 签名 ledger——平台用 `tool_events.jsonl` 里的签名 ledger 做反捏造校验（非 `trace_events`）。

@@ -59,6 +59,11 @@ Log one or more confirmed job candidates to the candidate pool.
 {
   "run_id": "<run_id>",
   "task_id": "<task_id>",
+  "invocation_id": "<invocation_id from task spec>",
+  "artifacts_dir": "/app/data/agent_artifacts",
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path from task spec>"
+  },
   "candidates": [
     {
       "url": "https://boards.greenhouse.io/company/jobs/12345",
@@ -124,11 +129,16 @@ Write the final output manifest.  Call **once** at the very end before stopping.
 ```json
 {
   "invocation_id": "<invocation_id from task spec>",
+  "run_id": "<run_id from task spec>",
+  "task_id": "<task_id from task spec>",
   "status": "completed",
   "stop_reason": "max_candidates_reached",
   "candidate_count": 2,
   "sources_tried": ["greenhouse.io"],
   "sources_added": [],
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path from task spec>"
+  },
   "artifact_paths": {
     "candidate_pool": "<output_paths.candidate_pool_path from task spec>",
     "search_ledger": "<output_paths.search_ledger_path from task spec>",
