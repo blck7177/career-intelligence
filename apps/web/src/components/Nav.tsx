@@ -2,8 +2,9 @@ import Link from "next/link";
 import { Cpu } from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/runs", label: "Runs" },
   { href: "/jobs", label: "Jobs" },
+  { href: "/workspace", label: "Workspace" },
+  { href: "/runs", label: "Activity" },
 ];
 
 export function Nav() {

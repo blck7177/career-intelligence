@@ -8,7 +8,7 @@ import { Plus, Loader2, X, ChevronDown } from "lucide-react";
 
 const WORKSPACE_ID = process.env.NEXT_PUBLIC_WORKSPACE_ID ?? "ws_default";
 
-type FormMode = "none" | "job_report" | "fit_report";
+type FormMode = "none" | "job_report" | "fit_report" | "discovery";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,15 +267,11 @@ export function StartRunButton() {
       {/* Button group */}
       <div className="flex items-center gap-1">
         <Button
-          onClick={() => startRun("job_discovery", {})}
+          onClick={() => router.push("/workspace")}
           disabled={loading}
           size="sm"
         >
-          {loading && formMode === "none" ? (
-            <Loader2 size={14} className="animate-spin mr-1.5" />
-          ) : (
-            <Plus size={14} className="mr-1.5" />
-          )}
+          <Plus size={14} className="mr-1.5" />
           New Run
         </Button>
         <Button
@@ -295,7 +291,7 @@ export function StartRunButton() {
         <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-zinc-200 bg-white shadow-md z-10">
           <button
             className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 rounded-t-lg"
-            onClick={() => { startRun("job_discovery", {}); setMenuOpen(false); }}
+            onClick={() => { router.push("/workspace"); setMenuOpen(false); }}
           >
             Discovery Run
           </button>

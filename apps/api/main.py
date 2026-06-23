@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from apps.api.routes.health import router as health_router
+from apps.api.routes.jobs import router as jobs_router
 from apps.api.routes.reports import router as reports_router
 from apps.api.routes.runs import router as runs_router
 from packages.infrastructure.observability.logging import configure_logging, set_correlation_id
@@ -63,6 +64,7 @@ async def correlation_id_middleware(request: Request, call_next):
 
 app.include_router(health_router)
 app.include_router(runs_router)
+app.include_router(jobs_router)
 app.include_router(reports_router)
 
 

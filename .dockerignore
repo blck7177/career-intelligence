@@ -13,5 +13,6 @@ apps/web/.turbo
 # Dev artifacts
 .git
 *.md
-infra/
+infra/compose/
+infra/nginx/
 dev_note/

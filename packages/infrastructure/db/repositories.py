@@ -99,6 +99,20 @@ class RunRepository:
         self._s.flush()
         return run
 
+    def set_result_summary(self, run_id: str, result_summary: dict) -> Run:
+        run = self.get_or_raise(run_id)
+        run.result_summary_json = result_summary
+        self._s.flush()
+        return run
+
+    def complete(self, run_id: str, *, status: str, result_summary: dict) -> Run:
+        """Set status and result_summary_json atomically in one flush."""
+        run = self.get_or_raise(run_id)
+        run.status = status
+        run.result_summary_json = result_summary
+        self._s.flush()
+        return run
+
     def list_for_workspace(self, workspace_id: str, limit: int = 50) -> list[Run]:
         return (
             self._s.query(Run)
@@ -472,6 +486,27 @@ class JobRepository:
         stmt = select(Job).where(Job.canonical_url == canonical_url)
         return self._s.execute(stmt).scalar_one_or_none()
 
+    def list(
+        self,
+        *,
+        run_ids: Optional[list[str]] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[Job], int]:
+        """List jobs, optionally filtered by run_ids and/or status."""
+        from sqlalchemy import select, func
+        stmt = select(Job)
+        if run_ids is not None:
+            stmt = stmt.where(Job.discovered_run_id.in_(run_ids))
+        if status:
+            stmt = stmt.where(Job.status == status)
+        stmt = stmt.order_by(Job.created_at.desc())
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = self._s.execute(count_stmt).scalar_one()
+        items = list(self._s.execute(stmt.offset(offset).limit(limit)).scalars().all())
+        return items, total
+
     def create(
         self,
         *,
@@ -480,8 +515,8 @@ class JobRepository:
         source_type: str,
         title: str,
         company: str,
-        jd_text: str,
-        jd_hash: str,
+        jd_text: Optional[str] = None,
+        jd_hash: Optional[str] = None,
         location: Optional[str] = None,
         raw_payload_json: Optional[dict] = None,
         status: str = "discovered",

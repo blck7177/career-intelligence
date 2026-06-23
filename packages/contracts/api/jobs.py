@@ -2,30 +2,33 @@
 API DTOs for discovered jobs.
 
 Jobs are written to the database only after Validator Gate passes.
+These DTOs reflect the actual Job ORM model fields.
+Internal fields (jd_text, jd_hash, raw_payload_json) are not exposed.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class JobRead(BaseModel):
-    """A normalized job record returned by the API."""
+    """A canonical job record returned by the API."""
 
     id: str
-    workspace_id: str
-    run_id: Optional[str] = None
-    source: str
-    title: Optional[str] = None
-    company: Optional[str] = None
+    canonical_url: str
+    source_url: str
+    source_type: str
+    title: str
+    company: str
     location: Optional[str] = None
-    url: Optional[str] = None
-    normalized: dict = Field(default_factory=dict)
+    status: str  # "discovered" | "reportable" | "invalid" | "stale"
+    discovered_run_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    last_seen_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

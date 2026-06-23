@@ -21,6 +21,8 @@ export type RunList = components["schemas"]["RunList"];
 export type TaskRead = components["schemas"]["TaskRead"];
 export type TaskEventRead = components["schemas"]["TaskEventRead"];
 export type AgentInvocationRead = components["schemas"]["AgentInvocationRead"];
+export type JobRead = components["schemas"]["JobRead"];
+export type JobList = components["schemas"]["JobList"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -135,4 +137,16 @@ export async function getFitReport(fitReportId: string): Promise<FitReportRespon
 
 export async function getLatestJobReport(jobId: string): Promise<JobReportResponse> {
   return req<JobReportResponse>(`/api/jobs/${encodeURIComponent(jobId)}/job-reports/latest`);
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+export async function listJobs(workspaceId: string): Promise<JobList> {
+  return req<JobList>(`/api/jobs?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function getJob(jobId: string): Promise<JobRead> {
+  return req<JobRead>(`/api/jobs/${encodeURIComponent(jobId)}`);
 }

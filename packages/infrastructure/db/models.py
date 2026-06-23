@@ -329,8 +329,8 @@ class Job(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    jd_text: Mapped[str] = mapped_column(Text, nullable=False)
-    jd_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    jd_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    jd_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     raw_payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("discovered", "reportable", "invalid", "stale", name="job_status"),

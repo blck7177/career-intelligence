@@ -19,7 +19,7 @@ Full flow (per architecture.md Agent Execution Flow):
   7.  Read output_manifest.json
   8.  Run ValidatorGate (schema + provenance + budget)
   9.  Persist validation results
-  10. Pass → write artifacts to DB, mark task succeeded
+  10. Pass → write artifacts to DB, persist result_summary_json, mark task succeeded
   11. Fail → mark task needs_review, no artifact writes
 """
 
@@ -49,6 +49,7 @@ from packages.infrastructure.db.repositories import (
     AgentToolEventRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
+    JobRepository,
     RunRepository,
     TaskEventRepository,
     TaskRepository,
@@ -403,42 +404,61 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     _ingest_tool_events(task_spec, invocation_id)
 
+    # ------------------------------------------------------------------
+    # Step 10b: Persist discovered jobs to jobs table
+    # ------------------------------------------------------------------
+    job_ids = _persist_discovered_jobs(manifest, env.run_id, env.task_id)
+
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
         run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
 
+        artifact_ids: list[str] = []
         for artifact_type, path_str in manifest.artifact_paths.items():
-            artifact_repo.create(
+            artifact = artifact_repo.create(
                 run_id=env.run_id,
                 task_id=env.task_id,
                 artifact_type=artifact_type,
                 storage_uri=path_str,
                 metadata_json={"invocation_id": invocation_id},
             )
+            artifact_ids.append(artifact.id)
+
+        result_summary = {
+            "candidate_count": manifest.candidate_count,
+            "job_ids": job_ids,
+            "artifact_ids": artifact_ids,
+            "invocation_id": invocation_id,
+            "sources_tried": len(manifest.sources_tried),
+            "validation_status": "passed",
+        }
 
         task_repo.mark_succeeded(env.task_id)
-        run_repo.set_status(env.run_id, "succeeded")
+        run_repo.complete(env.run_id, status="succeeded", result_summary=result_summary)
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
             event_type="task_succeeded",
             message=(
                 f"Discovery complete: {manifest.candidate_count} candidates, "
-                f"{len(manifest.sources_tried)} sources tried"
+                f"{len(manifest.sources_tried)} sources tried, "
+                f"{len(job_ids)} jobs persisted to database"
             ),
         )
 
     logger.info(
-        "search_run: task_id=%s succeeded, candidates=%d",
+        "search_run: task_id=%s succeeded, candidates=%d, jobs_persisted=%d",
         env.task_id,
         manifest.candidate_count,
+        len(job_ids),
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "candidate_count": manifest.candidate_count,
+        "jobs_persisted": len(job_ids),
     }
 
 
@@ -577,6 +597,17 @@ def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> Non
             except json.JSONDecodeError:
                 # Already JSONL or invalid — validator will surface the error.
                 pass
+        elif not pool_path.exists() and manifest.candidate_count == 0:
+            # Path was declared in the manifest but the file was never written
+            # (e.g. agent tried to write an empty file and the runtime rejected it).
+            # Create an empty file so ProvenanceValidator finds a real artifact.
+            pool_path.parent.mkdir(parents=True, exist_ok=True)
+            pool_path.touch()
+            logger.info(
+                "search_run: candidate_pool declared in manifest but missing on disk "
+                "(zero-candidate run); created empty file at %s",
+                pool_path,
+            )
         return
 
     # No candidate_pool in manifest at all.
@@ -606,6 +637,90 @@ def _load_profile(profile_id: str | None) -> ProfileSnapshot:
             profile_id,
         )
     return ProfileSnapshot.empty()
+
+
+def _persist_discovered_jobs(
+    manifest: DiscoveryManifest,
+    run_id: str,
+    task_id: str,
+) -> list[str]:
+    """
+    Upsert candidates from candidate_pool.jsonl into the jobs table.
+
+    Called after the validator gate passes so only validated candidates
+    are persisted.  New candidates are inserted with status="discovered"
+    and no jd_text/jd_hash — those are filled by a subsequent job_research
+    task.  Already-known URLs are skipped (canonical_url is unique).
+
+    Returns the list of job IDs (new + existing) for the current run.
+    Errors are logged as warnings and do not block task completion.
+    """
+    pool_path_str = manifest.artifact_paths.get("candidate_pool")
+    if not pool_path_str or manifest.candidate_count == 0:
+        return []
+
+    pool_path = Path(pool_path_str)
+    if not pool_path.exists():
+        logger.warning(
+            "search_run: candidate_pool not found at %s — skipping job persistence",
+            pool_path,
+        )
+        return []
+
+    job_ids: list[str] = []
+    new_count = 0
+    skip_count = 0
+
+    try:
+        with get_session() as session:
+            job_repo = JobRepository(session)
+            for line in pool_path.read_text().splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    logger.warning("search_run: skipping malformed candidate_pool line: %s", exc)
+                    continue
+
+                url = entry.get("url", "").strip()
+                if not url:
+                    continue
+
+                existing = job_repo.get_by_canonical_url(url)
+                if existing:
+                    job_ids.append(existing.id)
+                    skip_count += 1
+                    continue
+
+                job = job_repo.create(
+                    canonical_url=url,
+                    source_url=url,
+                    source_type=entry.get("source_type", "unknown"),
+                    title=entry.get("title", ""),
+                    company=entry.get("company", ""),
+                    location=entry.get("location"),
+                    raw_payload_json=entry,
+                    status="discovered",
+                    discovered_run_id=run_id,
+                    discovered_task_id=task_id,
+                )
+                job_ids.append(job.id)
+                new_count += 1
+
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("search_run: failed to persist discovered jobs (non-blocking): %s", exc)
+        return job_ids
+
+    logger.info(
+        "search_run: jobs persisted — new=%d, already_known=%d, total=%d",
+        new_count,
+        skip_count,
+        len(job_ids),
+    )
+    return job_ids
 
 
 def _ingest_tool_events(task_spec, invocation_id: str) -> None:

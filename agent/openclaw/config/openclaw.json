@@ -48,5 +48,16 @@
     "load": {
       "extraDirs": ["/app/agent/openclaw/skills"]
     }
+  },
+  "tools": {
+    "web": {
+      "search": {
+        "enabled": true,
+        "provider": "duckduckgo",
+        "maxResults": 5,
+        "timeoutSeconds": 30,
+        "cacheTtlMinutes": 15
+      }
+    }
   }
 }
