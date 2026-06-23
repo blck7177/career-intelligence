@@ -23,6 +23,8 @@ export type TaskEventRead = components["schemas"]["TaskEventRead"];
 export type AgentInvocationRead = components["schemas"]["AgentInvocationRead"];
 export type JobRead = components["schemas"]["JobRead"];
 export type JobList = components["schemas"]["JobList"];
+export type JobReportResponse = components["schemas"]["JobReportResponse"];
+export type FitReportResponse = components["schemas"]["FitReportResponse"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -88,39 +90,6 @@ export async function cancelRun(runId: string): Promise<RunRead> {
 // Reports
 // ---------------------------------------------------------------------------
 
-export interface JobReportResponse {
-  id: string;
-  job_id: string;
-  status: string;
-  jd_hash: string;
-  prompt_version: string;
-  used_research: boolean;
-  research_bundle_hash?: string | null;
-  structured_json: Record<string, unknown>;
-  summary_json: Record<string, unknown>;
-  narrative_artifact_id?: string | null;
-  structured_artifact_id?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface FitReportResponse {
-  id: string;
-  workspace_id: string;
-  job_id: string;
-  job_report_id: string;
-  candidate_profile_id?: string | null;
-  overall_match_score: number;
-  status: string;
-  prompt_version: string;
-  structured_json: Record<string, unknown>;
-  summary_json: Record<string, unknown>;
-  narrative_artifact_id?: string | null;
-  structured_artifact_id?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export async function getRunReport(
   runId: string
 ): Promise<JobReportResponse | FitReportResponse> {
@@ -131,8 +100,10 @@ export async function getJobReport(jobReportId: string): Promise<JobReportRespon
   return req<JobReportResponse>(`/api/job-reports/${jobReportId}`);
 }
 
-export async function getFitReport(fitReportId: string): Promise<FitReportResponse> {
-  return req<FitReportResponse>(`/api/fit-reports/${fitReportId}`);
+export async function getFitReport(fitReportId: string, workspaceId: string): Promise<FitReportResponse> {
+  return req<FitReportResponse>(
+    `/api/fit-reports/${fitReportId}?workspace_id=${encodeURIComponent(workspaceId)}`
+  );
 }
 
 export async function getLatestJobReport(jobId: string): Promise<JobReportResponse> {

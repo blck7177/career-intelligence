@@ -54,9 +54,11 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
     job_report_id = snap.get("job_report_id")
     force_refresh = bool(snap.get("force_refresh", False))
 
-    if not job_id and not job_snapshot:
-        _mark_failed(env, error_code="MISSING_JOB_INPUT",
-                     message="input_snapshot must contain job_id or job_snapshot")
+    if not job_id:
+        # job_snapshot-only path fabricates a smoke_xxx job_id that violates
+        # the jobs.id FK in Postgres. Production always requires a real job_id.
+        _mark_failed(env, error_code="MISSING_JOB_ID",
+                     message="job_id is required; job_snapshot-only path is not supported in production")
         return {"status": "failed", "task_id": env.task_id}
 
     if not profile_snapshot:
@@ -95,6 +97,10 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         run_repo = RunRepository(session)
         task_repo.mark_succeeded(env.task_id)
         run_repo.set_status(env.run_id, "succeeded")
+        run_repo.set_result_summary(env.run_id, {
+            "report_type": "fit_report",
+            "report_id": result["fit_report_id"],
+        })
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -105,6 +111,10 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
                 f"score={result['overall_match_score']} "
                 f"status={result['status']}"
             ),
+            payload_json={
+                "report_type": "fit_report",
+                "report_id": result["fit_report_id"],
+            },
         )
 
     logger.info(

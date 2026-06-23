@@ -48,9 +48,11 @@ def handle_job_report(env: TaskEnvelope) -> dict:
     force_refresh = bool(snap.get("force_refresh", False))
     research_artifact_id = snap.get("research_artifact_id")
 
-    if not job_id and not job_snapshot:
-        _mark_failed(env, error_code="MISSING_JOB_INPUT",
-                     message="input_snapshot must contain job_id or job_snapshot")
+    if not job_id:
+        # job_snapshot-only path fabricates a smoke_xxx job_id that violates
+        # the jobs.id FK in Postgres. Production always requires a real job_id.
+        _mark_failed(env, error_code="MISSING_JOB_ID",
+                     message="job_id is required; job_snapshot-only path is not supported in production")
         return {"status": "failed", "task_id": env.task_id}
 
     try:
@@ -81,6 +83,10 @@ def handle_job_report(env: TaskEnvelope) -> dict:
         run_repo = RunRepository(session)
         task_repo.mark_succeeded(env.task_id)
         run_repo.set_status(env.run_id, "succeeded")
+        run_repo.set_result_summary(env.run_id, {
+            "report_type": "job_report",
+            "report_id": result["job_report_id"],
+        })
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -91,6 +97,10 @@ def handle_job_report(env: TaskEnvelope) -> dict:
                 f"status={result['status']} "
                 f"used_research={result['used_research']}"
             ),
+            payload_json={
+                "report_type": "job_report",
+                "report_id": result["job_report_id"],
+            },
         )
 
     logger.info("job_report: task_id=%s succeeded report_id=%s", env.task_id, result["job_report_id"])

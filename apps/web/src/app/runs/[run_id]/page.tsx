@@ -110,10 +110,28 @@ function SeverityChip({ severity }: { severity: string }) {
 
 function JobReportSection({ report }: { report: JobReportResponse }) {
   const s = report.structured_json as Record<string, unknown>;
+
   const primaryWorkstream = s.primary_workstream as string | undefined;
-  const businessContext = s.business_context as string | undefined;
-  const positionFunction = s.position_function as string | undefined;
-  const uncertaintyNotes = s.uncertainty_notes as string | undefined;
+
+  const bc = s.business_context as
+    | { summary?: string; problem_solved?: string; confidence?: string }
+    | undefined;
+
+  const pf = s.position_function as
+    | { primary_function?: string; function_mix_description?: string; confidence?: string }
+    | undefined;
+
+  const dw = s.daily_workflow as
+    | { likely_inputs?: string[]; likely_analyses?: string[]; likely_outputs?: string[] }
+    | undefined;
+
+  const demands = s.underlying_skill_demands as
+    | { jd_phrase?: string; underlying_capability?: string; importance?: string }[]
+    | undefined;
+
+  const uncertaintyNotes = s.uncertainty_notes as
+    | { issue?: string; impact?: string }[]
+    | undefined;
 
   return (
     <Card>
@@ -133,24 +151,88 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
             <p>{primaryWorkstream}</p>
           </div>
         )}
-        {businessContext && (
+
+        {bc?.summary && (
           <div>
             <p className="font-medium text-zinc-500 mb-0.5">Business Context</p>
-            <p className="leading-relaxed">{businessContext}</p>
+            <p className="leading-relaxed">{bc.summary}</p>
+            {bc.problem_solved && (
+              <p className="leading-relaxed text-zinc-500 mt-0.5">Problem solved: {bc.problem_solved}</p>
+            )}
           </div>
         )}
-        {positionFunction && (
+
+        {pf?.primary_function && (
           <div>
             <p className="font-medium text-zinc-500 mb-0.5">Position Function</p>
-            <p className="leading-relaxed">{positionFunction}</p>
+            <p className="leading-relaxed font-medium">{pf.primary_function}</p>
+            {pf.function_mix_description && (
+              <p className="leading-relaxed text-zinc-500 mt-0.5">{pf.function_mix_description}</p>
+            )}
           </div>
         )}
-        {uncertaintyNotes && (
+
+        {dw && (dw.likely_analyses?.length || dw.likely_outputs?.length) ? (
+          <div>
+            <p className="font-medium text-zinc-500 mb-1">Daily Workflow</p>
+            {dw.likely_analyses && dw.likely_analyses.length > 0 && (
+              <div className="mb-1">
+                <p className="text-zinc-400 mb-0.5">Analyses</p>
+                <ul className="space-y-0.5 list-disc list-inside">
+                  {dw.likely_analyses.map((a, i) => <li key={i}>{a}</li>)}
+                </ul>
+              </div>
+            )}
+            {dw.likely_outputs && dw.likely_outputs.length > 0 && (
+              <div>
+                <p className="text-zinc-400 mb-0.5">Outputs</p>
+                <ul className="space-y-0.5 list-disc list-inside">
+                  {dw.likely_outputs.map((o, i) => <li key={i}>{o}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {demands && demands.length > 0 && (
+          <div>
+            <p className="font-medium text-zinc-500 mb-1">Key Skill Demands</p>
+            <ul className="space-y-1">
+              {demands.slice(0, 5).map((d, i) => (
+                <li key={i} className="flex gap-2 items-start">
+                  <span className={`shrink-0 rounded px-1 py-0.5 text-xs font-medium ${
+                    d.importance === "core"
+                      ? "bg-rose-100 text-rose-700"
+                      : d.importance === "supporting"
+                      ? "bg-amber-100 text-amber-700"
+                      : "bg-zinc-100 text-zinc-600"
+                  }`}>{d.importance ?? "—"}</span>
+                  <span>
+                    <span className="font-medium">{d.jd_phrase}</span>
+                    {d.underlying_capability && (
+                      <span className="text-zinc-500"> — {d.underlying_capability}</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {uncertaintyNotes && uncertaintyNotes.length > 0 && (
           <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
-            <p className="font-medium text-amber-700 mb-0.5">Uncertainty Notes</p>
-            <p className="text-amber-700">{uncertaintyNotes}</p>
+            <p className="font-medium text-amber-700 mb-1">Uncertainty Notes</p>
+            <ul className="space-y-1">
+              {uncertaintyNotes.map((n, i) => (
+                <li key={i}>
+                  <span className="font-medium text-amber-700">{n.issue}</span>
+                  {n.impact && <span className="text-amber-600"> — {n.impact}</span>}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
+
         <p className="text-zinc-400 pt-1">Report ID: {report.id} · v{report.prompt_version}</p>
       </CardContent>
     </Card>

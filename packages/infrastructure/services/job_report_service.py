@@ -97,10 +97,11 @@ def create_job_report(
     # 3. Resolve research notes
     research_notes = ""
     research_bundle_hash = "none"
+    research_artifact_meta: dict = {}
     used_research = False
 
     if use_research and research_artifact_id:
-        research_notes, research_bundle_hash = _load_research_notes(
+        research_notes, research_bundle_hash, research_artifact_meta = _load_research_notes(
             artifact_repo, research_artifact_id
         )
         used_research = bool(research_notes)
@@ -143,6 +144,16 @@ def create_job_report(
     # 7. Stamp research provenance
     structured.used_research = used_research
     structured.research_bundle_hash = research_bundle_hash
+    if used_research:
+        # Read validation_status / source_count from artifact metadata written by research pipeline.
+        # If the metadata does not carry these fields yet, use safe fallbacks:
+        # "partial" (not "passed" — we cannot confirm validity from text alone) and 0.
+        structured.research_validation_status = research_artifact_meta.get(
+            "validation_status", "partial"
+        )
+        structured.research_source_count = int(
+            research_artifact_meta.get("source_count", 0)
+        )
 
     # 8. Write artifacts
     job_report_id = "rpt_" + uuid.uuid4().hex[:8]
@@ -223,20 +234,25 @@ def _job_orm_to_dict(job) -> dict[str, Any]:
 def _load_research_notes(
     artifact_repo: ArtifactRepository,
     research_artifact_id: str,
-) -> tuple[str, str]:
-    """Load research notes text and compute bundle hash. Returns ("", "none") on failure."""
+) -> tuple[str, str, dict]:
+    """
+    Load research notes text and compute bundle hash.
+    Also returns artifact.metadata_json for provenance stamping.
+    Returns ("", "none", {}) on failure.
+    """
     try:
         artifact = artifact_repo.get(research_artifact_id)
         if artifact is None:
             logger.warning("Research artifact not found: %s", research_artifact_id)
-            return "", "none"
+            return "", "none", {}
         path = Path(artifact.storage_uri)
         if not path.exists():
             logger.warning("Research artifact file missing: %s", path)
-            return "", "none"
+            return "", "none", {}
         text = path.read_text(encoding="utf-8").strip()
         bundle_hash = hashlib.md5(text.encode("utf-8")).hexdigest()[:16]
-        return text, bundle_hash
+        artifact_meta = artifact.metadata_json or {}
+        return text, bundle_hash, artifact_meta
     except Exception as exc:
         logger.warning("Failed to load research notes from %s: %s", research_artifact_id, exc)
-        return "", "none"
+        return "", "none", {}

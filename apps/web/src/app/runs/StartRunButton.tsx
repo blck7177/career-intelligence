@@ -36,12 +36,20 @@ function JobReportForm({
 }) {
   const [jobId, setJobId] = useState("");
   const [useResearch, setUseResearch] = useState(false);
+  const [researchArtifactId, setResearchArtifactId] = useState("");
   const [forceRefresh, setForceRefresh] = useState(false);
+
+  const researchBlocked = useResearch && !researchArtifactId.trim();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!jobId.trim()) return;
-    onSubmit({ job_id: jobId.trim(), use_research: useResearch, force_refresh: forceRefresh });
+    if (!jobId.trim() || researchBlocked) return;
+    onSubmit({
+      job_id: jobId.trim(),
+      use_research: useResearch,
+      research_artifact_id: useResearch ? researchArtifactId.trim() : undefined,
+      force_refresh: forceRefresh,
+    });
   }
 
   return (
@@ -85,13 +93,42 @@ function JobReportForm({
         </label>
       </div>
 
-      <Button type="submit" disabled={loading || !jobId.trim()} size="sm" className="w-full">
+      {useResearch && (
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-500">Research Artifact ID *</label>
+          <input
+            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            placeholder="art_abc123"
+            value={researchArtifactId}
+            onChange={(e) => setResearchArtifactId(e.target.value)}
+          />
+          <p className="text-xs text-zinc-400">
+            Find artifact IDs in the Events log of a completed research run.
+          </p>
+          {researchBlocked && (
+            <p className="text-xs text-rose-600">
+              Research artifact ID is required when &ldquo;Use research&rdquo; is checked.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Button type="submit" disabled={loading || !jobId.trim() || researchBlocked} size="sm" className="w-full">
         {loading ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Plus size={13} className="mr-1.5" />}
         Start Job Report Run
       </Button>
     </form>
   );
 }
+
+const PROJECTS_PLACEHOLDER = `[
+  {
+    "title": "Market Risk Dashboard",
+    "description": "Built real-time VaR dashboard for rates desk",
+    "skills_used": ["Python", "SQL", "Bloomberg API"],
+    "quantified_impact": "Reduced reporting time by 60%"
+  }
+]`;
 
 function FitReportForm({
   onSubmit,
@@ -111,11 +148,31 @@ function FitReportForm({
   const [methods, setMethods] = useState("");
   const [finDomains, setFinDomains] = useState("");
   const [tools, setTools] = useState("");
+  const [projectsJson, setProjectsJson] = useState("");
+  const [projectsError, setProjectsError] = useState<string | null>(null);
   const [forceRefresh, setForceRefresh] = useState(false);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!jobId.trim()) return;
+
+    let representativeProjects: unknown[] = [];
+    if (projectsJson.trim()) {
+      try {
+        const parsed = JSON.parse(projectsJson);
+        if (!Array.isArray(parsed)) {
+          setProjectsError("Must be a JSON array [ ... ]");
+          return;
+        }
+        representativeProjects = parsed;
+        setProjectsError(null);
+      } catch {
+        setProjectsError("Invalid JSON — check for missing commas, quotes, or brackets.");
+        return;
+      }
+    } else {
+      setProjectsError(null);
+    }
 
     const profileSnapshot: Record<string, unknown> = {
       years_experience: yearsExp ? Number(yearsExp) : undefined,
@@ -125,7 +182,7 @@ function FitReportForm({
       analytical_methods: csvToList(methods),
       finance_domains: csvToList(finDomains),
       tools: csvToList(tools),
-      representative_projects: [],
+      representative_projects: representativeProjects,
     };
 
     onSubmit({
@@ -209,6 +266,26 @@ function FitReportForm({
           />
         </div>
       ))}
+
+      <div className="space-y-1">
+        <label className="text-xs text-zinc-500">
+          Representative projects (JSON array, optional)
+        </label>
+        <textarea
+          className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-zinc-400 resize-y"
+          rows={5}
+          placeholder={PROJECTS_PLACEHOLDER}
+          value={projectsJson}
+          onChange={(e) => { setProjectsJson(e.target.value); setProjectsError(null); }}
+        />
+        <p className="text-xs text-zinc-400">
+          Each project: title, description, skills_used (array), quantified_impact.
+          Leave blank to skip.
+        </p>
+        {projectsError && (
+          <p className="text-xs text-rose-600">{projectsError}</p>
+        )}
+      </div>
 
       <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
         <input
