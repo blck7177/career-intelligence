@@ -4,8 +4,6 @@ import type { RunRead } from "@/api/client";
 import type { WorkspaceFunctionId, DisplayTab } from "@/lib/workspace/workspaceTypes";
 import { ALL_DISPLAY_TABS } from "@/lib/workspace/workspaceTypes";
 import { RunStatusView } from "./display/RunStatusView";
-import { TasksView } from "./display/TasksView";
-import { EventsView } from "./display/EventsView";
 import { ReportView } from "./display/ReportView";
 import { JobsView } from "./display/JobsView";
 import { JobDetailView } from "./display/JobDetailView";
@@ -111,10 +109,6 @@ export function DisplayPanel({
     switch (activeDisplayTab) {
       case "status":
         return <RunStatusView run={activeRun!} onCancelled={onRunCancelled} />;
-      case "tasks":
-        return <TasksView runId={activeRunId!} />;
-      case "events":
-        return <EventsView runId={activeRunId!} />;
       case "report":
         return <ReportView run={activeRun!} />;
       default:

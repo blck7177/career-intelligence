@@ -23,11 +23,11 @@ const BASE =
     : (process.env.NEXT_PUBLIC_API_URL ?? "http://api:8000");
 
 async function req<T>(path: string, init?: RequestInit, token?: string | null): Promise<T> {
-  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${BASE}${path}`, {
     headers: {
-      "Content-Type": "application/json",
-      ...authHeader,
+      ...headers,
       ...(init?.headers as Record<string, string>),
     },
     ...init,

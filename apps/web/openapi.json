@@ -1,1 +1,2240 @@
-{"openapi":"3.1.0","info":{"title":"Career OpenClaw API","version":"0.2.0"},"paths":{"/healthz":{"get":{"tags":["health"],"summary":"Health","description":"Returns 200 if API and DB are reachable.","operationId":"health_healthz_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"additionalProperties":true,"type":"object","title":"Response Health Healthz Get"}}}}}}},"/api/runs":{"post":{"tags":["runs"],"summary":"Create Run","description":"Create a run and enqueue its first task via Celery.\nReturns run_id immediately — frontend polls for status.","operationId":"create_run_api_runs_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/RunCreate"}}}},"responses":{"201":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/RunRead"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}},"get":{"tags":["runs"],"summary":"List Runs","operationId":"list_runs_api_runs_get","parameters":[{"name":"workspace_id","in":"query","required":true,"schema":{"type":"string","title":"Workspace Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/RunList"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}":{"get":{"tags":["runs"],"summary":"Get Run","operationId":"get_run_api_runs__run_id__get","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/RunRead"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}/tasks":{"get":{"tags":["runs"],"summary":"List Tasks","operationId":"list_tasks_api_runs__run_id__tasks_get","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/TaskRead"},"title":"Response List Tasks Api Runs  Run Id  Tasks Get"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}/events":{"get":{"tags":["runs"],"summary":"List Events","operationId":"list_events_api_runs__run_id__events_get","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/TaskEventRead"},"title":"Response List Events Api Runs  Run Id  Events Get"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}/agent-invocations":{"get":{"tags":["runs"],"summary":"List Agent Invocations","operationId":"list_agent_invocations_api_runs__run_id__agent_invocations_get","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/AgentInvocationRead"},"title":"Response List Agent Invocations Api Runs  Run Id  Agent Invocations Get"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}/cancel":{"post":{"tags":["runs"],"summary":"Cancel Run","operationId":"cancel_run_api_runs__run_id__cancel_post","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/RunRead"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/jobs":{"get":{"tags":["jobs"],"summary":"List Jobs","description":"List discovered job records, optionally scoped to a workspace.","operationId":"list_jobs_api_jobs_get","parameters":[{"name":"workspace_id","in":"query","required":false,"schema":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Filter by workspace. If omitted, returns all jobs.","title":"Workspace Id"},"description":"Filter by workspace. If omitted, returns all jobs."},{"name":"status","in":"query","required":false,"schema":{"anyOf":[{"type":"string"},{"type":"null"}],"description":"Filter by job status: discovered|reportable|invalid|stale","title":"Status"},"description":"Filter by job status: discovered|reportable|invalid|stale"},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","maximum":500,"minimum":1,"default":100,"title":"Limit"}},{"name":"offset","in":"query","required":false,"schema":{"type":"integer","minimum":0,"default":0,"title":"Offset"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/JobList"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/jobs/{job_id}":{"get":{"tags":["jobs"],"summary":"Get Job","description":"Fetch a single job record by ID.","operationId":"get_job_api_jobs__job_id__get","parameters":[{"name":"job_id","in":"path","required":true,"schema":{"type":"string","title":"Job Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/JobRead"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/job-reports/{job_report_id}":{"get":{"tags":["reports"],"summary":"Get Job Report","description":"Fetch a specific Job Intelligence Report by ID.","operationId":"get_job_report_api_job_reports__job_report_id__get","parameters":[{"name":"job_report_id","in":"path","required":true,"schema":{"type":"string","title":"Job Report Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/JobReportResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/fit-reports/{fit_report_id}":{"get":{"tags":["reports"],"summary":"Get Fit Report","description":"Fetch a specific Candidate Fit Report by ID.","operationId":"get_fit_report_api_fit_reports__fit_report_id__get","parameters":[{"name":"fit_report_id","in":"path","required":true,"schema":{"type":"string","title":"Fit Report Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/FitReportResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/jobs/{job_id}/job-reports/latest":{"get":{"tags":["reports"],"summary":"Get Latest Job Report","description":"Fetch the latest active Job Intelligence Report for a job.","operationId":"get_latest_job_report_api_jobs__job_id__job_reports_latest_get","parameters":[{"name":"job_id","in":"path","required":true,"schema":{"type":"string","title":"Job Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{"$ref":"#/components/schemas/JobReportResponse"}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/api/runs/{run_id}/report":{"get":{"tags":["reports"],"summary":"Get Run Report","description":"Return the report generated by a job_report or fit_report run.\nLooks up the run type, extracts report ID from task success events,\nand returns the corresponding report.","operationId":"get_run_report_api_runs__run_id__report_get","parameters":[{"name":"run_id","in":"path","required":true,"schema":{"type":"string","title":"Run Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"AgentInvocationRead":{"properties":{"id":{"type":"string","title":"Id"},"run_id":{"type":"string","title":"Run Id"},"task_id":{"type":"string","title":"Task Id"},"agent_id":{"type":"string","title":"Agent Id"},"status":{"type":"string","title":"Status"},"skill_contract_version":{"type":"string","title":"Skill Contract Version"},"exit_code":{"anyOf":[{"type":"integer"},{"type":"null"}],"title":"Exit Code"},"error_code":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Code"},"error_message":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Message"},"started_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Started At"},"finished_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Finished At"},"created_at":{"type":"string","format":"date-time","title":"Created At"}},"type":"object","required":["id","run_id","task_id","agent_id","status","skill_contract_version","created_at"],"title":"AgentInvocationRead"},"FitReportResponse":{"properties":{"id":{"type":"string","title":"Id"},"workspace_id":{"type":"string","title":"Workspace Id"},"job_id":{"type":"string","title":"Job Id"},"job_report_id":{"type":"string","title":"Job Report Id"},"candidate_profile_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Candidate Profile Id"},"overall_match_score":{"type":"integer","title":"Overall Match Score"},"status":{"type":"string","title":"Status"},"prompt_version":{"type":"string","title":"Prompt Version"},"structured_json":{"additionalProperties":true,"type":"object","title":"Structured Json"},"summary_json":{"additionalProperties":true,"type":"object","title":"Summary Json"},"narrative_artifact_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Narrative Artifact Id"},"structured_artifact_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Structured Artifact Id"},"created_at":{"type":"string","format":"date-time","title":"Created At"},"updated_at":{"type":"string","format":"date-time","title":"Updated At"}},"type":"object","required":["id","workspace_id","job_id","job_report_id","overall_match_score","status","prompt_version","structured_json","summary_json","created_at","updated_at"],"title":"FitReportResponse"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"JobList":{"properties":{"items":{"items":{"$ref":"#/components/schemas/JobRead"},"type":"array","title":"Items"},"total":{"type":"integer","title":"Total"}},"type":"object","required":["items","total"],"title":"JobList"},"JobRead":{"properties":{"id":{"type":"string","title":"Id"},"canonical_url":{"type":"string","title":"Canonical Url"},"source_url":{"type":"string","title":"Source Url"},"source_type":{"type":"string","title":"Source Type"},"title":{"type":"string","title":"Title"},"company":{"type":"string","title":"Company"},"location":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Location"},"status":{"type":"string","title":"Status"},"discovered_run_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Discovered Run Id"},"created_at":{"type":"string","format":"date-time","title":"Created At"},"updated_at":{"type":"string","format":"date-time","title":"Updated At"},"last_seen_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Last Seen At"}},"type":"object","required":["id","canonical_url","source_url","source_type","title","company","status","created_at","updated_at"],"title":"JobRead","description":"A canonical job record returned by the API."},"JobReportResponse":{"properties":{"id":{"type":"string","title":"Id"},"job_id":{"type":"string","title":"Job Id"},"status":{"type":"string","title":"Status"},"jd_hash":{"type":"string","title":"Jd Hash"},"prompt_version":{"type":"string","title":"Prompt Version"},"used_research":{"type":"boolean","title":"Used Research"},"research_bundle_hash":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Research Bundle Hash"},"structured_json":{"additionalProperties":true,"type":"object","title":"Structured Json"},"summary_json":{"additionalProperties":true,"type":"object","title":"Summary Json"},"narrative_artifact_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Narrative Artifact Id"},"structured_artifact_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Structured Artifact Id"},"created_at":{"type":"string","format":"date-time","title":"Created At"},"updated_at":{"type":"string","format":"date-time","title":"Updated At"}},"type":"object","required":["id","job_id","status","jd_hash","prompt_version","used_research","structured_json","summary_json","created_at","updated_at"],"title":"JobReportResponse"},"RunCreate":{"properties":{"run_type":{"type":"string","title":"Run Type","examples":["job_discovery"]},"workspace_id":{"type":"string","title":"Workspace Id"},"input_snapshot":{"additionalProperties":true,"type":"object","title":"Input Snapshot"}},"type":"object","required":["run_type","workspace_id"],"title":"RunCreate","description":"Request body for POST /api/runs."},"RunList":{"properties":{"items":{"items":{"$ref":"#/components/schemas/RunRead"},"type":"array","title":"Items"},"total":{"type":"integer","title":"Total"}},"type":"object","required":["items","total"],"title":"RunList","description":"Response for GET /api/runs."},"RunRead":{"properties":{"id":{"type":"string","title":"Id"},"workspace_id":{"type":"string","title":"Workspace Id"},"run_type":{"type":"string","title":"Run Type"},"status":{"type":"string","enum":["queued","running","succeeded","failed","cancelled","needs_review"],"title":"Status"},"correlation_id":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Correlation Id"},"schema_version":{"type":"string","title":"Schema Version","default":"v1"},"error_code":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Code"},"error_message":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Message"},"created_at":{"type":"string","format":"date-time","title":"Created At"},"updated_at":{"type":"string","format":"date-time","title":"Updated At"}},"type":"object","required":["id","workspace_id","run_type","status","created_at","updated_at"],"title":"RunRead","description":"Response for GET /api/runs/{run_id}."},"TaskEventRead":{"properties":{"id":{"type":"string","title":"Id"},"task_id":{"type":"string","title":"Task Id"},"run_id":{"type":"string","title":"Run Id"},"event_type":{"type":"string","title":"Event Type"},"message":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Message"},"payload_json":{"anyOf":[{"additionalProperties":true,"type":"object"},{"type":"null"}],"title":"Payload Json"},"created_at":{"type":"string","format":"date-time","title":"Created At"}},"type":"object","required":["id","task_id","run_id","event_type","created_at"],"title":"TaskEventRead"},"TaskRead":{"properties":{"id":{"type":"string","title":"Id"},"run_id":{"type":"string","title":"Run Id"},"workspace_id":{"type":"string","title":"Workspace Id"},"task_type":{"type":"string","title":"Task Type"},"status":{"type":"string","enum":["queued","running","succeeded","failed","cancelled","needs_review"],"title":"Status"},"attempt_count":{"type":"integer","title":"Attempt Count"},"max_attempts":{"type":"integer","title":"Max Attempts"},"error_code":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Code"},"error_message":{"anyOf":[{"type":"string"},{"type":"null"}],"title":"Error Message"},"queued_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Queued At"},"started_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Started At"},"finished_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}],"title":"Finished At"},"created_at":{"type":"string","format":"date-time","title":"Created At"}},"type":"object","required":["id","run_id","workspace_id","task_type","status","attempt_count","max_attempts","created_at"],"title":"TaskRead","description":"Response for GET /api/runs/{run_id}/tasks."},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"},"input":{"title":"Input"},"ctx":{"type":"object","title":"Context"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Career OpenClaw API",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "description": "Returns 200 if API and DB are reachable.",
+        "operationId": "health_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Healthz Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/runs": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Create Run",
+        "description": "Create a run and enqueue its first task via Celery.\nworkspace_id comes from the authenticated user's session \u2014 not from the request body.\nReturns run_id immediately \u2014 frontend polls for status.",
+        "operationId": "create_run_api_app_runs_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "operationId": "list_runs_api_app_runs_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run",
+        "operationId": "get_run_api_app_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Cancel Run",
+        "operationId": "cancel_run_api_app_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "List job records discovered in the current workspace.",
+        "operationId": "list_jobs_api_app_jobs_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by job status: discovered|reportable|invalid|stale",
+              "title": "Status"
+            },
+            "description": "Filter by job status: discovered|reportable|invalid|stale"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Fetch a single job record by ID, verified to belong to the current workspace.",
+        "operationId": "get_job_api_app_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/job-reports/{job_report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Job Report",
+        "description": "Fetch a specific Job Intelligence Report by ID.",
+        "operationId": "get_job_report_api_app_job_reports__job_report_id__get",
+        "parameters": [
+          {
+            "name": "job_report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Report Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/fit-reports/{fit_report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Fit Report",
+        "description": "Fetch a specific Candidate Fit Report by ID.\nReturns 403 if the report does not belong to the current workspace.",
+        "operationId": "get_fit_report_api_app_fit_reports__fit_report_id__get",
+        "parameters": [
+          {
+            "name": "fit_report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Fit Report Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FitReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs/{job_id}/job-reports/latest": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Latest Job Report",
+        "description": "Fetch the latest active Job Intelligence Report for a job.",
+        "operationId": "get_latest_job_report_api_app_jobs__job_id__job_reports_latest_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/runs/{run_id}/report": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Run Report",
+        "description": "Return the report generated by a job_report or fit_report run.\n\nPrimary path: reads run.result_summary_json for the report_id (structured contract).\nLegacy fallback: scans task_succeeded event messages for \"job_report_id=\" / \"fit_report_id=\".",
+        "operationId": "get_run_report_api_app_runs__run_id__report_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/profile": {
+      "get": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "Get Profile",
+        "description": "Return the candidate profile for the current workspace. 404 if not yet created.",
+        "operationId": "get_profile_api_app_profile_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "Upsert Profile",
+        "description": "Create or update the candidate profile for the current workspace.",
+        "operationId": "upsert_profile_api_app_profile_put",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Runs",
+        "description": "List runs across all workspaces (admin only).",
+        "operationId": "admin_list_runs_api_admin_runs_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by workspace_id",
+              "title": "Workspace Id"
+            },
+            "description": "Filter by workspace_id"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by run status",
+              "title": "Status"
+            },
+            "description": "Filter by run status"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}/tasks": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Tasks",
+        "description": "List tasks for any run (admin only).",
+        "operationId": "admin_list_tasks_api_admin_runs__run_id__tasks_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskRead"
+                  },
+                  "title": "Response Admin List Tasks Api Admin Runs  Run Id  Tasks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}/events": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Events",
+        "description": "List task events for any run (admin only).",
+        "operationId": "admin_list_events_api_admin_runs__run_id__events_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskEventRead"
+                  },
+                  "title": "Response Admin List Events Api Admin Runs  Run Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}/agent-invocations": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Agent Invocations",
+        "description": "List agent invocations for any run (admin only).",
+        "operationId": "admin_list_agent_invocations_api_admin_runs__run_id__agent_invocations_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentInvocationRead"
+                  },
+                  "title": "Response Admin List Agent Invocations Api Admin Runs  Run Id  Agent Invocations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin Cancel Run",
+        "description": "Cancel any run regardless of workspace (admin only).",
+        "operationId": "admin_cancel_run_api_admin_runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin List Users",
+        "description": "List all users (admin only).",
+        "operationId": "admin_list_users_api_admin_users_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserRead"
+                  },
+                  "title": "Response Admin List Users Api Admin Users Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/workspaces": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin List Workspaces",
+        "description": "List all workspaces (admin only).",
+        "operationId": "admin_list_workspaces_api_admin_workspaces_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceRead"
+                  },
+                  "title": "Response Admin List Workspaces Api Admin Workspaces Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentInvocationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "skill_contract_version": {
+            "type": "string",
+            "title": "Skill Contract Version"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "task_id",
+          "agent_id",
+          "status",
+          "skill_contract_version",
+          "created_at"
+        ],
+        "title": "AgentInvocationRead"
+      },
+      "FailedValidatorSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FailedValidatorSummary",
+        "description": "One validator's failure detail within a needs_review result_summary."
+      },
+      "FitReportResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "job_report_id": {
+            "type": "string",
+            "title": "Job Report Id"
+          },
+          "candidate_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Profile Id"
+          },
+          "overall_match_score": {
+            "type": "integer",
+            "title": "Overall Match Score"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "structured_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Structured Json"
+          },
+          "summary_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary Json"
+          },
+          "narrative_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Artifact Id"
+          },
+          "structured_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Artifact Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "job_id",
+          "job_report_id",
+          "overall_match_score",
+          "status",
+          "prompt_version",
+          "structured_json",
+          "summary_json",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FitReportResponse"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "JobList"
+      },
+      "JobRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "discovered_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovered Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "canonical_url",
+          "source_url",
+          "source_type",
+          "title",
+          "company",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobRead",
+        "description": "A canonical job record returned by the API."
+      },
+      "JobReportResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "jd_hash": {
+            "type": "string",
+            "title": "Jd Hash"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "used_research": {
+            "type": "boolean",
+            "title": "Used Research"
+          },
+          "research_bundle_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Bundle Hash"
+          },
+          "structured_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Structured Json"
+          },
+          "summary_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary Json"
+          },
+          "narrative_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Artifact Id"
+          },
+          "structured_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Artifact Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "status",
+          "jd_hash",
+          "prompt_version",
+          "used_research",
+          "structured_json",
+          "summary_json",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobReportResponse"
+      },
+      "ProfileRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "experience_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Summary"
+          },
+          "education_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Education Summary"
+          },
+          "technical_skills": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Skills"
+          },
+          "domain_areas": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Areas"
+          },
+          "preferences_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferences Json"
+          },
+          "years_of_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Of Experience"
+          },
+          "profile_hash": {
+            "type": "string",
+            "title": "Profile Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "profile_hash"
+        ],
+        "title": "ProfileRead"
+      },
+      "ProfileUpdate": {
+        "properties": {
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "experience_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Summary"
+          },
+          "education_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Education Summary"
+          },
+          "technical_skills": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Skills"
+          },
+          "domain_areas": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Areas"
+          },
+          "preferences_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preferences Json"
+          },
+          "years_of_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Of Experience"
+          }
+        },
+        "type": "object",
+        "title": "ProfileUpdate"
+      },
+      "RunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "title": "Run Type",
+            "examples": [
+              "job_discovery"
+            ]
+          },
+          "input_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Input Snapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type"
+        ],
+        "title": "RunCreate",
+        "description": "Request body for POST /api/runs."
+      },
+      "RunList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "RunList",
+        "description": "Response for GET /api/runs."
+      },
+      "RunRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "run_type": {
+            "type": "string",
+            "title": "Run Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "needs_review"
+            ],
+            "title": "Status"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version",
+            "default": "v1"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "result_summary_json": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunResultSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "run_type",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RunRead",
+        "description": "Response for GET /api/runs/{run_id}."
+      },
+      "RunResultSummary": {
+        "properties": {
+          "validation_status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed"
+            ],
+            "title": "Validation Status"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "invocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invocation Id"
+          },
+          "candidate_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Count"
+          },
+          "sources_tried": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources Tried"
+          },
+          "job_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Ids"
+          },
+          "artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Ids"
+          },
+          "failed_validators": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FailedValidatorSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Validators"
+          },
+          "artifact_paths": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Paths"
+          }
+        },
+        "type": "object",
+        "required": [
+          "validation_status"
+        ],
+        "title": "RunResultSummary",
+        "description": "Structured diagnostic payload written by the worker at run completion.\n\nPopulated for both terminal statuses:\n  - validation_status=\"passed\"  \u2192 run succeeded; candidate_count / job_ids present\n  - validation_status=\"failed\"  \u2192 run needs_review; phase / failed_validators present\n\nAll fields except validation_status are Optional because the exact set depends\non which execution phase produced the summary."
+      },
+      "TaskEventRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "payload_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Json"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "run_id",
+          "event_type",
+          "created_at"
+        ],
+        "title": "TaskEventRead"
+      },
+      "TaskRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "task_type": {
+            "type": "string",
+            "title": "Task Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "needs_review"
+            ],
+            "title": "Status"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "title": "Attempt Count"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "title": "Max Attempts"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "workspace_id",
+          "task_type",
+          "status",
+          "attempt_count",
+          "max_attempts",
+          "created_at"
+        ],
+        "title": "TaskRead",
+        "description": "Response for GET /api/runs/{run_id}/tasks."
+      },
+      "UserRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "is_admin",
+          "created_at"
+        ],
+        "title": "UserRead"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorkspaceRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "title": "WorkspaceRead"
+      }
+    }
+  }
+}

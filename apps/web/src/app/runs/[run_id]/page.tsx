@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getRun, listTasks, listEvents, getRunReport } from "@/api/client";
-import type { RunRead, TaskRead, TaskEventRead, JobReportResponse, FitReportResponse } from "@/api/client";
+import { getRun, getRunReport } from "@/api/client";
+import type { RunRead, JobReportResponse, FitReportResponse } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CheckCircle2, XCircle, Circle, AlertCircle, Clock } from "lucide-react";
@@ -18,40 +18,49 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "failed") return <XCircle size={14} className="text-rose-500" />;
   if (status === "needs_review") return <AlertCircle size={14} className="text-amber-500" />;
   if (status === "running") return <Circle size={14} className="text-blue-500 animate-pulse" />;
-  return <Circle size={14} className="text-zinc-400" />;
+  if (status === "cancelled") return <Circle size={14} className="text-zinc-400" />;
+  return <Clock size={14} className="text-zinc-400" />;
 }
 
-function TaskRow({ task }: { task: TaskRead }) {
-  return (
-    <div className="flex items-center justify-between py-2.5 border-b border-zinc-100 last:border-0">
-      <div className="flex items-center gap-2">
-        <StatusIcon status={task.status} />
-        <div>
-          <p className="text-xs font-medium">{task.task_type}</p>
-          <p className="text-xs text-zinc-500">
-            attempt {task.attempt_count}/{task.max_attempts}
-            {task.started_at && ` · started ${fmtTs(task.started_at)}`}
-          </p>
-        </div>
+function StatusMessage({ run }: { run: RunRead }) {
+  if (run.status === "running") {
+    return (
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
+        Search in progress. This may take a few minutes.
       </div>
-      <Badge className={statusBg(task.status) + " text-xs"}>{task.status}</Badge>
-    </div>
-  );
-}
-
-function EventRow({ event }: { event: TaskEventRead }) {
-  return (
-    <div className="flex gap-3 py-2 border-b border-zinc-100 last:border-0">
-      <Clock size={12} className="text-zinc-400 mt-0.5 shrink-0" />
-      <div className="min-w-0">
-        <p className="text-xs font-medium text-zinc-700">{event.event_type}</p>
-        {event.message && <p className="text-xs text-zinc-500 mt-0.5">{event.message}</p>}
-        <p className="text-xs text-zinc-400 mt-0.5">{fmtTs(event.created_at)}</p>
+    );
+  }
+  if (run.status === "queued") {
+    return (
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+        Waiting to start. Your run is queued and will begin shortly.
       </div>
-    </div>
-  );
+    );
+  }
+  if (run.status === "needs_review") {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+        This run needs review. Some results may be incomplete. Please retry or contact support if
+        the issue persists.
+      </div>
+    );
+  }
+  if (run.status === "failed") {
+    return (
+      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        This run failed. Please retry or contact support if it happens again.
+      </div>
+    );
+  }
+  if (run.status === "cancelled") {
+    return (
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
+        This run was cancelled.
+      </div>
+    );
+  }
+  return null;
 }
-
 
 // ---------------------------------------------------------------------------
 // Report viewer helpers
@@ -209,8 +218,6 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
             </ul>
           </div>
         )}
-
-        <p className="text-zinc-400 pt-1">Report ID: {report.id} · v{report.prompt_version}</p>
       </CardContent>
     </Card>
   );
@@ -301,10 +308,6 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
             </ol>
           </div>
         )}
-
-        <p className="text-zinc-400 pt-1">
-          Report ID: {report.id} · Job Report: {report.job_report_id} · v{report.prompt_version}
-        </p>
       </CardContent>
     </Card>
   );
@@ -321,14 +324,11 @@ export default async function RunDetailPage({ params }: PageProps) {
   }
 
   const isReportRun = run.run_type === "job_report" || run.run_type === "fit_report";
+  const report = isReportRun && run.status === "succeeded"
+    ? await getRunReport(run_id).catch(() => null)
+    : null;
 
-  const [tasks, events, report] = await Promise.all([
-    listTasks(run_id).catch(() => [] as TaskRead[]),
-    listEvents(run_id).catch(() => [] as TaskEventRead[]),
-    isReportRun && run.status === "succeeded"
-      ? getRunReport(run_id).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const runLabel = run.run_type.replace(/_/g, " ");
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -342,53 +342,20 @@ export default async function RunDetailPage({ params }: PageProps) {
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold font-mono">{run_id}</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {run.run_type.replace("_", " ")} · created {fmtTs(run.created_at)}
-          </p>
+        <div className="flex items-center gap-3">
+          <StatusIcon status={run.status} />
+          <div>
+            <h1 className="text-xl font-bold capitalize">{runLabel}</h1>
+            <p className="text-zinc-500 text-sm mt-0.5">Started {fmtTs(run.created_at)}</p>
+          </div>
         </div>
         <Badge className={statusBg(run.status) + " text-sm px-3 py-1"}>
-          {run.status.replace("_", " ")}
+          {run.status.replace(/_/g, " ")}
         </Badge>
       </div>
 
-      {run.error_message && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          <strong>{run.error_code}</strong>: {run.error_message}
-        </div>
-      )}
-
-      {/* Three-column grid */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {/* Tasks */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Tasks ({tasks.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {tasks.length === 0 ? (
-              <p className="text-xs text-zinc-500">No tasks yet.</p>
-            ) : (
-              tasks.map((t) => <TaskRow key={t.id} task={t} />)
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Events */}
-        <Card className="md:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-sm">Events ({events.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="max-h-80 overflow-y-auto">
-            {events.length === 0 ? (
-              <p className="text-xs text-zinc-500">No events yet.</p>
-            ) : (
-              events.map((e) => <EventRow key={e.id} event={e} />)
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Status message */}
+      <StatusMessage run={run} />
 
       {/* Report viewer */}
       {report && run.run_type === "job_report" && (
@@ -397,7 +364,6 @@ export default async function RunDetailPage({ params }: PageProps) {
       {report && run.run_type === "fit_report" && (
         <FitReportSection report={report as FitReportResponse} />
       )}
-
     </div>
   );
 }

@@ -37,8 +37,6 @@ export const WORKSPACE_FUNCTIONS: WorkspaceFunctionMeta[] = [
 
 export type DisplayTab =
   | "status"
-  | "tasks"
-  | "events"
   | "report"
   | "jobs"
   | "job_detail";
@@ -50,8 +48,6 @@ export interface DisplayTabMeta {
 
 export const ALL_DISPLAY_TABS: DisplayTabMeta[] = [
   { id: "status", label: "Status" },
-  { id: "tasks", label: "Tasks" },
-  { id: "events", label: "Events" },
   { id: "report", label: "Report" },
   { id: "jobs", label: "Jobs" },
   { id: "job_detail", label: "Job Detail" },
@@ -72,7 +68,7 @@ export function getVisibleTabs(
     return tabs;
   }
 
-  const base: DisplayTab[] = ["status", "tasks", "events"];
+  const base: DisplayTab[] = ["status"];
 
   const isReportRun =
     runType === "job_report" || runType === "fit_report";

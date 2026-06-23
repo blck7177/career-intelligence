@@ -78,12 +78,12 @@ async function resolveToken(token?: string | null): Promise<string | null> {
 
 async function req<T>(path: string, init?: RequestInit, token?: string | null): Promise<T> {
   const resolvedToken = await resolveToken(token);
-  const authHeader = resolvedToken ? { Authorization: `Bearer ${resolvedToken}` } : {};
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (resolvedToken) headers["Authorization"] = `Bearer ${resolvedToken}`;
 
   const res = await fetch(`${BASE}${path}`, {
     headers: {
-      "Content-Type": "application/json",
-      ...authHeader,
+      ...headers,
       ...(init?.headers as Record<string, string>),
     },
     ...init,
