@@ -62,10 +62,13 @@ def get_job(
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
 
-    # Verify the job was discovered by a run in this workspace
-    if job.discovered_run_id:
-        run = RunRepository(db).get(job.discovered_run_id)
-        if run is None or run.workspace_id != workspace.id:
-            raise HTTPException(status_code=403, detail="Access denied.")
+    # Verify the job was discovered by a run in this workspace.
+    # If discovered_run_id is missing the ownership chain is broken — deny by default
+    # rather than silently allowing access, to prevent data leakage on schema gaps.
+    if not job.discovered_run_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    run = RunRepository(db).get(job.discovered_run_id)
+    if run is None or run.workspace_id != workspace.id:
+        raise HTTPException(status_code=403, detail="Access denied.")
 
     return JobRead.model_validate(job)

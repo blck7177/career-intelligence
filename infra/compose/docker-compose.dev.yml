@@ -164,7 +164,6 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://api:8000
-      NEXT_PUBLIC_WORKSPACE_ID: dev_default
     depends_on:
       api:
         condition: service_healthy

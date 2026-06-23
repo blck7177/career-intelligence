@@ -17,10 +17,8 @@ from __future__ import annotations
 
 import logging
 import os
-import time
 from typing import Optional
 
-import httpx
 import jwt
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy.orm import Session
@@ -36,46 +34,25 @@ from packages.infrastructure.db.repositories import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# JWKS cache — refreshed at most once every 5 minutes
+# JWKS client — module-level singleton; PyJWKClient handles caching internally
+# (cache_jwk_set=True, lifespan=300s by default).  Signing keys are also
+# cached with cache_keys=True so the JWKS endpoint is not hit on every request.
 # ---------------------------------------------------------------------------
-
-_JWKS_CACHE: dict = {}
-_JWKS_FETCHED_AT: float = 0.0
-_JWKS_TTL = 300.0  # seconds
 
 _CLERK_JWKS_URL = os.environ.get("CLERK_JWKS_URL", "https://api.clerk.com/v1/jwks")
 _CLERK_AUDIENCE = os.environ.get("CLERK_AUDIENCE")
 
-
-def _get_jwks() -> dict:
-    global _JWKS_CACHE, _JWKS_FETCHED_AT
-    now = time.monotonic()
-    if _JWKS_CACHE and (now - _JWKS_FETCHED_AT) < _JWKS_TTL:
-        return _JWKS_CACHE
-    try:
-        resp = httpx.get(_CLERK_JWKS_URL, timeout=5.0)
-        resp.raise_for_status()
-        _JWKS_CACHE = resp.json()
-        _JWKS_FETCHED_AT = now
-        logger.debug("auth: JWKS refreshed from %s", _CLERK_JWKS_URL)
-    except Exception as exc:
-        logger.warning("auth: failed to fetch JWKS from %s: %s", _CLERK_JWKS_URL, exc)
-        if not _JWKS_CACHE:
-            raise HTTPException(status_code=503, detail="Auth service temporarily unavailable.")
-    return _JWKS_CACHE
+_jwks_client = jwt.PyJWKClient(_CLERK_JWKS_URL, cache_keys=True, lifespan=300)
 
 
 def _verify_clerk_jwt(token: str) -> dict:
     """Validate a Clerk JWT and return the decoded payload."""
-    jwks = _get_jwks()
     try:
-        jwks_client = jwt.PyJWKClient.__new__(jwt.PyJWKClient)
-        # Build a minimal JWKS client from cached keys
-        signing_key = jwt.PyJWKClient(
-            _CLERK_JWKS_URL,
-        ).get_signing_key_from_jwt(token)
-    except jwt.exceptions.PyJWKClientError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid token key: {exc}")
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+    except (jwt.exceptions.PyJWKClientError, jwt.exceptions.DecodeError) as exc:
+        # DecodeError covers malformed JWTs (not enough segments, bad base64, etc.)
+        # PyJWKClientError covers JWKS fetch failures and unknown key IDs.
+        raise HTTPException(status_code=401, detail=f"Invalid token: {exc}")
 
     decode_kwargs: dict = {
         "algorithms": ["RS256"],
