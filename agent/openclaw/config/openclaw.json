@@ -53,7 +53,7 @@
     "web": {
       "search": {
         "enabled": true,
-        "provider": "duckduckgo",
+        "provider": "tavily",
         "maxResults": 5,
         "timeoutSeconds": 30,
         "cacheTtlMinutes": 15
