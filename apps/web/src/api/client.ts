@@ -33,6 +33,8 @@ export type JobRead = components["schemas"]["JobRead"];
 export type JobList = components["schemas"]["JobList"];
 export type JobReportResponse = components["schemas"]["JobReportResponse"];
 export type FitReportResponse = components["schemas"]["FitReportResponse"];
+export type ProfileRead = components["schemas"]["ProfileRead"];
+export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -143,10 +145,7 @@ export async function getJob(jobId: string, token?: string | null): Promise<JobR
 // ---------------------------------------------------------------------------
 // Profile  (/api/app/profile)
 // ---------------------------------------------------------------------------
-// Types are generated from OpenAPI spec — do NOT hand-write these.
-
-export type ProfileRead = components["schemas"]["ProfileRead"];
-export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
+// ProfileRead / ProfileUpdate are exported from the generated types block above.
 
 export async function getProfile(token?: string | null): Promise<ProfileRead> {
   return req<ProfileRead>("/api/app/profile", undefined, token);
