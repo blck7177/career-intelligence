@@ -2,36 +2,36 @@
   "version": 1,
   "defaults": {
     "security": "deny",
-    "ask": "on-miss",
+    "ask": "never",
     "askFallback": "deny",
     "autoAllowSkills": false
   },
   "agents": {
     "career-search-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0001-4000-8000-career000001",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_search_status\\.py",
           "source": "allow-always"
         },
         {
           "id": "a1b2c3d4-0002-4000-8000-career000002",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_log_candidates\\.py",
           "source": "allow-always"
         },
         {
           "id": "a1b2c3d4-0003-4000-8000-career000003",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
           "source": "allow-always"
         },
         {
           "id": "a1b2c3d4-0004-4000-8000-career000004",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_fetch_source\\.py",
           "source": "allow-always"
         }
@@ -39,11 +39,11 @@
     },
     "career-reflect-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0005-4000-8000-career000005",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
           "source": "allow-always"
         }
@@ -51,17 +51,17 @@
     },
     "career-research-agent": {
       "security": "allowlist",
-      "ask": "on-miss",
+      "ask": "never",
       "allowlist": [
         {
           "id": "a1b2c3d4-0006-4000-8000-career000006",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_fetch_source\\.py",
           "source": "allow-always"
         },
         {
           "id": "a1b2c3d4-0007-4000-8000-career000007",
-          "pattern": "/usr/local/bin/python3",
+          "pattern": "/usr/bin/python3*",
           "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
           "source": "allow-always"
         }
