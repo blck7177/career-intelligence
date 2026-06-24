@@ -48,27 +48,17 @@ const BASE =
 // ---------------------------------------------------------------------------
 
 /**
- * Retrieve the Clerk Bearer token for the current context.
+ * Resolve the bearer token for an API call.
  *
- * - Server Components / Route Handlers: import and call getServerToken() directly.
- * - Client Components: pass the token as a parameter to client functions,
- *   obtained via `const getToken = useApiToken(); const t = await getToken();`
+ * - Server Components / Route Handlers: call getServerToken() from
+ *   @/lib/server-auth and pass the result explicitly.
+ * - Client Components: pass the token obtained via useApiToken().
  *
- * The req() helper accepts an optional token parameter; when omitted it
- * attempts a server-side fetch via @clerk/nextjs/server.
+ * This function intentionally does NOT import @clerk/nextjs/server so that
+ * client.ts remains safe to import from "use client" modules.
  */
 async function resolveToken(token?: string | null): Promise<string | null> {
   if (token !== undefined) return token;
-  // Server-side: use Clerk server auth
-  if (typeof window === "undefined") {
-    try {
-      const { auth } = await import("@clerk/nextjs/server");
-      const { getToken } = await auth();
-      return await getToken();
-    } catch {
-      return null;
-    }
-  }
   return null;
 }
 

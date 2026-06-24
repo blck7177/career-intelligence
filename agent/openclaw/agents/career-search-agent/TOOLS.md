@@ -36,7 +36,7 @@ Query current session budget and coverage.
 
 **Step 2 — run:**
 ```
-python3 /app/tools/wrappers/agent_tools/career_search_status.py \
+/usr/local/bin/python3 /app/tools/wrappers/agent_tools/career_search_status.py \
   --task-spec ./status_spec.json \
   --output ./status.json
 ```
@@ -78,7 +78,7 @@ Log one or more confirmed job candidates to the candidate pool.
 
 **Step 2 — run:**
 ```
-python3 /app/tools/wrappers/agent_tools/career_log_candidates.py \
+/usr/local/bin/python3 /app/tools/wrappers/agent_tools/career_log_candidates.py \
   --task-spec ./log_spec.json \
   --output ./log_result.json
 ```
@@ -109,7 +109,7 @@ Fetch and normalize a job posting from a specific ATS URL.
 
 **Step 2 — run:**
 ```
-python3 /app/tools/wrappers/agent_tools/career_fetch_source.py \
+/usr/local/bin/python3 /app/tools/wrappers/agent_tools/career_fetch_source.py \
   --task-spec ./fetch_spec.json \
   --output ./fetch_result.json
 ```
@@ -151,7 +151,7 @@ Write the final output manifest.  Call **once** at the very end before stopping.
 
 **Step 2 — run (use the exact output_manifest_path from your task spec):**
 ```
-python3 /app/tools/wrappers/agent_tools/career_write_manifest.py \
+/usr/local/bin/python3 /app/tools/wrappers/agent_tools/career_write_manifest.py \
   --task-spec ./manifest_spec.json \
   --output <output_paths.output_manifest_path from task spec>
 ```

@@ -1,9 +1,13 @@
 import { WorkspaceShell } from "@/components/workspace/WorkspaceShell";
 
 export const metadata = {
-  title: "Workspace — Career OpenClaw",
+  title: "Search Setup — Career OpenClaw",
 };
 
 export default function WorkspacePage() {
-  return <WorkspaceShell />;
+  return (
+    <div className="h-full overflow-hidden">
+      <WorkspaceShell />
+    </div>
+  );
 }

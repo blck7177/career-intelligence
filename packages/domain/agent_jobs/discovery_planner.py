@@ -30,7 +30,7 @@ BUDGET_BY_DEPTH: dict[str, AgentBudget] = {
         max_tool_calls=15,
         max_candidates=20,
         max_new_sources=5,
-        timeout_seconds=300,
+        timeout_seconds=600,
     ),
     "standard": AgentBudget(
         max_tool_calls=30,

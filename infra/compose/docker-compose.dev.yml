@@ -43,7 +43,9 @@ services:
       # source config here on each start so OpenClaw can do atomic saves.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
       OPENCLAW_WORKSPACE_DIR: /openclaw/workspace
-      TOOL_LEDGER_SIGNING_KEY: ${TOOL_LEDGER_SIGNING_KEY}
+      # TOOL_LEDGER_SIGNING_KEY comes from env_file (../../.env).
+      # Do NOT override here with ${...} interpolation — shell env may be empty
+      # and would silently override the env_file value with blank string.
     volumes:
       - openclaw_state:/openclaw/state
       # Writable runtime config: entrypoint materializes openclaw.json here.
@@ -142,7 +144,7 @@ services:
       # Read-only: gives the CLI the agent list so it can route --agent calls
       # to the gateway. The worker does NOT own or write this config.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
-      TOOL_LEDGER_SIGNING_KEY: ${TOOL_LEDGER_SIGNING_KEY}
+      # TOOL_LEDGER_SIGNING_KEY comes from env_file (../../.env). No override here.
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
       - openclaw_state:/openclaw/state
@@ -160,8 +162,14 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/web.Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars are baked in at build time by Next.js.
+        # Pass them via build args so the image has the correct Clerk key.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     ports:
       - "3000:3000"
+    env_file:
+      - ../../.env
     environment:
       NEXT_PUBLIC_API_URL: http://api:8000
     depends_on:
@@ -186,6 +194,8 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
+      args:
+        EXTRA_DEPS: "monitoring"
     command: celery -A apps.worker.celery_app flower --port=5555
     ports:
       - "5555:5555"

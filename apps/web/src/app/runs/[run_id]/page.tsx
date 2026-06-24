@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRun, getRunReport } from "@/api/client";
 import type { RunRead, JobReportResponse, FitReportResponse } from "@/api/client";
+import { getServerToken } from "@/lib/server-auth";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, CheckCircle2, XCircle, Circle, AlertCircle, Clock } from "lucide-react";
@@ -316,16 +317,18 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
 export default async function RunDetailPage({ params }: PageProps) {
   const { run_id } = await params;
 
+  const token = await getServerToken();
+
   let run: RunRead;
   try {
-    run = await getRun(run_id);
+    run = await getRun(run_id, token);
   } catch {
     notFound();
   }
 
   const isReportRun = run.run_type === "job_report" || run.run_type === "fit_report";
   const report = isReportRun && run.status === "succeeded"
-    ? await getRunReport(run_id).catch(() => null)
+    ? await getRunReport(run_id, token).catch(() => null)
     : null;
 
   const runLabel = run.run_type.replace(/_/g, " ");

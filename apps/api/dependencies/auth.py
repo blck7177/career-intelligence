@@ -77,13 +77,15 @@ def _verify_clerk_jwt(token: str) -> dict:
 
 
 def get_current_user(
-    authorization: str = Header(..., alias="Authorization"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
     db: Session = Depends(get_db),
 ) -> User:
     """
     Validate the Clerk Bearer JWT and return the local User record.
     Auto-provisions the User (and a Workspace) on first login.
     """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Authorization header required.")
     if not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authorization header must be 'Bearer <token>'.")
     token = authorization.removeprefix("Bearer ").strip()

@@ -24,13 +24,16 @@ const ICONS: Record<WorkspaceFunctionId, React.ReactNode> = {
 };
 
 export function FunctionPanel({ activeFunction, onSelect }: FunctionPanelProps) {
+  // Only show action-triggering modes; Runs/Jobs are now in the main sidebar nav
+  const SHOWN_FUNCTIONS: WorkspaceFunctionId[] = ["discovery", "job_report", "fit_report"];
+
   return (
     <nav className="py-3">
       <p className="px-4 pb-2 text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-        Workspace
+        Search Setup
       </p>
       <ul className="space-y-0.5">
-        {WORKSPACE_FUNCTIONS.map((fn) => {
+        {WORKSPACE_FUNCTIONS.filter((fn) => SHOWN_FUNCTIONS.includes(fn.id)).map((fn) => {
           const isActive = activeFunction === fn.id;
           const isDisabled = !fn.available;
 

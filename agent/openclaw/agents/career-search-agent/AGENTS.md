@@ -107,6 +107,21 @@ Use only:
 - `career_write_manifest` — write final output manifest (call once at the end)
 - `career_fetch_source` — fetch and normalize a job from a specific ATS URL
 
+## Search Strategy — Fallback Order
+
+**If `web_search` fails with bot-detection, stop retrying and switch immediately.**
+
+1. **Try `web_search` once** per direction. If it fails, do NOT retry the same query.
+2. **Use `web_fetch` with Jina Reader** to render JavaScript-heavy job boards:
+   - Format: `web_fetch https://r.jina.ai/<original-url>`
+   - Example: `web_fetch https://r.jina.ai/https://careers.jpmorgan.com/global/en/jobs?search=market+risk`
+3. **Use Jina to read Google results** as a free search fallback (no API key required):
+   - Format: `web_fetch https://r.jina.ai/https://www.google.com/search?q=<encoded-query>`
+   - Example: `web_fetch https://r.jina.ai/https://www.google.com/search?q=market+risk+analyst+New+York+bank+site:careers.jpmorgan.com`
+4. **Use direct ATS search URLs** from `source_registry_snapshot.known_boards`.
+
+**Do NOT spend more than 3 tool calls per search direction before moving on.** Context window is finite — breadth beats depth.
+
 ## Stop Conditions
 
 Stop and write manifest when:

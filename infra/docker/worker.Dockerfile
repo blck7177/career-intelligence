@@ -23,8 +23,16 @@ RUN groupadd -g ${APP_GID} appuser && \
 
 WORKDIR /app
 
+# EXTRA_DEPS: comma-separated optional extras to install in addition to the
+# default [anthropic,openai]. Used by the flower service to add "monitoring".
+ARG EXTRA_DEPS=""
+
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[anthropic,openai]"
+RUN if [ -n "$EXTRA_DEPS" ]; then \
+      pip install --no-cache-dir -e ".[anthropic,openai,${EXTRA_DEPS}]"; \
+    else \
+      pip install --no-cache-dir -e ".[anthropic,openai]"; \
+    fi
 
 COPY apps/ apps/
 COPY packages/ packages/

@@ -107,16 +107,81 @@ export default function ProfilePage() {
     );
   }
 
+  const domainList = fields.domain_areas
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  const skillList = fields.technical_skills
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const hasProfileData = profileHash && (domainList.length > 0 || skillList.length > 0 || fields.years_of_experience);
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">Candidate Profile</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Your profile is used for profile-guided job discovery and fit analysis.
-          {profileHash && (
-            <span className="ml-2 font-mono text-xs text-zinc-400">hash: {profileHash.slice(0, 8)}</span>
-          )}
+          Used for profile-guided discovery and fit analysis.
         </p>
+      </div>
+
+      {/* Profile Summary Card */}
+      {hasProfileData && (
+        <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-sm font-semibold text-zinc-700">Profile Overview</h2>
+            {profileHash && (
+              <span className="font-mono text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded shrink-0">
+                {profileHash.slice(0, 8)}
+              </span>
+            )}
+          </div>
+
+          {fields.years_of_experience && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-zinc-400 text-xs">Experience</span>
+              <span className="font-semibold text-zinc-800">{fields.years_of_experience} years</span>
+            </div>
+          )}
+
+          {domainList.length > 0 && (
+            <div>
+              <p className="text-xs text-zinc-400 mb-2">Domains</p>
+              <div className="flex flex-wrap gap-1.5">
+                {domainList.map((d) => (
+                  <span
+                    key={d}
+                    className="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-medium border border-indigo-100"
+                  >
+                    {d}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {skillList.length > 0 && (
+            <div>
+              <p className="text-xs text-zinc-400 mb-2">Technical Skills</p>
+              <div className="flex flex-wrap gap-1.5">
+                {skillList.map((s) => (
+                  <span
+                    key={s}
+                    className="px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600 text-[11px] font-medium"
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit form */}
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold text-zinc-700">Edit Profile</h2>
       </div>
 
       <div className="space-y-5">

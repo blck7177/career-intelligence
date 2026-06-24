@@ -6,8 +6,6 @@ import { JobReportPanel } from "./functions/JobReportPanel";
 import { FitReportPanel } from "./functions/FitReportPanel";
 import { RunsPanel } from "./functions/RunsPanel";
 import { JobsPanel } from "./functions/JobsPanel";
-import { AgentConsolePlaceholder } from "./AgentConsolePlaceholder";
-import type { AgentMessage } from "@/lib/workspace/workspaceTypes";
 
 interface MiddlePanelProps {
   activeFunction: WorkspaceFunctionId;
@@ -17,13 +15,6 @@ interface MiddlePanelProps {
   onSelectRun: (runId: string) => void;
   onJobSelected: (id: string) => void;
 }
-
-const SYSTEM_PLACEHOLDER: AgentMessage = {
-  id: "sys-0",
-  role: "system",
-  content: "Agent console is not enabled yet. Use the parameter panel above to run workflows.",
-  createdAt: new Date().toISOString(),
-};
 
 export function MiddlePanel({
   activeFunction,
@@ -50,19 +41,9 @@ export function MiddlePanel({
     }
   }
 
-  // Only show agent console for action-triggering modes (not Runs/Jobs/Debug list views)
-  const showAgentConsole = ["discovery", "job_report", "fit_report"].includes(activeFunction);
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto">{renderPanel()}</div>
-      {showAgentConsole && (
-        <AgentConsolePlaceholder
-          messages={[SYSTEM_PLACEHOLDER]}
-          disabled={true}
-          placeholder="Agent chat coming soon…"
-        />
-      )}
     </div>
   );
 }
