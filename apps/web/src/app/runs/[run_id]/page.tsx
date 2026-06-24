@@ -331,7 +331,12 @@ export default async function RunDetailPage({ params }: PageProps) {
     ? await getRunReport(run_id, token).catch(() => null)
     : null;
 
-  const runLabel = run.run_type.replace(/_/g, " ");
+  const RUN_TYPE_LABELS: Record<string, string> = {
+    job_discovery: "Discovery Run",
+    job_report: "Job Intelligence Report",
+    fit_report: "Fit Analysis",
+  };
+  const runLabel = RUN_TYPE_LABELS[run.run_type] ?? run.run_type.replace(/_/g, " ");
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
@@ -340,7 +345,7 @@ export default async function RunDetailPage({ params }: PageProps) {
         href="/runs"
         className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900"
       >
-        <ArrowLeft size={14} /> Back to Runs
+        <ArrowLeft size={14} /> Back to Search Runs
       </Link>
 
       {/* Header */}
