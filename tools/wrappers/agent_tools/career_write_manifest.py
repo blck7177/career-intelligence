@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,12 @@ def main(task_spec: str, output: str) -> None:
         "written_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Sync workspace-local artifacts to their declared artifact-volume paths.
+    # The agent writes search_ledger.jsonl and coverage_report.md to the workspace
+    # using relative paths, but the manifest declares absolute artifact-volume paths.
+    # We copy them here so ProvenanceValidator finds the files where it expects them.
+    _sync_workspace_artifacts(spec.get("artifact_paths", {}))
+
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(manifest, indent=2))
@@ -74,6 +81,7 @@ def main(task_spec: str, output: str) -> None:
     tool_events_path_str = spec.get("output_paths", {}).get("tool_events_path", "")
     if tool_events_path_str and signing_key:
         try:
+            sys.path.insert(0, "/app")  # PYTHONPATH is stripped by OpenClaw exec security policy
             from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
 
             manifest_hash = "sha256:" + hashlib.sha256(output_path.read_bytes()).hexdigest()
@@ -99,6 +107,34 @@ def main(task_spec: str, output: str) -> None:
             click.echo(f"WARNING: failed to append signed ledger event: {exc}", err=True)
 
     click.echo(f"Manifest written to {output}", err=True)
+
+
+def _sync_workspace_artifacts(artifact_paths: dict) -> None:
+    """
+    Copy workspace-relative artifacts to their declared artifact-volume paths.
+
+    The agent writes files like search_ledger.jsonl and coverage_report.md using
+    relative paths (./search_ledger.jsonl), which land in the OpenClaw workspace.
+    ProvenanceValidator checks the absolute paths declared in the manifest. This
+    function bridges the gap by copying workspace files to the artifact volume.
+    """
+    cwd = Path.cwd()
+    for artifact_type, path_str in artifact_paths.items():
+        if not path_str:
+            continue
+        dest = Path(path_str)
+        if dest.exists():
+            continue
+        src = cwd / dest.name
+        if src.exists():
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+            except Exception as exc:  # noqa: BLE001
+                click.echo(
+                    f"WARNING: could not sync {artifact_type} from workspace to artifact dir: {exc}",
+                    err=True,
+                )
 
 
 def _fail(output: str, message: str) -> None:

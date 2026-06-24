@@ -102,6 +102,7 @@ def main(task_spec: str, output: str) -> None:
     tool_events_path_str = spec.get("output_paths", {}).get("tool_events_path", "")
     if tool_events_path_str and signing_key:
         try:
+            sys.path.insert(0, "/app")  # PYTHONPATH is stripped by OpenClaw exec security policy
             from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
 
             pool_bytes = pool_path.read_bytes()
