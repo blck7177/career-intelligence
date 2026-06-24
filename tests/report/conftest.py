@@ -91,10 +91,9 @@ SAMPLE_PROFILE = {
     # Stable id so cache key (candidate_profile_id) is consistent across calls.
     "id": "cand_sample_stable",
     "years_experience": 5,
-    "current_background": "Risk analyst at mid-size bank",
+    "summary": "Risk analyst at mid-size bank",
     "domain_experience": ["market risk", "credit risk"],
-    "technical_skills": ["Python", "SQL"],
-    "analytical_methods": ["VaR", "stress testing"],
+    "technical_skills": ["Python", "SQL", "VaR", "stress testing"],
     "finance_domains": ["fixed income", "derivatives"],
     "tools": ["Bloomberg", "Excel"],
     "representative_projects": [

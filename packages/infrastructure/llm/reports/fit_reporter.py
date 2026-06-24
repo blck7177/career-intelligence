@@ -64,10 +64,9 @@ Location: {job_record.get('location', 'Unknown')}
 
 ## Candidate Profile
 Years of experience: {candidate_profile.get('years_experience', 'Unknown')}
-Background: {candidate_profile.get('current_background', '')}
+Background: {candidate_profile.get('summary', '')}
 Domain experience: {', '.join(candidate_profile.get('domain_experience', []))}
 Technical skills: {', '.join(candidate_profile.get('technical_skills', []))}
-Analytical methods: {', '.join(candidate_profile.get('analytical_methods', []))}
 Finance domains: {', '.join(candidate_profile.get('finance_domains', []))}
 Tools: {', '.join(candidate_profile.get('tools', []))}
 

@@ -642,7 +642,7 @@
           "profile"
         ],
         "summary": "Get Profile",
-        "description": "Return the candidate profile for the current workspace. 404 if not yet created.",
+        "description": "Return the candidate profile for the current workspace.\nAuto-creates a default profile if none exists yet.",
         "operationId": "get_profile_api_app_profile_get",
         "parameters": [
           {
@@ -1686,6 +1686,17 @@
             ],
             "title": "Education Summary"
           },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Experience"
+          },
           "technical_skills": {
             "anyOf": [
               {
@@ -1698,7 +1709,7 @@
             ],
             "title": "Technical Skills"
           },
-          "domain_areas": {
+          "domain_experience": {
             "anyOf": [
               {
                 "items": {},
@@ -1708,7 +1719,43 @@
                 "type": "null"
               }
             ],
-            "title": "Domain Areas"
+            "title": "Domain Experience"
+          },
+          "finance_domains": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finance Domains"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "representative_projects": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Representative Projects"
           },
           "preferences_json": {
             "anyOf": [
@@ -1721,17 +1768,6 @@
               }
             ],
             "title": "Preferences Json"
-          },
-          "years_of_experience": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Years Of Experience"
           },
           "profile_hash": {
             "type": "string",
@@ -1781,6 +1817,17 @@
             ],
             "title": "Education Summary"
           },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Experience"
+          },
           "technical_skills": {
             "anyOf": [
               {
@@ -1793,7 +1840,7 @@
             ],
             "title": "Technical Skills"
           },
-          "domain_areas": {
+          "domain_experience": {
             "anyOf": [
               {
                 "items": {},
@@ -1803,7 +1850,43 @@
                 "type": "null"
               }
             ],
-            "title": "Domain Areas"
+            "title": "Domain Experience"
+          },
+          "finance_domains": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finance Domains"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "representative_projects": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Representative Projects"
           },
           "preferences_json": {
             "anyOf": [
@@ -1816,17 +1899,6 @@
               }
             ],
             "title": "Preferences Json"
-          },
-          "years_of_experience": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Years Of Experience"
           }
         },
         "type": "object",

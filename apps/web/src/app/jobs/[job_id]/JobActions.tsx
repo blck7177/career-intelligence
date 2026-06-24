@@ -7,10 +7,6 @@ import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Loader2, FileText, UserCheck, ChevronDown, ChevronUp, Play } from "lucide-react";
 
-function csvToList(val: string): string[] {
-  return val.split(",").map((s) => s.trim()).filter(Boolean);
-}
-
 // ---------------------------------------------------------------------------
 // Fit Report inline form
 // ---------------------------------------------------------------------------
@@ -27,13 +23,6 @@ function FitReportForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [jobReportId, setJobReportId] = useState("");
-  const [yearsExp, setYearsExp] = useState("");
-  const [background, setBackground] = useState("");
-  const [domainExp, setDomainExp] = useState("");
-  const [techSkills, setTechSkills] = useState("");
-  const [methods, setMethods] = useState("");
-  const [finDomains, setFinDomains] = useState("");
-  const [tools, setTools] = useState("");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,16 +35,6 @@ function FitReportForm({
         input_snapshot: {
           job_id: jobId,
           job_report_id: jobReportId.trim() || undefined,
-          profile_snapshot: {
-            years_experience: yearsExp ? Number(yearsExp) : undefined,
-            current_background: background.trim() || undefined,
-            domain_experience: csvToList(domainExp),
-            technical_skills: csvToList(techSkills),
-            analytical_methods: csvToList(methods),
-            finance_domains: csvToList(finDomains),
-            tools: csvToList(tools),
-            representative_projects: [],
-          },
           force_refresh: false,
         },
       }, token);
@@ -69,11 +48,16 @@ function FitReportForm({
   return (
     <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-zinc-700">Candidate Profile</p>
+        <p className="text-xs font-medium text-zinc-700">Candidate Fit Report</p>
         <button type="button" onClick={onCancel} className="text-xs text-zinc-400 hover:text-zinc-600">
           Cancel
         </button>
       </div>
+
+      <p className="text-xs text-zinc-500">
+        Uses your saved candidate profile.{" "}
+        <a href="/profile" className="underline text-zinc-400 hover:text-zinc-600">Edit profile →</a>
+      </p>
 
       <div className="space-y-1">
         <label className="text-xs text-zinc-500">Job Report ID (optional — uses latest if omitted)</label>
@@ -84,36 +68,6 @@ function FitReportForm({
           onChange={(e) => setJobReportId(e.target.value)}
         />
       </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <label className="text-xs text-zinc-500">Years of experience</label>
-          <input type="number" min={0}
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
-            placeholder="5" value={yearsExp} onChange={(e) => setYearsExp(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs text-zinc-500">Current background</label>
-          <input
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
-            placeholder="VP Risk at bulge bracket" value={background} onChange={(e) => setBackground(e.target.value)} />
-        </div>
-      </div>
-
-      {[
-        { label: "Domain experience (comma-sep)", val: domainExp, set: setDomainExp, ph: "market risk, credit risk" },
-        { label: "Technical skills (comma-sep)", val: techSkills, set: setTechSkills, ph: "Python, SQL" },
-        { label: "Analytical methods (comma-sep)", val: methods, set: setMethods, ph: "VaR, stress testing" },
-        { label: "Finance domains (comma-sep)", val: finDomains, set: setFinDomains, ph: "derivatives, fixed income" },
-        { label: "Tools (comma-sep)", val: tools, set: setTools, ph: "Bloomberg, Excel" },
-      ].map(({ label, val, set, ph }) => (
-        <div key={label} className="space-y-1">
-          <label className="text-xs text-zinc-500">{label}</label>
-          <input
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
-            placeholder={ph} value={val} onChange={(e) => set(e.target.value)} />
-        </div>
-      ))}
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
 

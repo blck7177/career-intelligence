@@ -851,9 +851,12 @@ class ProfileRepository:
         experience_summary: Optional[str] = None,
         education_summary: Optional[str] = None,
         technical_skills: Optional[list] = None,
-        domain_areas: Optional[list] = None,
+        domain_experience: Optional[list] = None,
+        finance_domains: Optional[list] = None,
+        tools: Optional[list] = None,
+        representative_projects: Optional[list] = None,
+        years_experience: Optional[int] = None,
         preferences_json: Optional[dict] = None,
-        years_of_experience: Optional[int] = None,
         profile_hash: str = "empty",
     ) -> CandidateProfile:
         """Create or update the profile for a workspace."""
@@ -866,9 +869,12 @@ class ProfileRepository:
         profile.experience_summary = experience_summary
         profile.education_summary = education_summary
         profile.technical_skills = technical_skills
-        profile.domain_areas = domain_areas
+        profile.domain_experience = domain_experience
+        profile.finance_domains = finance_domains
+        profile.tools = tools
+        profile.representative_projects = representative_projects
+        profile.years_experience = years_experience
         profile.preferences_json = preferences_json
-        profile.years_of_experience = years_of_experience
         profile.profile_hash = profile_hash
 
         self._s.flush()

@@ -495,10 +495,10 @@ class FitReport(Base):
 
 
 class CandidateProfile(Base):
-    """Workspace-private career profile used for profile-guided search and fit reports.
+    """Workspace-private career profile — single source of truth for both Discovery and FitReport.
 
-    One profile per workspace at beta (one-per-user model).
-    Maps to ProfileSnapshot in packages/contracts/agents/discovery_intent.py.
+    One profile per workspace (MVP). Discovery reads narrative fields via ProfileSnapshot adapter.
+    FitReport reads skills/domain/project fields directly from this table.
     """
 
     __tablename__ = "candidate_profiles"
@@ -507,13 +507,21 @@ class CandidateProfile(Base):
     workspace_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
     )
+    # Narrative (Discovery + FitReport LLM both read summary)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     education_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Skills & domains
     technical_skills: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    domain_areas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    domain_experience: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    finance_domains: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    tools: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Projects (FitReport evidence)
+    representative_projects: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Quantitative
+    years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Future soft preferences (not yet wired into any LLM chain)
     preferences_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    years_of_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

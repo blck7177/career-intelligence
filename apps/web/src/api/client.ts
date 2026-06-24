@@ -143,29 +143,10 @@ export async function getJob(jobId: string, token?: string | null): Promise<JobR
 // ---------------------------------------------------------------------------
 // Profile  (/api/app/profile)
 // ---------------------------------------------------------------------------
+// Types are generated from OpenAPI spec — do NOT hand-write these.
 
-export interface ProfileRead {
-  id: string;
-  workspace_id: string;
-  summary: string | null;
-  experience_summary: string | null;
-  education_summary: string | null;
-  technical_skills: string[] | null;
-  domain_areas: string[] | null;
-  preferences_json: Record<string, unknown> | null;
-  years_of_experience: number | null;
-  profile_hash: string;
-}
-
-export interface ProfileUpdate {
-  summary?: string | null;
-  experience_summary?: string | null;
-  education_summary?: string | null;
-  technical_skills?: string[] | null;
-  domain_areas?: string[] | null;
-  preferences_json?: Record<string, unknown> | null;
-  years_of_experience?: number | null;
-}
+export type ProfileRead = components["schemas"]["ProfileRead"];
+export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
 
 export async function getProfile(token?: string | null): Promise<ProfileRead> {
   return req<ProfileRead>("/api/app/profile", undefined, token);

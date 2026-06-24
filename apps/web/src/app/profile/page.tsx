@@ -4,49 +4,89 @@ import { useEffect, useState } from "react";
 import { useApiToken } from "@/hooks/useApiToken";
 import { getProfile, upsertProfile, type ProfileRead, type ProfileUpdate } from "@/api/client";
 
+const PROJECTS_PLACEHOLDER = `[
+  {
+    "title": "VaR Model Validation",
+    "description": "Led independent validation of historical simulation VaR model",
+    "skills_used": ["Python", "statistics", "VaR"],
+    "quantified_impact": "Cleared regulatory review, reduced model risk flag by 30%"
+  }
+]`;
+
 type FieldState = {
   summary: string;
   experience_summary: string;
   education_summary: string;
-  technical_skills: string; // comma-separated in the textarea
-  domain_areas: string;     // comma-separated in the textarea
-  years_of_experience: string;
+  years_experience: string;
+  technical_skills: string;    // comma-separated
+  domain_experience: string;   // comma-separated
+  finance_domains: string;     // comma-separated
+  tools: string;               // comma-separated
+  representative_projects: string;  // JSON textarea
 };
 
 const EMPTY_FIELDS: FieldState = {
   summary: "",
   experience_summary: "",
   education_summary: "",
+  years_experience: "",
   technical_skills: "",
-  domain_areas: "",
-  years_of_experience: "",
+  domain_experience: "",
+  finance_domains: "",
+  tools: "",
+  representative_projects: "",
 };
 
 function profileToFields(p: ProfileRead): FieldState {
+  let projectsStr = "";
+  if (p.representative_projects && (p.representative_projects as unknown[]).length > 0) {
+    try {
+      projectsStr = JSON.stringify(p.representative_projects, null, 2);
+    } catch {
+      projectsStr = "";
+    }
+  }
   return {
     summary: p.summary ?? "",
     experience_summary: p.experience_summary ?? "",
     education_summary: p.education_summary ?? "",
+    years_experience: p.years_experience != null ? String(p.years_experience) : "",
     technical_skills: (p.technical_skills ?? []).join(", "),
-    domain_areas: (p.domain_areas ?? []).join(", "),
-    years_of_experience: p.years_of_experience != null ? String(p.years_of_experience) : "",
+    domain_experience: (p.domain_experience ?? []).join(", "),
+    finance_domains: (p.finance_domains ?? []).join(", "),
+    tools: (p.tools ?? []).join(", "),
+    representative_projects: projectsStr,
   };
 }
 
-function fieldsToUpdate(f: FieldState): ProfileUpdate {
-  const parseList = (s: string) =>
-    s
-      .split(",")
-      .map((x) => x.trim())
-      .filter(Boolean);
+function parseList(s: string): string[] {
+  return s.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+function fieldsToUpdate(f: FieldState): ProfileUpdate | null {
+  let representative_projects: unknown[] | null = null;
+  if (f.representative_projects.trim()) {
+    try {
+      const parsed = JSON.parse(f.representative_projects);
+      if (!Array.isArray(parsed)) return null;
+      representative_projects = parsed;
+    } catch {
+      return null;
+    }
+  } else {
+    representative_projects = [];
+  }
 
   return {
     summary: f.summary || null,
     experience_summary: f.experience_summary || null,
     education_summary: f.education_summary || null,
+    years_experience: f.years_experience ? parseInt(f.years_experience, 10) || null : null,
     technical_skills: parseList(f.technical_skills).length ? parseList(f.technical_skills) : null,
-    domain_areas: parseList(f.domain_areas).length ? parseList(f.domain_areas) : null,
-    years_of_experience: f.years_of_experience ? parseInt(f.years_of_experience, 10) || null : null,
+    domain_experience: parseList(f.domain_experience).length ? parseList(f.domain_experience) : null,
+    finance_domains: parseList(f.finance_domains).length ? parseList(f.finance_domains) : null,
+    tools: parseList(f.tools).length ? parseList(f.tools) : null,
+    representative_projects: representative_projects as Record<string, unknown>[] | null,
   };
 }
 
@@ -58,6 +98,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -67,11 +108,8 @@ export default function ProfilePage() {
         setFields(profileToFields(profile));
         setProfileHash(profile.profile_hash);
       } catch (err: unknown) {
-        if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) {
-          // No profile yet — leave defaults
-        } else {
-          setErrorMsg("Failed to load profile.");
-        }
+        setErrorMsg("Failed to load profile.");
+        console.error(err);
       } finally {
         setLoading(false);
       }
@@ -81,15 +119,24 @@ export default function ProfilePage() {
 
   const handleChange = (key: keyof FieldState) => (
     e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>
-  ) => setFields((prev) => ({ ...prev, [key]: e.target.value }));
+  ) => {
+    setFields((prev) => ({ ...prev, [key]: e.target.value }));
+    if (key === "representative_projects") setProjectsError(null);
+  };
 
   const handleSave = async () => {
+    const update = fieldsToUpdate(fields);
+    if (update === null) {
+      setProjectsError("Invalid JSON — check for missing commas, quotes, or brackets.");
+      return;
+    }
     setSaving(true);
     setStatus("idle");
     setErrorMsg(null);
+    setProjectsError(null);
     try {
       const token = await getToken();
-      const updated = await upsertProfile(fieldsToUpdate(fields), token);
+      const updated = await upsertProfile(update, token);
       setFields(profileToFields(updated));
       setProfileHash(updated.profile_hash);
       setStatus("saved");
@@ -107,87 +154,22 @@ export default function ProfilePage() {
     );
   }
 
-  const domainList = fields.domain_areas
-    .split(",")
-    .map((d) => d.trim())
-    .filter(Boolean);
-  const skillList = fields.technical_skills
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const hasProfileData = profileHash && (domainList.length > 0 || skillList.length > 0 || fields.years_of_experience);
-
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">Candidate Profile</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Used for profile-guided discovery and fit analysis.
+          Used for profile-guided job discovery and fit report generation.
+          {profileHash && (
+            <span className="ml-2 font-mono text-xs text-zinc-400">hash: {profileHash.slice(0, 8)}</span>
+          )}
         </p>
-      </div>
-
-      {/* Profile Summary Card */}
-      {hasProfileData && (
-        <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
-          <div className="flex items-start justify-between gap-2">
-            <h2 className="text-sm font-semibold text-zinc-700">Profile Overview</h2>
-            {profileHash && (
-              <span className="font-mono text-[10px] text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded shrink-0">
-                {profileHash.slice(0, 8)}
-              </span>
-            )}
-          </div>
-
-          {fields.years_of_experience && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-zinc-400 text-xs">Experience</span>
-              <span className="font-semibold text-zinc-800">{fields.years_of_experience} years</span>
-            </div>
-          )}
-
-          {domainList.length > 0 && (
-            <div>
-              <p className="text-xs text-zinc-400 mb-2">Domains</p>
-              <div className="flex flex-wrap gap-1.5">
-                {domainList.map((d) => (
-                  <span
-                    key={d}
-                    className="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-medium border border-indigo-100"
-                  >
-                    {d}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {skillList.length > 0 && (
-            <div>
-              <p className="text-xs text-zinc-400 mb-2">Technical Skills</p>
-              <div className="flex flex-wrap gap-1.5">
-                {skillList.map((s) => (
-                  <span
-                    key={s}
-                    className="px-2.5 py-1 rounded-full bg-zinc-100 text-zinc-600 text-[11px] font-medium"
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Edit form */}
-      <div className="mb-4">
-        <h2 className="text-sm font-semibold text-zinc-700">Edit Profile</h2>
       </div>
 
       <div className="space-y-5">
         <Field
           label="Professional Summary"
-          hint="e.g. Risk analytics professional with 4 years in model validation and market risk"
+          hint='One to three sentences: current role, domain, and focus. e.g. "VP Risk at a bulge bracket bank with 5 years in market risk analytics and model validation."'
           value={fields.summary}
           onChange={handleChange("summary")}
           rows={3}
@@ -195,7 +177,7 @@ export default function ProfilePage() {
 
         <Field
           label="Experience Summary"
-          hint="Brief narrative of work history most relevant to job discovery"
+          hint="Broader career narrative — firms, roles, key responsibilities. Used to enrich discovery searches."
           value={fields.experience_summary}
           onChange={handleChange("experience_summary")}
           rows={4}
@@ -203,7 +185,7 @@ export default function ProfilePage() {
 
         <Field
           label="Education"
-          hint="e.g. MS Financial Engineering, Columbia University"
+          hint='e.g. "MS Financial Engineering, Columbia University"'
           value={fields.education_summary}
           onChange={handleChange("education_summary")}
           rows={2}
@@ -213,25 +195,61 @@ export default function ProfilePage() {
           label="Years of Experience"
           hint="Total years of professional experience"
           type="number"
-          value={fields.years_of_experience}
-          onChange={handleChange("years_of_experience")}
+          value={fields.years_experience}
+          onChange={handleChange("years_experience")}
         />
 
         <Field
-          label="Technical Skills"
-          hint="Comma-separated — e.g. Python, R, VaR, stress testing, scenario analysis"
+          label="Technical Skills / Methods"
+          hint="Comma-separated. Include both tools and quantitative methods — e.g. Python, SQL, VaR, stress testing, Monte Carlo, Excel"
           value={fields.technical_skills}
           onChange={handleChange("technical_skills")}
           rows={2}
         />
 
         <Field
-          label="Domain Areas"
-          hint="Comma-separated — e.g. market risk, model risk, credit risk, PPNR"
-          value={fields.domain_areas}
-          onChange={handleChange("domain_areas")}
+          label="Domain Experience"
+          hint="Comma-separated functional areas — e.g. market risk, model validation, credit risk, PPNR, exposure management"
+          value={fields.domain_experience}
+          onChange={handleChange("domain_experience")}
           rows={2}
         />
+
+        <Field
+          label="Finance Domains"
+          hint="Comma-separated asset classes and product knowledge — e.g. derivatives, fixed income, structured products, equities"
+          value={fields.finance_domains}
+          onChange={handleChange("finance_domains")}
+          rows={2}
+        />
+
+        <Field
+          label="Tools & Platforms"
+          hint="Comma-separated — e.g. Bloomberg, Murex, Quantlib, Tableau, PowerBI"
+          value={fields.tools}
+          onChange={handleChange("tools")}
+          rows={2}
+        />
+
+        <div>
+          <label className="block text-sm font-medium text-zinc-700 mb-1">
+            Representative Projects
+          </label>
+          <p className="text-xs text-zinc-400 mb-1.5">
+            JSON array. Each entry: title, description, skills_used (array), quantified_impact.
+            These are cited as evidence in fit report analysis.
+          </p>
+          <textarea
+            rows={8}
+            value={fields.representative_projects}
+            onChange={handleChange("representative_projects")}
+            placeholder={PROJECTS_PLACEHOLDER}
+            className="w-full rounded-md border border-zinc-200 px-3 py-2 text-xs font-mono text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 resize-y"
+          />
+          {projectsError && (
+            <p className="text-xs text-rose-600 mt-1">{projectsError}</p>
+          )}
+        </div>
       </div>
 
       <div className="mt-8 flex items-center gap-4">

@@ -1,14 +1,23 @@
 """
-CandidateProfile — Pydantic contract for candidate profile data passed to fit report generation.
+CandidateProfile — unified candidate profile contract.
 
-Finance-focused schema: designed for investment banking, asset management,
-and financial institution roles.
+Single source of truth for both Discovery and FitReport pipelines.
 
-Used in:
-  - fit_report_service.create_fit_report() — validates incoming profile_snapshot
-  - FitReportForm (web) — UI fields mirror these names
-  - fit_reporter._build_user_prompt() — reads these exact field names
+Discovery uses a subset of fields (narrative + domain/skills) via ProfileSnapshot adapter
+in packages/contracts/agents/discovery_intent.py.
+
+FitReport reads all fields directly from this model, loaded from candidate_profiles table
+by the worker. Frontend no longer submits profile data on fit_report runs.
+
+Fields removed vs old split models:
+  - analytical_methods: merged into technical_skills (UI label: "Technical skills / methods")
+  - current_background: merged into summary
+
+Fields unified vs old split models:
+  - domain_areas (Discovery) / domain_experience (FitReport) → domain_experience
+  - years_of_experience (Discovery) / years_experience (FitReport) → years_experience
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -25,18 +34,35 @@ class RepresentativeProject(BaseModel):
 
 class CandidateProfile(BaseModel):
     """
-    Candidate profile for fit report generation.
+    Unified candidate profile for Discovery and FitReport.
 
-    All list fields default to empty list so the LLM prompt never sees
-    a TypeError from join() on a None value.
+    All list fields default to empty list so downstream LLM prompts never
+    see a TypeError from join() on None.
     """
 
+    # Identity (set by DB / API layer, not by user input)
     id: Optional[str] = None
+    workspace_id: Optional[str] = None
+    profile_hash: Optional[str] = None
+
+    # Narrative — Discovery LLM reads summary + experience_summary + education_summary
+    # FitReport LLM reads summary as the "Background" context line
+    summary: str = ""
+    experience_summary: str = ""
+    education_summary: str = ""
+
+    # Quantitative (unified naming)
     years_experience: Optional[int] = None
-    current_background: str = ""
-    domain_experience: list[str] = Field(default_factory=list)
+
+    # Skills & domains
+    # technical_skills also covers analytical methods (UI: "Technical skills / methods")
     technical_skills: list[str] = Field(default_factory=list)
-    analytical_methods: list[str] = Field(default_factory=list)
+    domain_experience: list[str] = Field(default_factory=list)
     finance_domains: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
+
+    # Projects — primary evidence for FitReport strong_matches / gaps
     representative_projects: list[RepresentativeProject] = Field(default_factory=list)
+
+    # Future: soft preferences (not yet wired into any LLM chain)
+    preferences_json: Optional[dict] = None
