@@ -8,6 +8,10 @@
 
 ## Approved Wrappers (via exec tool)
 
+**CRITICAL — These wrappers MUST be called via exec.**
+Do NOT use `file_write` to write candidate data or manifests directly.
+Only calls through these exec wrappers create the signed `tool_events.jsonl` ledger required for validation.
+
 **PATH RULES — read carefully:**
 
 - All `--task-spec` files must be written by you first using `file_write ./spec.json …`
