@@ -410,6 +410,7 @@ class Job(Base):
     canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True)
     source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     company: Mapped[str] = mapped_column(String(255), nullable=False)
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

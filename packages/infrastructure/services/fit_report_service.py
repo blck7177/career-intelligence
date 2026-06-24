@@ -22,6 +22,15 @@ import logging
 import os
 import uuid
 from pathlib import Path
+
+
+def _compute_file_sha256(path: Path) -> str | None:
+    """Return sha256:<hex> for the file, or None if unreadable."""
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return f"sha256:{digest}"
+    except OSError:
+        return None
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -209,6 +218,7 @@ def create_fit_report(
         task_id=task_id,
         artifact_type="fit_report_narrative",
         storage_uri=str(narrative_path),
+        content_hash=_compute_file_sha256(narrative_path),
         metadata_json={"job_id": job_id, "fit_report_id": fit_report_id},
     )
     structured_artifact = artifact_repo.create(
@@ -216,6 +226,7 @@ def create_fit_report(
         task_id=task_id,
         artifact_type="fit_report_structured",
         storage_uri=str(structured_path),
+        content_hash=_compute_file_sha256(structured_path),
         metadata_json={
             "job_id": job_id,
             "job_report_id": job_report_id,

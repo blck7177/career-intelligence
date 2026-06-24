@@ -24,6 +24,15 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+
+def _compute_file_sha256(path: Path) -> str | None:
+    """Return sha256:<hex> for the file, or None if unreadable."""
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return f"sha256:{digest}"
+    except OSError:
+        return None
+
 from sqlalchemy.orm import Session
 
 from packages.contracts.reports.job_report import JobReportStructured
@@ -174,6 +183,7 @@ def create_job_report(
         task_id=task_id,
         artifact_type="job_report_narrative",
         storage_uri=str(narrative_path),
+        content_hash=_compute_file_sha256(narrative_path),
         metadata_json={"job_id": job_id, "char_count": len(report_md)},
     )
     structured_artifact = artifact_repo.create(
@@ -181,6 +191,7 @@ def create_job_report(
         task_id=task_id,
         artifact_type="job_report_structured",
         storage_uri=str(structured_path),
+        content_hash=_compute_file_sha256(structured_path),
         metadata_json={"job_id": job_id, "prompt_version": prompt_version},
     )
 

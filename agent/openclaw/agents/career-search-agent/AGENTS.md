@@ -100,7 +100,8 @@ Use only:
 - `web_search` — for finding job postings and company ATS URLs
 - `web_fetch` — for reading job posting content
 - `career_search_status` — query current session budget (optional, skip if exec fails)
-- `career_log_candidates` — **REQUIRED** — write candidates to pool (call after each confirmed job)
+- `career_log_candidates` — **REQUIRED** — write candidates to pool (call after each confirmed job)  
+  Each candidate must have `url`, `title`, `company`, `source_type`. Include `location` (city/state/country string, e.g. `"New York, NY"`) whenever it is visible on the job page or in the URL — do not omit it if present.
 - `career_write_manifest` — **REQUIRED** — write final output manifest (call once at the end)
 - `career_fetch_source` — fetch and normalize a job from a specific ATS URL
 

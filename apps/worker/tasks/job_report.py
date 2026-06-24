@@ -84,6 +84,7 @@ def handle_job_report(env: TaskEnvelope) -> dict:
         task_repo.mark_succeeded(env.task_id)
         run_repo.set_status(env.run_id, "succeeded")
         run_repo.set_result_summary(env.run_id, {
+            "validation_status": "passed",
             "report_type": "job_report",
             "report_id": result["job_report_id"],
         })

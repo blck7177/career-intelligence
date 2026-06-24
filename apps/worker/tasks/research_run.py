@@ -287,6 +287,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
                 task_id=env.task_id,
                 artifact_type=artifact_type,
                 storage_uri=path_str,
+                content_hash=_compute_file_sha256(path_str),
                 metadata_json={"invocation_id": invocation_id, "job_id": job_id},
             )
 
@@ -367,6 +368,15 @@ def _strip_missing_optional_artifacts(
                     path,
                 )
                 del manifest.artifact_paths[key]
+
+
+def _compute_file_sha256(path_str: str) -> str | None:
+    """Return sha256:<hex> for the file at path_str, or None if unreadable."""
+    try:
+        digest = hashlib.sha256(Path(path_str).read_bytes()).hexdigest()
+        return f"sha256:{digest}"
+    except OSError:
+        return None
 
 
 def _mark_needs_review(

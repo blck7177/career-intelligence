@@ -40,7 +40,7 @@ class RunResultSummary(BaseModel):
     on which execution phase produced the summary.
     """
 
-    validation_status: Literal["passed", "failed"]
+    validation_status: Optional[Literal["passed", "failed"]] = None
     phase: Optional[str] = None
     error_code: Optional[str] = None
     invocation_id: Optional[str] = None

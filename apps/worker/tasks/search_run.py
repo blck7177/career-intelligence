@@ -25,9 +25,11 @@ Full flow (per architecture.md Agent Execution Flow):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -466,6 +468,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 task_id=env.task_id,
                 artifact_type=artifact_type,
                 storage_uri=path_str,
+                content_hash=_compute_file_sha256(path_str),
                 metadata_json={"invocation_id": invocation_id},
             )
             artifact_ids.append(artifact.id)
@@ -770,13 +773,16 @@ def _persist_discovered_jobs(
                     skip_count += 1
                     continue
 
+                raw_source_type = entry.get("source_type", "unknown")
+                norm_source_type, norm_provider = _normalize_source_type(raw_source_type)
                 job = job_repo.create(
                     canonical_url=url,
                     source_url=url,
-                    source_type=entry.get("source_type", "unknown"),
+                    source_type=norm_source_type,
+                    source_provider=norm_provider,
                     title=entry.get("title", ""),
                     company=entry.get("company", ""),
-                    location=entry.get("location"),
+                    location=entry.get("location") or _extract_location_from_url(url),
                     raw_payload_json=entry,
                     status="discovered",
                     discovered_run_id=run_id,
@@ -863,6 +869,101 @@ def _ingest_tool_events(task_spec, invocation_id: str) -> None:
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("search_run: failed to persist tool events (non-blocking): %s", exc)
+
+
+def _compute_file_sha256(path_str: str) -> str | None:
+    """Return sha256:<hex> for the file at path_str, or None if unreadable."""
+    try:
+        digest = hashlib.sha256(Path(path_str).read_bytes()).hexdigest()
+        return f"sha256:{digest}"
+    except OSError:
+        return None
+
+
+# Map agent-supplied source_type values (often brand names) to canonical
+# category + provider pairs.  Keys are lower-cased agent values.
+_SOURCE_TYPE_MAP: dict[str, tuple[str, str]] = {
+    # ATS platforms
+    "greenhouse":      ("ats", "greenhouse"),
+    "lever":           ("ats", "lever"),
+    "workday":         ("ats", "workday"),
+    "taleo":           ("ats", "taleo"),
+    "icims":           ("ats", "icims"),
+    "smartrecruiters": ("ats", "smartrecruiters"),
+    "eightfold":       ("ats", "eightfold"),
+    "oraclecloud":     ("ats", "oracle_cloud"),
+    "successfactors":  ("ats", "successfactors"),
+    "brassring":       ("ats", "brassring"),
+    # Job boards
+    "linkedin":        ("job_board", "linkedin"),
+    "indeed":          ("job_board", "indeed"),
+    "glassdoor":       ("job_board", "glassdoor"),
+    "builtin":         ("job_board", "builtin"),
+    "dice":            ("job_board", "dice"),
+    # Company career sites — brand names map to company_careers
+    "jpmorgan":        ("company_careers", "jpmorgan"),
+    "jpmorganchase":   ("company_careers", "jpmorgan"),
+    "citi":            ("company_careers", "citi"),
+    "citigroup":       ("company_careers", "citi"),
+    "morganstanley":   ("company_careers", "morgan_stanley"),
+    "goldmansachs":    ("company_careers", "goldman_sachs"),
+    "barclays":        ("company_careers", "barclays"),
+    "ubs":             ("company_careers", "ubs"),
+    "deutsche":        ("company_careers", "deutsche_bank"),
+}
+
+
+def _normalize_source_type(raw: str) -> tuple[str, Optional[str]]:
+    """
+    Map the agent-supplied source_type to (canonical_type, provider).
+
+    canonical_type: "company_careers" | "ats" | "job_board" | "unknown"
+    provider: brand/platform name or None
+    """
+    key = raw.lower().replace(" ", "").replace("-", "").replace("_", "")
+    if key in _SOURCE_TYPE_MAP:
+        return _SOURCE_TYPE_MAP[key]
+    # If it looks like an unknown brand (no slashes, not a URL), treat as unknown company_careers
+    if raw and len(raw) < 40 and "/" not in raw:
+        return ("company_careers", raw.lower())
+    return ("unknown", None)
+
+
+# City/region slug → canonical display name.
+# Used as a URL-based fallback when the agent does not provide an explicit location.
+_CITY_SLUG_MAP: dict[str, str] = {
+    "new-york": "New York, NY",
+    "jersey-city": "Jersey City, NJ",
+    "san-francisco": "San Francisco, CA",
+    "chicago": "Chicago, IL",
+    "boston": "Boston, MA",
+    "los-angeles": "Los Angeles, CA",
+    "houston": "Houston, TX",
+    "london": "London, UK",
+    "hong-kong": "Hong Kong",
+    "singapore": "Singapore",
+    "tokyo": "Tokyo, Japan",
+    "north-america": "North America",
+    "remote": "Remote",
+}
+
+
+def _extract_location_from_url(url: str) -> str | None:
+    """
+    Best-effort extraction of a city / region from an ATS URL.
+
+    Matches slugified city names in URL path segments (e.g. '/new-york/',
+    'new-york-new-york', 'site:careers.../new-york').  Returns the canonical
+    display name or None when no known city is found.
+    """
+    try:
+        url_lower = url.lower()
+        for slug, display in _CITY_SLUG_MAP.items():
+            if re.search(rf"(?:^|[/\-_])({re.escape(slug)})(?:[/\-_]|$)", url_lower):
+                return display
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def _mark_needs_review(

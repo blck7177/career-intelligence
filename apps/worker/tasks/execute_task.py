@@ -45,7 +45,7 @@ _DETERMINISTIC_HANDLERS = {
 }
 
 
-@celery_app.task(name="apps.worker.tasks.execute_task", bind=True, max_retries=2)
+@celery_app.task(name="apps.worker.tasks.execute_task", bind=True, max_retries=0)
 def execute_task(self, *, envelope: dict) -> dict:
     """
     Universal task executor.
@@ -85,6 +85,11 @@ def execute_task(self, *, envelope: dict) -> dict:
         else:
             result = _run_deterministic_task(env)
     except Exception as exc:
+        # Mark task and run as failed, then return without retrying.
+        # Retrying after an explicit failure would create zombie runs where
+        # the DB already shows "failed" but Celery re-executes the task.
+        # Handlers are responsible for calling _mark_failed for expected
+        # error cases; this catch handles unhandled/unexpected exceptions.
         logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
         with get_session() as session:
             task_repo = TaskRepository(session)
@@ -102,7 +107,7 @@ def execute_task(self, *, envelope: dict) -> dict:
                 event_type="task_failed",
                 message=str(exc)[:500],
             )
-        raise self.retry(exc=exc, countdown=60)
+        return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
 
     return result
 

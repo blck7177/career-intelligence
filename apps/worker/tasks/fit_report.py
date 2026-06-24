@@ -61,11 +61,26 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         )
         return {"status": "failed", "task_id": env.task_id}
 
-    # Load workspace profile from DB (profile data no longer comes from frontend)
+    # Load workspace profile from DB (profile data no longer comes from frontend).
+    # Extract all attributes inside the session to avoid DetachedInstanceError.
+    profile_snapshot = None
+    profile_row_id = None
     with get_session() as session:
         profile_row = ProfileRepository(session).get_for_workspace(env.workspace_id)
+        if profile_row is not None:
+            profile_row_id = profile_row.id
+            profile_snapshot = {
+                "id": profile_row.id,
+                "years_experience": profile_row.years_experience,
+                "summary": profile_row.summary or "",
+                "domain_experience": profile_row.domain_experience or [],
+                "technical_skills": profile_row.technical_skills or [],
+                "finance_domains": profile_row.finance_domains or [],
+                "tools": profile_row.tools or [],
+                "representative_projects": profile_row.representative_projects or [],
+            }
 
-    if profile_row is None:
+    if profile_snapshot is None:
         _mark_failed(
             env,
             error_code="MISSING_PROFILE",
@@ -76,18 +91,6 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         )
         return {"status": "failed", "task_id": env.task_id}
 
-    # Build fit profile dict from the unified CandidateProfile.
-    profile_snapshot = {
-        "id": profile_row.id,
-        "years_experience": profile_row.years_experience,
-        "summary": profile_row.summary or "",
-        "domain_experience": profile_row.domain_experience or [],
-        "technical_skills": profile_row.technical_skills or [],
-        "finance_domains": profile_row.finance_domains or [],
-        "tools": profile_row.tools or [],
-        "representative_projects": profile_row.representative_projects or [],
-    }
-
     try:
         with get_session() as session:
             result = create_fit_report(
@@ -96,7 +99,7 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
                 task_id=env.task_id,
                 workspace_id=env.workspace_id,
                 job_id=job_id,
-                candidate_profile_id=profile_row.id,
+                candidate_profile_id=profile_row_id,
                 profile_snapshot=profile_snapshot,
                 job_report_id=job_report_id,
                 force_refresh=force_refresh,
@@ -119,6 +122,7 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         task_repo.mark_succeeded(env.task_id)
         run_repo.set_status(env.run_id, "succeeded")
         run_repo.set_result_summary(env.run_id, {
+            "validation_status": "passed",
             "report_type": "fit_report",
             "report_id": result["fit_report_id"],
         })
