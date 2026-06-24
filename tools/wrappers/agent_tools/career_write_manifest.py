@@ -54,17 +54,40 @@ def main(task_spec: str, output: str) -> None:
     sources_tried = spec.get("sources_tried", summary.get("sources_tried", []))
     sources_added = spec.get("sources_added", summary.get("sources_added", []))
 
+    # Promote research summary fields to top-level so ResearchManifest.model_validate()
+    # can read them. Same precedence rule: top-level > summary > default.
+    job_id = spec.get("job_id", summary.get("job_id"))
+    citations_count = spec.get("citations_count", summary.get("citations_count", 0))
+    jd_text = spec.get("jd_text", summary.get("jd_text"))
+
+    # Promote reflect summary fields to top-level so ReflectionManifest.model_validate()
+    # can read them.
+    reflect_run_id = spec.get("run_id", summary.get("run_id"))
+    patches_proposed = spec.get("patches_proposed", summary.get("patches_proposed", 0))
+
     manifest = {
         "invocation_id": spec.get("invocation_id", ""),
         "status": status,
         "stop_reason": spec.get("stop_reason", ""),
         "artifact_paths": spec.get("artifact_paths", {}),
         "summary": summary,
+        # Discovery fields
         "candidate_count": candidate_count,
         "sources_tried": sources_tried,
         "sources_added": sources_added,
         "written_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Conditionally include task-type-specific top-level fields.
+    # Only add when present so manifests stay clean for their task type.
+    if job_id is not None:
+        manifest["job_id"] = job_id
+        manifest["citations_count"] = citations_count
+        if jd_text is not None:
+            manifest["jd_text"] = jd_text
+    if reflect_run_id is not None and job_id is None:
+        manifest["run_id"] = reflect_run_id
+        manifest["patches_proposed"] = patches_proposed
 
     # Sync workspace-local artifacts to their declared artifact-volume paths.
     # The agent writes search_ledger.jsonl and coverage_report.md to the workspace

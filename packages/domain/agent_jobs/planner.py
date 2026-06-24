@@ -46,15 +46,24 @@ def build_invocation_spec(
     artifacts_base_dir: str,
     payload: dict,
     budget: AgentBudget | None = None,
+    invocation_id: str | None = None,
 ) -> AgentInvocationSpec:
     """
     Build an AgentInvocationSpec for a given task.
     Called by the worker before invoking agent_runtime.
+
+    invocation_id: when provided, the caller is responsible for generating it
+    and must pass the same value to AgentInvocationRepository.create(id=...).
+    This ensures spec.invocation_id == agent_invocations.id so that
+    tool_events.jsonl events (written with spec.invocation_id) can be
+    matched during _ingest_tool_events and stored in agent_tool_events.
+    When None, a short ainv_xxx ID is generated (legacy / tests only).
     """
     agent_id = get_agent_id(task_type)
     skill_version = get_skill_version(agent_id)
     session_key = build_session_key(agent_id, workspace_id, run_id, task_id, attempt)
-    invocation_id = f"ainv_{uuid.uuid4().hex[:12]}"
+    if invocation_id is None:
+        invocation_id = f"ainv_{uuid.uuid4().hex[:12]}"
 
     run_dir = Path(artifacts_base_dir) / run_id / task_id
     input_spec_path = str(run_dir / "input.json")

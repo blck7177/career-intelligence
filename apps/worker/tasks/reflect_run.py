@@ -74,6 +74,9 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         timeout_seconds=input_snapshot.get("timeout_seconds", 300),
     )
 
+    import uuid as _uuid
+    unified_invocation_id = str(_uuid.uuid4())
+
     spec = build_invocation_spec(
         run_id=env.run_id,
         task_id=env.task_id,
@@ -83,6 +86,7 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         artifacts_base_dir=_ARTIFACTS_DIR,
         payload=input_snapshot,
         budget=budget,
+        invocation_id=unified_invocation_id,
     )
 
     # ------------------------------------------------------------------
@@ -118,6 +122,7 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
             skill_contract_version=spec.skill_contract_version,
             input_spec_uri=str(input_json_path),
             output_manifest_uri=spec.output_manifest_path,
+            id=unified_invocation_id,
         )
         invocation_id = invocation.id
 

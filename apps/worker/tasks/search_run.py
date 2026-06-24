@@ -188,6 +188,13 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     budget = budget_for_depth(frontend_input.search_depth)
 
+    # Generate a single UUID that will be used as both spec.invocation_id and
+    # the agent_invocations DB row id.  This ensures tool_events.jsonl events
+    # (written with spec.invocation_id) can be matched during _ingest_tool_events
+    # and stored in agent_tool_events with a correct FK to agent_invocations.
+    import uuid as _uuid
+    unified_invocation_id = str(_uuid.uuid4())
+
     spec = build_invocation_spec(
         run_id=env.run_id,
         task_id=env.task_id,
@@ -197,6 +204,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         artifacts_base_dir=_ARTIFACTS_DIR,
         payload={},  # payload is built separately below via DiscoveryTaskSpec
         budget=budget,
+        invocation_id=unified_invocation_id,
     )
 
     # ------------------------------------------------------------------
@@ -250,6 +258,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             skill_contract_version=spec.skill_contract_version,
             input_spec_uri=str(input_json_path),
             output_manifest_uri=task_spec.output_paths.output_manifest_path,
+            id=unified_invocation_id,
         )
         invocation_id = invocation.id
 

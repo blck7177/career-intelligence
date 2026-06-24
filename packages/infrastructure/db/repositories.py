@@ -394,8 +394,9 @@ class AgentInvocationRepository:
         skill_contract_version: str,
         input_spec_uri: str,
         output_manifest_uri: str,
+        id: str | None = None,
     ) -> AgentInvocation:
-        inv = AgentInvocation(
+        kwargs: dict = dict(
             run_id=run_id,
             task_id=task_id,
             workspace_id=workspace_id,
@@ -406,6 +407,9 @@ class AgentInvocationRepository:
             input_spec_uri=input_spec_uri,
             output_manifest_uri=output_manifest_uri,
         )
+        if id is not None:
+            kwargs["id"] = id
+        inv = AgentInvocation(**kwargs)
         self._s.add(inv)
         self._s.flush()
         return inv

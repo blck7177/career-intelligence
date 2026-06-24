@@ -355,8 +355,8 @@ class AgentToolEvent(Base):
     )
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="ok")
     # Signed-ledger fields
     event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
