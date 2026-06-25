@@ -1723,6 +1723,17 @@
             ],
             "title": "Last Seen At"
           },
+          "latest_job_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Job Report Id"
+          },
           "primary_workstream": {
             "anyOf": [
               {

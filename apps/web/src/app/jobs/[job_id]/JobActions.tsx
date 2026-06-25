@@ -82,6 +82,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
         <FitButton
           jobId={jobId}
           jobReportId={jobReportId}
+          disabled={!hasExistingReport}
           variant={hasExistingReport ? "default" : "outline"}
           label={hasExistingReport ? "Analyze Fit" : "Analyze Fit (needs report)"}
         />

@@ -12,6 +12,7 @@ interface FitButtonProps {
   jobId: string;
   jobReportId?: string;
   force?: boolean;
+  disabled?: boolean;
   size?: "sm" | "md" | "lg";
   variant?: "default" | "outline" | "ghost";
   label?: string;
@@ -29,6 +30,7 @@ export function FitButton({
   jobId,
   jobReportId,
   force = false,
+  disabled = false,
   size = "sm",
   variant = "default",
   label,
@@ -86,6 +88,7 @@ export function FitButton({
   }, [state.phase, getToken, resolveReportId, router]);
 
   async function handleClick() {
+    if (disabled) return;
     setState({ phase: "submitting" });
     try {
       const token = await getToken();
@@ -134,7 +137,7 @@ export function FitButton({
   }
 
   return (
-    <Button size={size} variant={variant} onClick={handleClick}>
+    <Button size={size} variant={variant} onClick={handleClick} disabled={disabled}>
       <Target size={14} className="mr-1.5" />
       {label ?? (force ? "Regenerate Fit Report" : "Analyze Fit")}
     </Button>

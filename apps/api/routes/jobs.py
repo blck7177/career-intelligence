@@ -62,6 +62,8 @@ def _job_read(job, report=None) -> JobRead:
         "updated_at": job.updated_at,
         "last_seen_at": job.last_seen_at,
     }
+    if report:
+        data["latest_job_report_id"] = report.id
     if report and report.structured_json:
         s = report.structured_json
         data["primary_workstream"] = s.get("primary_workstream")

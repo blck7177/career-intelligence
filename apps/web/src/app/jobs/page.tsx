@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Building2, MapPin, Plus, Search, ChevronRight } from "lucide-react";
 import { fmtTs } from "@/lib/utils";
 import { JobFilters } from "./JobFilters";
+import { JobFitCell } from "./JobFitCell";
 
 export const dynamic = "force-dynamic";
 
@@ -62,23 +63,6 @@ function ConfidenceBadge({ c }: { c: string }) {
   if (c === "high") return <Badge className="bg-emerald-100 text-emerald-800 border-0 text-[10px]">High</Badge>;
   if (c === "medium") return <Badge className="bg-amber-100 text-amber-800 border-0 text-[10px]">Medium</Badge>;
   return <Badge className="bg-rose-100 text-rose-800 border-0 text-[10px]">Low</Badge>;
-}
-
-function FitScoreBadge({ fitReportId, score }: { fitReportId: string; score: number }) {
-  const cls =
-    score >= 75
-      ? "bg-emerald-100 text-emerald-800"
-      : score >= 50
-      ? "bg-amber-100 text-amber-800"
-      : "bg-rose-100 text-rose-800";
-  return (
-    <Link
-      href={`/fit-reports/${fitReportId}`}
-      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls} hover:opacity-80 transition-opacity`}
-    >
-      {score}% fit
-    </Link>
-  );
 }
 
 function shortWs(ws: string) {
@@ -318,16 +302,20 @@ export default async function JobsPage({ searchParams }: PageProps) {
                 </Link>
 
                 <div className="flex flex-col items-end gap-2 shrink-0 p-4 pl-2">
-                  {fr ? (
-                    <FitScoreBadge fitReportId={fr.id} score={fr.overall_match_score} />
-                  ) : activeProfileId ? (
-                    <Link
-                      href={`/jobs/${job.id}`}
-                      className="text-xs text-indigo-600 hover:underline"
-                    >
-                      Analyze fit
-                    </Link>
-                  ) : null}
+                  <JobFitCell
+                    jobId={job.id}
+                    jobReportId={job.latest_job_report_id}
+                    hasProfile={!!activeProfileId}
+                    fitReport={
+                      fr
+                        ? {
+                            id: fr.id,
+                            score: fr.overall_match_score,
+                            recommended_next_action: fr.recommended_next_action,
+                          }
+                        : undefined
+                    }
+                  />
                   <Link href={`/jobs/${job.id}`} className="text-zinc-300 group-hover:text-zinc-400">
                     <ChevronRight size={14} />
                   </Link>

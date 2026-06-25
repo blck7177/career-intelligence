@@ -30,6 +30,7 @@ class JobRead(BaseModel):
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
     # Populated when include_report_summary=true (from latest active job report)
+    latest_job_report_id: Optional[str] = None
     primary_workstream: Optional[str] = None
     seniority_inferred: Optional[str] = None
     workstream_confidence: Optional[str] = None  # high | medium | low
