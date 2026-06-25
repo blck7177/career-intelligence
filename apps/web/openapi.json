@@ -2407,6 +2407,41 @@
               }
             ],
             "title": "Artifact Paths"
+          },
+          "import_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Type"
+          },
+          "profile_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Draft"
+          },
+          "parse_notes": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Notes"
           }
         },
         "type": "object",

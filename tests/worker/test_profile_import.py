@@ -183,6 +183,7 @@ class TestProfileImportHandler:
             "error_code", mock_task_repo.mark_failed.call_args.kwargs.get("error_code")
         )
         assert error_code == "MISSING_RESUME_TEXT"
+        mock_run_repo.set_status.assert_called_once_with("run-222", "failed")
 
     @patch("apps.worker.tasks.profile_import.get_session")
     def test_resume_too_long(self, mock_get_session):
@@ -223,6 +224,7 @@ class TestProfileImportHandler:
         mock_task_repo.mark_failed.assert_called_once()
         error_code = mock_task_repo.mark_failed.call_args.kwargs.get("error_code")
         assert error_code == "RESUME_TOO_LONG"
+        mock_run_repo.set_status.assert_called_once_with("run-222", "failed")
 
     @patch("apps.worker.tasks.profile_import.get_session")
     @patch("apps.worker.tasks.profile_import.get_llm_client")
@@ -269,6 +271,7 @@ class TestProfileImportHandler:
         mock_task_repo.mark_failed.assert_called_once()
         error_code = mock_task_repo.mark_failed.call_args.kwargs.get("error_code")
         assert error_code == "GENERATION_FAILED"
+        mock_run_repo.set_status.assert_called_once_with("run-222", "failed")
 
 
 class TestProfileImportDraftSchema:

@@ -8,7 +8,6 @@ import {
   upsertProfile,
   type ProfileRead,
   type ProfileUpdate,
-  type RunRead,
 } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 
