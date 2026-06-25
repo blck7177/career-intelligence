@@ -35,6 +35,8 @@ export type JobReportResponse = components["schemas"]["JobReportResponse"];
 export type FitReportResponse = components["schemas"]["FitReportResponse"];
 export type ProfileRead = components["schemas"]["ProfileRead"];
 export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
+export type FitReportSummary = components["schemas"]["FitReportSummary"];
+export type FitReportSummaryList = components["schemas"]["FitReportSummaryList"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -126,6 +128,21 @@ export async function getFitReport(fitReportId: string, token?: string | null): 
   return req<FitReportResponse>(`/api/app/fit-reports/${fitReportId}`, undefined, token);
 }
 
+export async function listFitReports(
+  params?: { profile_id?: string; status?: string },
+  token?: string | null,
+): Promise<FitReportSummaryList> {
+  const qs = new URLSearchParams();
+  if (params?.profile_id) qs.set("profile_id", params.profile_id);
+  if (params?.status) qs.set("status", params.status);
+  const query = qs.toString();
+  return req<FitReportSummaryList>(
+    `/api/app/fit-reports${query ? `?${query}` : ""}`,
+    undefined,
+    token,
+  );
+}
+
 export async function getLatestJobReport(jobId: string, token?: string | null): Promise<JobReportResponse> {
   return req<JobReportResponse>(`/api/app/jobs/${encodeURIComponent(jobId)}/job-reports/latest`, undefined, token);
 }
@@ -134,8 +151,15 @@ export async function getLatestJobReport(jobId: string, token?: string | null): 
 // Jobs  (/api/app/jobs/*)
 // ---------------------------------------------------------------------------
 
-export async function listJobs(token?: string | null): Promise<JobList> {
-  return req<JobList>("/api/app/jobs", undefined, token);
+export async function listJobs(
+  params?: { status?: string; include_report_summary?: boolean },
+  token?: string | null,
+): Promise<JobList> {
+  const qs = new URLSearchParams();
+  if (params?.status) qs.set("status", params.status);
+  if (params?.include_report_summary) qs.set("include_report_summary", "true");
+  const query = qs.toString();
+  return req<JobList>(`/api/app/jobs${query ? `?${query}` : ""}`, undefined, token);
 }
 
 export async function getJob(jobId: string, token?: string | null): Promise<JobRead> {

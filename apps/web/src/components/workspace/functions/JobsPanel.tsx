@@ -31,7 +31,7 @@ export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
     setError(null);
     try {
       const token = await getToken();
-      const list = await listJobs(token);
+      const list = await listJobs(undefined, token);
       setJobs(list.items);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load jobs");

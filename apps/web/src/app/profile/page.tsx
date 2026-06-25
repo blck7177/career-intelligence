@@ -125,7 +125,7 @@ export default function ProfilePage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-900">Candidate Profile</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Used for profile-guided discovery and fit analysis.
+          Your job-search persona — powers profile-guided discovery and fit analysis for every role.
         </p>
       </div>
 

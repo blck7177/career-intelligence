@@ -19,10 +19,11 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from packages.contracts.api.fit_reports import FitReportSummary, FitReportSummaryList
 from apps.api.dependencies.auth import get_current_workspace
 from apps.api.dependencies.db import get_db
 from packages.infrastructure.db.models import Workspace
@@ -138,6 +139,40 @@ def get_job_report(
     if row is None:
         raise HTTPException(status_code=404, detail=f"Job report {job_report_id!r} not found.")
     return _job_report_response(row)
+
+
+@router.get("/fit-reports", response_model=FitReportSummaryList)
+def list_fit_reports(
+    profile_id: Optional[str] = Query(None, description="Filter by candidate profile ID"),
+    status: str = Query("active", description="Fit report status filter"),
+    limit: int = Query(500, ge=1, le=500),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> FitReportSummaryList:
+    """List fit report summaries for Role Inbox overlay (one latest per job)."""
+    rows = FitReportRepository(db).list_summaries_for_workspace(
+        workspace_id=workspace.id,
+        profile_id=profile_id,
+        status=status,
+        limit=limit,
+    )
+    items = []
+    for row in rows:
+        structured = row.structured_json or {}
+        summary = row.summary_json or {}
+        action = structured.get("recommended_next_action") or summary.get("recommended_next_action")
+        items.append(
+            FitReportSummary(
+                id=row.id,
+                job_id=row.job_id,
+                candidate_profile_id=row.candidate_profile_id,
+                overall_match_score=row.overall_match_score or 0,
+                recommended_next_action=action,
+                status=row.status,
+                updated_at=row.updated_at,
+            )
+        )
+    return FitReportSummaryList(items=items, total=len(items))
 
 
 @router.get("/fit-reports/{fit_report_id}", response_model=FitReportResponse)

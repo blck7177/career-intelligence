@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listJobs, listRuns } from "@/api/client";
+import { listJobs, listRuns, getProfile } from "@/api/client";
 import type { JobRead, RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import {
   AlertCircle,
   Clock,
   ChevronRight,
+  User,
   Sparkles,
 } from "lucide-react";
 import { fmtTs } from "@/lib/utils";
@@ -36,6 +37,9 @@ const RUN_TYPE_LABELS: Record<string, string> = {
 function runTypeLabel(t: string) {
   return RUN_TYPE_LABELS[t] ?? t.replace(/_/g, " ");
 }
+
+const DEFAULT_PROFILE_SNIPPET =
+  "Edit this profile to personalize your job discovery and fit analysis.";
 
 const RUN_STATUS_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -170,15 +174,19 @@ export default async function HomePage() {
 
   let jobs: JobRead[] = [];
   let runs: RunRead[] = [];
+  let profileNeedsSetup = false;
   let fetchError: string | null = null;
 
   try {
-    const [jobList, runList] = await Promise.all([
-      listJobs(token),
+    const [jobList, runList, profile] = await Promise.all([
+      listJobs(undefined, token),
       listRuns(token).catch(() => ({ items: [] as RunRead[] })),
+      getProfile(token).catch(() => null),
     ]);
     jobs = jobList.items;
     runs = runList.items;
+    profileNeedsSetup =
+      !profile?.summary || profile.summary.includes(DEFAULT_PROFILE_SNIPPET);
   } catch (err) {
     fetchError = err instanceof Error ? err.message : "Failed to load data";
   }
@@ -186,6 +194,9 @@ export default async function HomePage() {
   const total = jobs.length;
   const reportable = jobs.filter((j) => j.status === "reportable").length;
   const discovered = jobs.filter((j) => j.status === "discovered").length;
+  const fitAnalyses = runs.filter(
+    (r) => r.run_type === "fit_report" && r.status === "succeeded",
+  ).length;
 
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -203,18 +214,44 @@ export default async function HomePage() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Command Center</h1>
-          <p className="text-zinc-500 text-sm mt-1">Career intelligence overview</p>
+          <p className="text-zinc-500 text-sm mt-1">
+            Profile → Search → Role Inbox → Fit decisions
+          </p>
         </div>
-        <Link href="/workspace">
-          <Button size="sm">
-            <Plus size={14} className="mr-1.5" />
-            New Discovery
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link href="/jobs">
+            <Button size="sm" variant="outline">
+              <Inbox size={14} className="mr-1.5" />
+              Review Role Inbox
+            </Button>
+          </Link>
+          <Link href="/workspace">
+            <Button size="sm">
+              <Search size={14} className="mr-1.5" />
+              Start Discovery
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      {profileNeedsSetup && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <User size={16} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-2">
+            <p className="text-sm text-amber-900">
+              Set up your candidate profile before running profile-guided search or fit analysis.
+            </p>
+            <Link href="/profile">
+              <Button size="sm" variant="outline" className="text-xs h-8">
+                Set up Profile
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {fetchError && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -223,7 +260,7 @@ export default async function HomePage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <SummaryCard
           label="Role Inbox"
           value={total}
@@ -235,10 +272,18 @@ export default async function HomePage() {
         <SummaryCard
           label="Reports Ready"
           value={reportable}
-          sub={reportable > 0 ? "Ready to review" : "Generate reports to analyze roles"}
+          sub={reportable > 0 ? "Ready to analyze fit" : "Generate reports first"}
           icon={<BarChart3 size={16} />}
           href="/jobs"
           accent="bg-emerald-50 text-emerald-600"
+        />
+        <SummaryCard
+          label="Fit Analyses"
+          value={fitAnalyses}
+          sub="Completed fit reports"
+          icon={<Sparkles size={16} />}
+          href="/jobs"
+          accent="bg-violet-50 text-violet-600"
         />
         <SummaryCard
           label="Recent Searches"

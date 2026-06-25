@@ -280,6 +280,18 @@
             "description": "Filter by job status: discovered|reportable|invalid|stale"
           },
           {
+            "name": "include_report_summary",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Join latest active job report for workstream/seniority/confidence fields",
+              "default": false,
+              "title": "Include Report Summary"
+            },
+            "description": "Join latest active job report for workstream/seniority/confidence fields"
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -359,6 +371,16 @@
             "schema": {
               "type": "string",
               "title": "Job Id"
+            }
+          },
+          {
+            "name": "include_report_summary",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Report Summary"
             }
           },
           {
@@ -444,6 +466,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/fit-reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Fit Reports",
+        "description": "List fit report summaries for Role Inbox overlay (one latest per job).",
+        "operationId": "list_fit_reports_api_app_fit_reports_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by candidate profile ID",
+              "title": "Profile Id"
+            },
+            "description": "Filter by candidate profile ID"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Fit report status filter",
+              "default": "active",
+              "title": "Status"
+            },
+            "description": "Fit report status filter"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FitReportSummaryList"
                 }
               }
             }
@@ -1424,6 +1538,83 @@
         ],
         "title": "FitReportResponse"
       },
+      "FitReportSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "candidate_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Profile Id"
+          },
+          "overall_match_score": {
+            "type": "integer",
+            "title": "Overall Match Score"
+          },
+          "recommended_next_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Next Action"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "overall_match_score",
+          "status",
+          "updated_at"
+        ],
+        "title": "FitReportSummary"
+      },
+      "FitReportSummaryList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FitReportSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "FitReportSummaryList"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1531,6 +1722,39 @@
               }
             ],
             "title": "Last Seen At"
+          },
+          "primary_workstream": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Workstream"
+          },
+          "seniority_inferred": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority Inferred"
+          },
+          "workstream_confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workstream Confidence"
           }
         },
         "type": "object",
@@ -2048,10 +2272,17 @@
       "RunResultSummary": {
         "properties": {
           "validation_status": {
-            "type": "string",
-            "enum": [
-              "passed",
-              "failed"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ],
             "title": "Validation Status"
           },
@@ -2168,9 +2399,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "validation_status"
-        ],
         "title": "RunResultSummary",
         "description": "Structured diagnostic payload written by the worker at run completion.\n\nPopulated for both terminal statuses:\n  - validation_status=\"passed\"  \u2192 run succeeded; candidate_count / job_ids present\n  - validation_status=\"failed\"  \u2192 run needs_review; phase / failed_validators present\n\nAll fields except validation_status are Optional because the exact set depends\non which execution phase produced the summary."
       },

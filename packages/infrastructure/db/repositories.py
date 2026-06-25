@@ -733,6 +733,29 @@ class JobReportRepository:
         self._s.flush()
         return row
 
+    def get_latest_active_map(self, job_ids: list[str]) -> dict[str, JobReport]:
+        """Return the latest active job report per job_id."""
+        if not job_ids:
+            return {}
+        from sqlalchemy import func, select
+
+        subq = (
+            select(
+                JobReport.job_id,
+                func.max(JobReport.created_at).label("max_created"),
+            )
+            .where(JobReport.job_id.in_(job_ids), JobReport.status == "active")
+            .group_by(JobReport.job_id)
+            .subquery()
+        )
+        stmt = select(JobReport).join(
+            subq,
+            (JobReport.job_id == subq.c.job_id)
+            & (JobReport.created_at == subq.c.max_created),
+        )
+        rows = self._s.execute(stmt).scalars().all()
+        return {row.job_id: row for row in rows}
+
 
 # ---------------------------------------------------------------------------
 # FitReport
@@ -745,6 +768,34 @@ class FitReportRepository:
 
     def get(self, report_id: str) -> Optional[FitReport]:
         return self._s.get(FitReport, report_id)
+
+    def list_summaries_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        profile_id: Optional[str] = None,
+        status: str = "active",
+        limit: int = 500,
+    ) -> list[FitReport]:
+        """List fit reports for inbox overlay; latest per job_id first."""
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.status == status,
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc()).limit(limit)
+        rows = list(self._s.execute(stmt).scalars().all())
+        seen: set[str] = set()
+        deduped: list[FitReport] = []
+        for row in rows:
+            if row.job_id in seen:
+                continue
+            seen.add(row.job_id)
+            deduped.append(row)
+        return deduped
 
     def get_active(
         self,

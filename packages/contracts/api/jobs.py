@@ -29,6 +29,10 @@ class JobRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
+    # Populated when include_report_summary=true (from latest active job report)
+    primary_workstream: Optional[str] = None
+    seniority_inferred: Optional[str] = None
+    workstream_confidence: Optional[str] = None  # high | medium | low
 
     model_config = {"from_attributes": True}
 

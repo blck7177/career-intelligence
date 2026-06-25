@@ -281,7 +281,11 @@ export default async function JobDetailPage({ params }: PageProps) {
               <CardTitle className="text-sm">Actions</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
-              <JobActions jobId={job_id} hasExistingReport={!!report} />
+              <JobActions
+                jobId={job_id}
+                hasExistingReport={!!report}
+                jobReportId={report?.id}
+              />
             </CardContent>
           </Card>
 
