@@ -59,6 +59,7 @@ from packages.infrastructure.db.repositories import (
 )
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.llm.client import get_llm_client
+from packages.infrastructure.jd_fetch import resolve_jd
 from packages.infrastructure.llm.intent_translator import (
     IntentTranslationError,
     IntentTranslator,
@@ -453,7 +454,8 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 10b: Persist discovered jobs to jobs table
     # ------------------------------------------------------------------
-    job_ids = _persist_discovered_jobs(manifest, env.run_id, env.task_id)
+    ingest_stats = _persist_discovered_jobs(manifest, env.run_id, env.task_id)
+    job_ids = ingest_stats["job_ids"]
 
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
@@ -476,6 +478,9 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         result_summary = {
             "candidate_count": manifest.candidate_count,
             "job_ids": job_ids,
+            "jobs_ingested": ingest_stats["jobs_ingested"],
+            "jobs_reportable": ingest_stats["jobs_reportable"],
+            "jobs_fetch_failed": ingest_stats["jobs_fetch_failed"],
             "artifact_ids": artifact_ids,
             "invocation_id": invocation_id,
             "sources_tried": len(manifest.sources_tried),
@@ -722,21 +727,31 @@ def _persist_discovered_jobs(
     manifest: DiscoveryManifest,
     run_id: str,
     task_id: str,
-) -> list[str]:
+) -> dict[str, int | list[str]]:
     """
     Upsert candidates from candidate_pool.jsonl into the jobs table.
 
     Called after the validator gate passes so only validated candidates
-    are persisted.  New candidates are inserted with status="discovered"
-    and no jd_text/jd_hash — those are filled by a subsequent job_research
-    task.  Already-known URLs are skipped (canonical_url is unique).
+    are persisted.  For each new candidate, resolve JD via artifact cache
+    (career_fetch_source) or worker deterministic fetch.  Successful fetch
+    → status=reportable with jd_text/jd_hash; failure → status=discovered
+    with fetch_error in raw_payload_json.
 
-    Returns the list of job IDs (new + existing) for the current run.
+    Already-known URLs are skipped (canonical_url is unique).
+
+    Returns ingest stats including job_ids list.
     Errors are logged as warnings and do not block task completion.
     """
+    empty_stats: dict[str, int | list[str]] = {
+        "job_ids": [],
+        "jobs_ingested": 0,
+        "jobs_reportable": 0,
+        "jobs_fetch_failed": 0,
+    }
+
     pool_path_str = manifest.artifact_paths.get("candidate_pool")
     if not pool_path_str or manifest.candidate_count == 0:
-        return []
+        return empty_stats
 
     pool_path = Path(pool_path_str)
     if not pool_path.exists():
@@ -744,11 +759,14 @@ def _persist_discovered_jobs(
             "search_run: candidate_pool not found at %s — skipping job persistence",
             pool_path,
         )
-        return []
+        return empty_stats
 
+    artifact_dir = pool_path.parent
     job_ids: list[str] = []
     new_count = 0
     skip_count = 0
+    reportable_count = 0
+    fetch_failed_count = 0
 
     try:
         with get_session() as session:
@@ -775,34 +793,85 @@ def _persist_discovered_jobs(
 
                 raw_source_type = entry.get("source_type", "unknown")
                 norm_source_type, norm_provider = _normalize_source_type(raw_source_type)
-                job = job_repo.create(
-                    canonical_url=url,
-                    source_url=url,
-                    source_type=norm_source_type,
-                    source_provider=norm_provider,
-                    title=entry.get("title", ""),
-                    company=entry.get("company", ""),
-                    location=entry.get("location") or _extract_location_from_url(url),
-                    raw_payload_json=entry,
-                    status="discovered",
-                    discovered_run_id=run_id,
-                    discovered_task_id=task_id,
-                )
+                jd_result = resolve_jd(url, raw_source_type, artifact_dir)
+
+                if jd_result.ok and jd_result.jd_text and jd_result.jd_hash:
+                    payload = dict(entry)
+                    job = job_repo.create(
+                        canonical_url=url,
+                        source_url=url,
+                        source_type=norm_source_type,
+                        source_provider=norm_provider,
+                        title=entry.get("title", ""),
+                        company=entry.get("company", ""),
+                        location=entry.get("location") or _extract_location_from_url(url),
+                        jd_text=jd_result.jd_text,
+                        jd_hash=jd_result.jd_hash,
+                        raw_payload_json={
+                            **payload,
+                            "jd_source": jd_result.source,
+                            "fetch_status": jd_result.fetch_status,
+                        },
+                        status="reportable",
+                        discovered_run_id=run_id,
+                        discovered_task_id=task_id,
+                    )
+                    reportable_count += 1
+                else:
+                    fetch_failed_count += 1
+                    payload = {
+                        **entry,
+                        "fetch_error": jd_result.error or "JD fetch failed",
+                        "fetch_status": jd_result.fetch_status,
+                        "jd_source": jd_result.source,
+                    }
+                    job = job_repo.create(
+                        canonical_url=url,
+                        source_url=url,
+                        source_type=norm_source_type,
+                        source_provider=norm_provider,
+                        title=entry.get("title", ""),
+                        company=entry.get("company", ""),
+                        location=entry.get("location") or _extract_location_from_url(url),
+                        raw_payload_json=payload,
+                        status="discovered",
+                        discovered_run_id=run_id,
+                        discovered_task_id=task_id,
+                    )
+                    logger.info(
+                        "search_run: JD fetch failed for url=%s error=%s",
+                        url,
+                        jd_result.error,
+                    )
+
                 job_ids.append(job.id)
                 new_count += 1
 
             session.commit()
     except Exception as exc:  # noqa: BLE001
         logger.warning("search_run: failed to persist discovered jobs (non-blocking): %s", exc)
-        return job_ids
+        return {
+            "job_ids": job_ids,
+            "jobs_ingested": new_count,
+            "jobs_reportable": reportable_count,
+            "jobs_fetch_failed": fetch_failed_count,
+        }
 
     logger.info(
-        "search_run: jobs persisted — new=%d, already_known=%d, total=%d",
+        "search_run: jobs persisted — new=%d, reportable=%d, fetch_failed=%d, "
+        "already_known=%d, total=%d",
         new_count,
+        reportable_count,
+        fetch_failed_count,
         skip_count,
         len(job_ids),
     )
-    return job_ids
+    return {
+        "job_ids": job_ids,
+        "jobs_ingested": new_count,
+        "jobs_reportable": reportable_count,
+        "jobs_fetch_failed": fetch_failed_count,
+    }
 
 
 def _ingest_tool_events(task_spec, invocation_id: str) -> None:

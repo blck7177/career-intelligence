@@ -245,7 +245,9 @@ Manifest 必须包含：
 }
 ```
 
-返回：`url`、`text`（最多 50k chars）、`final_url`、`content_length`
+返回：`url`、`text`（最多 50k chars，已 strip HTML）、`final_url`、`content_length`、`jd_text_path`（artifact cache 路径，可选）、`jd_hash`
+
+`career_fetch_source` 成功时会自动写入 `{artifacts_dir}/{run_id}/{task_id}/fetched_jds/{url_hash}.txt`，供 worker ingest 复用（避免 double-fetch）。
 
 ### `career_write_manifest`
 
@@ -291,7 +293,12 @@ wrapper 会自动将 `summary.candidate_count`、`summary.sources_tried`、`summ
    任何一层失败 → task → `needs_review`，不写入 DB。
 2. **Artifact 入库**：validator 全部通过后，把 `artifact_paths` 里的路径写入 `artifacts` 表。
 3. **Run status 更新**：task → `succeeded` 或 `needs_review`，UI 可见。
-4. **Candidate ingest**（未来）：`candidate_pool.jsonl` 里的候选经 dedup / normalize 后写入 `jobs` 表。
+4. **Candidate ingest + JD resolution**：validator 通过后，worker 读取 `candidate_pool.jsonl`，对每个新 URL：
+   - 优先读 `fetched_jds/{url_hash}.txt`（`career_fetch_source` 写入的 cache）
+   - 无 cache 则 worker deterministic fetch
+   - fetch 成功 → `jobs` 表 `status=reportable`，写入 `jd_text` / `jd_hash`
+   - fetch 失败 → `status=discovered`，`raw_payload_json.fetch_error` 记录原因
+   - `result_summary_json` 含 `jobs_ingested` / `jobs_reportable` / `jobs_fetch_failed`
 
 ---
 

@@ -21,7 +21,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import click
-import httpx
+
+from packages.infrastructure.jd_fetch.service import (
+    fetch_jd_from_url,
+    save_fetched_jd_artifact,
+)
 
 
 ALLOWED_SOURCE_TYPES = {"greenhouse", "lever", "ashby", "workday", "html_fallback"}
@@ -51,28 +55,41 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, f"source_type must be one of {ALLOWED_SOURCE_TYPES}")
         sys.exit(1)
 
-    try:
-        response = httpx.get(url, follow_redirects=True, timeout=15)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        _fail(output, f"HTTP {exc.response.status_code} fetching {url}")
+    fetch_result = fetch_jd_from_url(url)
+    if not fetch_result.ok:
+        _fail(output, fetch_result.error or "Fetch failed")
         sys.exit(1)
-    except Exception as exc:
-        _fail(output, f"Failed to fetch {url}: {exc}")
-        sys.exit(1)
+
+    artifact_dir = artifacts_dir / run_id / task_id if run_id and task_id else artifacts_dir
+    jd_text_path: str | None = None
+    jd_hash: str | None = fetch_result.jd_hash
+
+    if run_id and task_id and fetch_result.jd_text:
+        try:
+            text_path, _, jd_hash = save_fetched_jd_artifact(
+                artifact_dir=artifact_dir,
+                url=url,
+                raw_content=fetch_result.jd_text,
+                content_type="text/plain",
+            )
+            jd_text_path = str(text_path)
+        except ValueError as exc:
+            _fail(output, str(exc))
+            sys.exit(1)
 
     result = {
         "url": url,
         "source_type": source_type,
-        "status_code": response.status_code,
-        "content_length": len(response.text),
-        "text": response.text[:50000],  # cap at 50k chars
-        "final_url": str(response.url),
+        "status_code": 200,
+        "content_length": len(fetch_result.jd_text or ""),
+        "text": (fetch_result.jd_text or "")[:50000],
+        "final_url": url,
+        "jd_text_path": jd_text_path,
+        "jd_hash": jd_hash,
     }
 
     Path(output).write_text(json.dumps(result, indent=2))
 
-    # Append a trace event so ToolActivityValidator can confirm real discovery action occurred.
     if run_id and task_id:
         trace_path = artifacts_dir / run_id / task_id / "trace_events.jsonl"
         trace_path.parent.mkdir(parents=True, exist_ok=True)

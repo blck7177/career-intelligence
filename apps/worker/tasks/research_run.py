@@ -295,7 +295,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         # The research agent fetches the JD from source_url and writes it
         # to the manifest so the worker can persist it here without doing IO.
         if manifest.jd_text:
-            jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()
+            jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()[:16]
             job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
             job_repo.set_status(job_id, "reportable")
             logger.info(
