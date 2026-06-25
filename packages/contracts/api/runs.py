@@ -52,6 +52,10 @@ class RunResultSummary(BaseModel):
     # needs_review path
     failed_validators: Optional[list[FailedValidatorSummary]] = None
     artifact_paths: Optional[dict[str, str]] = None
+    # profile_import path
+    import_type: Optional[str] = None
+    profile_draft: Optional[dict] = None
+    parse_notes: Optional[dict] = None
 
 
 class RunCreate(BaseModel):

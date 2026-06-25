@@ -89,6 +89,7 @@ def create_run(
         "run_reflection": "agent.run_reflection",
         "job_report": "job_report",
         "fit_report": "fit_report",
+        "profile_import": "profile_import",
     }
     task_type = task_type_map.get(body.run_type)
     if task_type is None:

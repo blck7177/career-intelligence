@@ -1,18 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useApiToken } from "@/hooks/useApiToken";
-import { getProfile, upsertProfile, type ProfileRead, type ProfileUpdate } from "@/api/client";
+import {
+  createRun,
+  getProfile,
+  upsertProfile,
+  type ProfileRead,
+  type ProfileUpdate,
+  type RunRead,
+} from "@/api/client";
+import { pollRunUntilDone } from "@/lib/pollRun";
 
-// FieldState mirrors the editable subset of ProfileRead using string values
-// for textarea/input compatibility.
 type FieldState = {
   summary: string;
   experience_summary: string;
   education_summary: string;
-  technical_skills: string;   // comma-separated
-  domain_experience: string;  // comma-separated — matches backend field
-  years_experience: string;   // matches backend field
+  technical_skills: string;
+  domain_experience: string;
+  finance_domains: string;
+  tools: string;
+  years_experience: string;
 };
 
 const EMPTY_FIELDS: FieldState = {
@@ -21,6 +29,8 @@ const EMPTY_FIELDS: FieldState = {
   education_summary: "",
   technical_skills: "",
   domain_experience: "",
+  finance_domains: "",
+  tools: "",
   years_experience: "",
 };
 
@@ -31,11 +41,13 @@ function profileToFields(p: ProfileRead): FieldState {
     education_summary: p.education_summary ?? "",
     technical_skills: ((p.technical_skills ?? []) as string[]).join(", "),
     domain_experience: ((p.domain_experience ?? []) as string[]).join(", "),
+    finance_domains: ((p.finance_domains ?? []) as string[]).join(", "),
+    tools: ((p.tools ?? []) as string[]).join(", "),
     years_experience: p.years_experience != null ? String(p.years_experience) : "",
   };
 }
 
-function fieldsToUpdate(f: FieldState): ProfileUpdate {
+function fieldsToUpdate(f: FieldState, serverProfile: ProfileRead | null): ProfileUpdate {
   const parseList = (s: string) =>
     s
       .split(",")
@@ -47,43 +59,99 @@ function fieldsToUpdate(f: FieldState): ProfileUpdate {
     experience_summary: f.experience_summary || null,
     education_summary: f.education_summary || null,
     technical_skills: parseList(f.technical_skills).length ? parseList(f.technical_skills) : null,
-    domain_experience: parseList(f.domain_experience).length ? parseList(f.domain_experience) : null,
+    domain_experience: parseList(f.domain_experience).length
+      ? parseList(f.domain_experience)
+      : null,
+    finance_domains: parseList(f.finance_domains).length ? parseList(f.finance_domains) : null,
+    tools: parseList(f.tools).length ? parseList(f.tools) : null,
     years_experience: f.years_experience ? parseInt(f.years_experience, 10) || null : null,
+    representative_projects: serverProfile?.representative_projects ?? null,
+    preferences_json: serverProfile?.preferences_json ?? null,
+  };
+}
+
+type ImportStatus = "idle" | "generating" | "ready" | "error";
+
+type ProfileDraft = {
+  summary?: string;
+  experience_summary?: string;
+  education_summary?: string;
+  years_experience?: number | null;
+  technical_skills?: string[];
+  domain_experience?: string[];
+  finance_domains?: string[];
+  tools?: string[];
+  representative_projects?: unknown[];
+};
+
+type ParseNotes = {
+  low_confidence_items?: string[];
+  missing_information?: string[];
+  assumptions?: string[];
+};
+
+function draftToFields(d: ProfileDraft): FieldState {
+  return {
+    summary: d.summary ?? "",
+    experience_summary: d.experience_summary ?? "",
+    education_summary: d.education_summary ?? "",
+    technical_skills: (d.technical_skills ?? []).join(", "),
+    domain_experience: (d.domain_experience ?? []).join(", "),
+    finance_domains: (d.finance_domains ?? []).join(", "),
+    tools: (d.tools ?? []).join(", "),
+    years_experience: d.years_experience != null ? String(d.years_experience) : "",
   };
 }
 
 export default function ProfilePage() {
   const getToken = useApiToken();
   const [fields, setFields] = useState<FieldState>(EMPTY_FIELDS);
+  const [serverProfile, setServerProfile] = useState<ProfileRead | null>(null);
   const [profileHash, setProfileHash] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const token = await getToken();
-        const profile = await getProfile(token);
-        setFields(profileToFields(profile));
-        setProfileHash(profile.profile_hash);
-      } catch (err: unknown) {
-        if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) {
-          // No profile yet — leave defaults
-        } else {
-          setErrorMsg("Failed to load profile.");
-        }
-      } finally {
-        setLoading(false);
+  // Resume import state
+  const [resumeText, setResumeText] = useState("");
+  const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [parseNotes, setParseNotes] = useState<ParseNotes | null>(null);
+  const [draftProjects, setDraftProjects] = useState<unknown[] | null>(null);
+  const [showImport, setShowImport] = useState(false);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const profile = await getProfile(token);
+      setFields(profileToFields(profile));
+      setServerProfile(profile);
+      setProfileHash(profile.profile_hash);
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        (err as { status: number }).status === 404
+      ) {
+        // No profile yet
+      } else {
+        setErrorMsg("Failed to load profile.");
       }
+    } finally {
+      setLoading(false);
     }
-    load();
   }, [getToken]);
 
-  const handleChange = (key: keyof FieldState) => (
-    e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>
-  ) => setFields((prev) => ({ ...prev, [key]: e.target.value }));
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const handleChange =
+    (key: keyof FieldState) =>
+    (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) =>
+      setFields((prev) => ({ ...prev, [key]: e.target.value }));
 
   const handleSave = async () => {
     setSaving(true);
@@ -91,9 +159,81 @@ export default function ProfilePage() {
     setErrorMsg(null);
     try {
       const token = await getToken();
-      const updated = await upsertProfile(fieldsToUpdate(fields), token);
+      const updated = await upsertProfile(fieldsToUpdate(fields, serverProfile), token);
       setFields(profileToFields(updated));
+      setServerProfile(updated);
       setProfileHash(updated.profile_hash);
+      setStatus("saved");
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!resumeText.trim()) return;
+    setImportStatus("generating");
+    setImportError(null);
+    setParseNotes(null);
+    setDraftProjects(null);
+
+    try {
+      const token = await getToken();
+      const run = await createRun(
+        {
+          run_type: "profile_import",
+          input_snapshot: { resume_text: resumeText.trim(), source_type: "paste" },
+        },
+        token,
+      );
+      const finished = await pollRunUntilDone(run.id, token, { intervalMs: 2000, timeoutMs: 120_000 });
+
+      if (finished.status !== "succeeded") {
+        setImportStatus("error");
+        setImportError(finished.error_message ?? `Import ${finished.status}`);
+        return;
+      }
+
+      const summary = finished.result_summary_json as Record<string, unknown> | null;
+      const draft = summary?.profile_draft as ProfileDraft | undefined;
+      const notes = summary?.parse_notes as ParseNotes | undefined;
+
+      if (!draft) {
+        setImportStatus("error");
+        setImportError("No profile draft returned.");
+        return;
+      }
+
+      setFields(draftToFields(draft));
+      setDraftProjects(draft.representative_projects ?? null);
+      if (notes) setParseNotes(notes);
+      setImportStatus("ready");
+    } catch (err: unknown) {
+      setImportStatus("error");
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    }
+  };
+
+  const handleApplyAndSave = async () => {
+    setSaving(true);
+    setStatus("idle");
+    setErrorMsg(null);
+    try {
+      const token = await getToken();
+      const payload = fieldsToUpdate(fields, serverProfile);
+      if (draftProjects && draftProjects.length > 0) {
+        payload.representative_projects = draftProjects;
+      }
+      const updated = await upsertProfile(payload, token);
+      setFields(profileToFields(updated));
+      setServerProfile(updated);
+      setProfileHash(updated.profile_hash);
+      setDraftProjects(null);
+      setImportStatus("idle");
+      setResumeText("");
+      setParseNotes(null);
       setStatus("saved");
     } catch (err: unknown) {
       setStatus("error");
@@ -105,7 +245,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-10 text-sm text-zinc-500">Loading profile…</div>
+      <div className="max-w-2xl mx-auto px-4 py-10 text-sm text-zinc-500">Loading profile...</div>
     );
   }
 
@@ -182,6 +322,99 @@ export default function ProfilePage() {
         </div>
       )}
 
+      {/* Resume Import Section */}
+      <div className="mb-8">
+        <button
+          onClick={() => setShowImport(!showImport)}
+          className="text-sm font-medium text-indigo-600 hover:text-indigo-500 transition-colors"
+        >
+          {showImport ? "Hide import" : "Import from resume"}
+        </button>
+
+        {showImport && (
+          <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+            <div>
+              <p className="text-xs text-zinc-400 mb-1.5">
+                Paste your resume text below. The system will extract a profile draft for you to
+                review and edit before saving.
+              </p>
+              <textarea
+                rows={8}
+                value={resumeText}
+                onChange={(e) => setResumeText(e.target.value)}
+                placeholder="Paste resume text here..."
+                disabled={importStatus === "generating"}
+                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y disabled:opacity-50"
+              />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleImport}
+                disabled={!resumeText.trim() || importStatus === "generating"}
+                className="px-4 py-2 rounded-md bg-zinc-800 text-white text-sm font-medium hover:bg-zinc-700 disabled:opacity-50 transition-colors"
+              >
+                {importStatus === "generating" ? "Generating..." : "Generate profile draft"}
+              </button>
+
+              {importStatus === "ready" && (
+                <span className="text-sm text-emerald-600">
+                  Draft loaded into form below. Review and save.
+                </span>
+              )}
+              {importStatus === "error" && (
+                <span className="text-sm text-rose-600">{importError ?? "Import failed."}</span>
+              )}
+            </div>
+
+            {/* Parse notes */}
+            {parseNotes && (
+              <div className="space-y-2">
+                {(parseNotes.assumptions ?? []).length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+                    <span className="font-medium">Assumptions: </span>
+                    {parseNotes.assumptions!.join(" | ")}
+                  </div>
+                )}
+                {(parseNotes.missing_information ?? []).length > 0 && (
+                  <div className="text-xs text-zinc-500 bg-zinc-50 rounded-md px-3 py-2">
+                    <span className="font-medium">Not found in resume: </span>
+                    {parseNotes.missing_information!.join(" | ")}
+                  </div>
+                )}
+                {(parseNotes.low_confidence_items ?? []).length > 0 && (
+                  <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+                    <span className="font-medium">Low confidence: </span>
+                    {parseNotes.low_confidence_items!.join(" | ")}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Extracted projects preview */}
+            {draftProjects && draftProjects.length > 0 && (
+              <div>
+                <p className="text-xs text-zinc-500 mb-2 font-medium">
+                  Extracted projects ({draftProjects.length}) — will be saved with profile
+                </p>
+                <div className="space-y-1.5">
+                  {(draftProjects as Array<{ title?: string; description?: string }>).map(
+                    (p, i) => (
+                      <div key={i} className="text-xs text-zinc-600 bg-zinc-50 rounded px-3 py-2">
+                        <span className="font-medium">{p.title || `Project ${i + 1}`}</span>
+                        {p.description && (
+                          <span className="text-zinc-400"> — {p.description.slice(0, 120)}</span>
+                        )}
+                      </div>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Edit form */}
       <div className="mb-4">
         <h2 className="text-sm font-semibold text-zinc-700">Edit Profile</h2>
@@ -235,15 +468,31 @@ export default function ProfilePage() {
           onChange={handleChange("domain_experience")}
           rows={2}
         />
+
+        <Field
+          label="Finance Domains"
+          hint="Comma-separated — e.g. CCAR, VaR, PPNR, valuation control"
+          value={fields.finance_domains}
+          onChange={handleChange("finance_domains")}
+          rows={2}
+        />
+
+        <Field
+          label="Tools"
+          hint="Comma-separated — e.g. Python, R, SQL, PowerBI, Bloomberg"
+          value={fields.tools}
+          onChange={handleChange("tools")}
+          rows={2}
+        />
       </div>
 
       <div className="mt-8 flex items-center gap-4">
         <button
-          onClick={handleSave}
+          onClick={importStatus === "ready" ? handleApplyAndSave : handleSave}
           disabled={saving}
           className="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-500 disabled:opacity-50 transition-colors"
         >
-          {saving ? "Saving…" : "Save Profile"}
+          {saving ? "Saving..." : "Save Profile"}
         </button>
         {status === "saved" && (
           <span className="text-sm text-emerald-600">Profile saved.</span>
