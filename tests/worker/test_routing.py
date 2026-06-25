@@ -32,6 +32,9 @@ class TestRouteTask:
     def test_fit_report_routes_deterministic(self):
         assert route_task("fit_report") == ExecutionMode.DETERMINISTIC
 
+    def test_profile_import_routes_deterministic(self):
+        assert route_task("profile_import") == ExecutionMode.DETERMINISTIC
+
     def test_unknown_type_routes_deterministic(self):
         assert route_task("unknown_task") == ExecutionMode.DETERMINISTIC
 
@@ -83,6 +86,9 @@ class TestCeleryQueueForTaskType:
 
     def test_fit_report_routes_to_fast_queue(self):
         assert celery_queue_for_task_type("fit_report") == "fast"
+
+    def test_profile_import_routes_to_fast_queue(self):
+        assert celery_queue_for_task_type("profile_import") == "fast"
 
     def test_unknown_type_routes_to_fast_queue(self):
         assert celery_queue_for_task_type("unknown_task") == "fast"
