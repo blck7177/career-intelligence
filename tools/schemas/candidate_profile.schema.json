@@ -85,11 +85,6 @@
           }
         }
       }
-    },
-
-    "preferences_json": {
-      "type": ["object", "null"],
-      "description": "Future: soft preferences (location, seniority, compensation). Not yet wired into any LLM chain."
     }
   }
 }

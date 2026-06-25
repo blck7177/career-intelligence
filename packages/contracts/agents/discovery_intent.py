@@ -184,7 +184,8 @@ class DiscoveryIntent(BaseModel):
 
     soft_preferences: list[str] = Field(default_factory=list)
     # e.g. ["prefer H1B-transfer friendly", "prefer buy-side over sell-side"]
-    # Must come from the user's words, not profile inference.
+    # Sources: raw_user_request (LLM-extracted) + frontend soft_preferences (platform-merged).
+    # Must NOT come from profile capability inference.
 
     # --- Profile context ---
     profile_role: Literal["none", "supporting", "primary"]

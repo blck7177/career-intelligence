@@ -271,7 +271,7 @@ class Artifact(Base):
     )
     artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
-    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -521,8 +521,6 @@ class CandidateProfile(Base):
     representative_projects: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     # Quantitative
     years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    # Future soft preferences (not yet wired into any LLM chain)
-    preferences_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

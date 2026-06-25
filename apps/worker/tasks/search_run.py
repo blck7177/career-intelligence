@@ -700,27 +700,29 @@ def _load_profile(workspace_id: str) -> ProfileSnapshot:
     """
     with get_session() as session:
         row = ProfileRepository(session).get_for_workspace(workspace_id)
+        if row is None:
+            logger.debug(
+                "search_run: no profile found for workspace %s — using empty profile",
+                workspace_id,
+            )
+            return ProfileSnapshot.empty()
 
-    if row is None:
-        logger.debug("search_run: no profile found for workspace %s — using empty profile", workspace_id)
-        return ProfileSnapshot.empty()
-
-    snapshot = ProfileSnapshot(
-        profile_id=row.id,
-        summary=row.summary,
-        experience_summary=row.experience_summary,
-        education_summary=row.education_summary,
-        technical_skills=row.technical_skills or [],
-        domain_areas=row.domain_experience or [],       # DB column renamed: domain_experience
-        years_of_experience=row.years_experience,       # DB column renamed: years_experience
-    )
-    logger.debug(
-        "search_run: loaded profile %s for workspace %s (is_empty=%s)",
-        row.id,
-        workspace_id,
-        snapshot.is_empty,
-    )
-    return snapshot
+        snapshot = ProfileSnapshot(
+            profile_id=row.id,
+            summary=row.summary,
+            experience_summary=row.experience_summary,
+            education_summary=row.education_summary,
+            technical_skills=row.technical_skills or [],
+            domain_areas=row.domain_experience or [],       # DB column renamed: domain_experience
+            years_of_experience=row.years_experience,       # DB column renamed: years_experience
+        )
+        logger.debug(
+            "search_run: loaded profile %s for workspace %s (is_empty=%s)",
+            row.id,
+            workspace_id,
+            snapshot.is_empty,
+        )
+        return snapshot
 
 
 def _persist_discovered_jobs(

@@ -49,7 +49,6 @@ class ProfileRead(BaseModel):
     finance_domains: Optional[list] = None
     tools: Optional[list] = None
     representative_projects: Optional[list] = None
-    preferences_json: Optional[dict] = None
     profile_hash: str
 
     model_config = {"from_attributes": True}
@@ -65,7 +64,6 @@ class ProfileUpdate(BaseModel):
     finance_domains: Optional[list] = None
     tools: Optional[list] = None
     representative_projects: Optional[list] = None
-    preferences_json: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +125,6 @@ def get_profile(
             finance_domains=_DEFAULT_PROFILE.finance_domains,
             tools=_DEFAULT_PROFILE.tools,
             representative_projects=_DEFAULT_PROFILE.representative_projects,
-            preferences_json=_DEFAULT_PROFILE.preferences_json,
             profile_hash=default_hash,
         )
         db.commit()
@@ -153,7 +150,6 @@ def upsert_profile(
         finance_domains=body.finance_domains,
         tools=body.tools,
         representative_projects=body.representative_projects,
-        preferences_json=body.preferences_json,
         profile_hash=profile_hash,
     )
     db.commit()

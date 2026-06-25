@@ -283,8 +283,8 @@ class TestProfileImportDraftSchema:
 
         update_fields = set(ProfileUpdate.model_fields.keys())
         draft_fields = set(ProfileImportDraft.model_fields.keys())
-        # parse_notes is extra in draft, preferences_json is excluded from draft
-        expected_missing = {"preferences_json"}
+        # parse_notes is extra in draft
+        expected_missing: set[str] = set()
         actual_missing = update_fields - draft_fields - {"parse_notes"}
         assert actual_missing == expected_missing, (
             f"ProfileImportDraft is missing fields from ProfileUpdate: "

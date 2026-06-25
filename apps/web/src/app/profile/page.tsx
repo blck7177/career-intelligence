@@ -65,7 +65,6 @@ function fieldsToUpdate(f: FieldState, serverProfile: ProfileRead | null): Profi
     tools: parseList(f.tools).length ? parseList(f.tools) : null,
     years_experience: f.years_experience ? parseInt(f.years_experience, 10) || null : null,
     representative_projects: serverProfile?.representative_projects ?? null,
-    preferences_json: serverProfile?.preferences_json ?? null,
   };
 }
 

@@ -36,7 +36,7 @@ from packages.infrastructure.llm.client import LLMClient, LLMCallError, get_llm_
 
 logger = logging.getLogger(__name__)
 
-TRANSLATOR_VERSION = "v2.0"
+TRANSLATOR_VERSION = "v2.1"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,9 @@ Return an object matching IntentTranslationLLMOutput exactly:
   target_role_families   — list of RoleFamily objects (may be empty only if
                            truly unresolvable → triggers needs_review)
   excluded_role_families — list of RoleFamily objects; source must be user_explicit
-  soft_preferences       — list of strings from user's words only
+  soft_preferences       — extract prefer/ideally signals from raw_user_request.
+                           Platform merges explicit frontend soft_preferences after your output.
+                           Never infer soft_preferences from profile_snapshot_json.
   capability_signals     — list of CapabilitySignal; empty unless profile provided
   ambiguity_flags        — list of strings; preserved uncertainties
 """.strip()
@@ -298,6 +300,10 @@ class IntentTranslator:
             "expansion_scope": _expansion_scope_for_mode(frontend_input.search_mode),
             "profile_role": profile_role,
             "hard_constraints": frontend_input.hard_constraints.model_dump(),
+            "soft_preferences": _merge_soft_preferences(
+                frontend_input.soft_preferences,
+                llm_output.soft_preferences,
+            ),
         }
 
         try:
@@ -345,6 +351,7 @@ class IntentTranslator:
             "hard_constraints": frontend_input.hard_constraints.model_dump(
                 exclude_none=False
             ),
+            "soft_preferences": frontend_input.soft_preferences,
         }
 
         if profile_snapshot.is_empty:
@@ -475,6 +482,22 @@ class IntentTranslator:
 # ---------------------------------------------------------------------------
 # Deterministic derivations (never LLM-decided)
 # ---------------------------------------------------------------------------
+
+
+def _merge_soft_preferences(frontend: list[str], llm: list[str]) -> list[str]:
+    """Merge frontend explicit prefs with LLM-extracted prefs; frontend wins on dupes."""
+    seen: set[str] = set()
+    merged: list[str] = []
+    for item in [*frontend, *llm]:
+        stripped = item.strip()
+        if not stripped:
+            continue
+        key = stripped.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(stripped)
+    return merged
 
 
 def _expansion_scope_for_mode(

@@ -1992,18 +1992,6 @@
             ],
             "title": "Representative Projects"
           },
-          "preferences_json": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preferences Json"
-          },
           "profile_hash": {
             "type": "string",
             "title": "Profile Hash"
@@ -2122,18 +2110,6 @@
               }
             ],
             "title": "Representative Projects"
-          },
-          "preferences_json": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preferences Json"
           }
         },
         "type": "object",

@@ -37,6 +37,8 @@ export function DiscoveryPanel({ onRunCreated }: DiscoveryPanelProps) {
   const [workArrangement, setWorkArrangement] = useState<WorkArrangement | "">("");
   const [visaNote, setVisaNote] = useState("");
   const [compensationRange, setCompensationRange] = useState("");
+  const [softPreferences, setSoftPreferences] = useState("");
+  const [softPreferencesOpen, setSoftPreferencesOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +69,7 @@ export function DiscoveryPanel({ onRunCreated }: DiscoveryPanelProps) {
             visa_note: visaNote.trim() || undefined,
             compensation_range: compensationRange.trim() || undefined,
           },
+          soft_preferences: csvToList(softPreferences),
           profile_id: undefined,
         },
       }, token);
@@ -260,6 +263,35 @@ export function DiscoveryPanel({ onRunCreated }: DiscoveryPanelProps) {
                   onChange={(e) => setVisaNote(e.target.value)}
                 />
               </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Soft preferences (collapsible) */}
+      <div className="border border-zinc-200 rounded-lg">
+        <button
+          type="button"
+          onClick={() => setSoftPreferencesOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 rounded-lg transition-colors"
+        >
+          <span>Soft Preferences</span>
+          {softPreferencesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+        </button>
+
+        {softPreferencesOpen && (
+          <div className="px-3 pb-3 space-y-2 border-t border-zinc-100 pt-2.5">
+            <div className="space-y-1">
+              <label className="text-xs text-zinc-500">Soft preferences (prefer / ideally)</label>
+              <input
+                className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+                placeholder="prefer buy-side, market-facing analytics"
+                value={softPreferences}
+                onChange={(e) => setSoftPreferences(e.target.value)}
+              />
+              <p className="text-[10px] text-zinc-400">
+                Influence ranking; use Exclude role types for hard exclusions.
+              </p>
             </div>
           </div>
         )}

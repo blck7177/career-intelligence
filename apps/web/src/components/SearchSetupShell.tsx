@@ -180,6 +180,8 @@ export function SearchSetupShell() {
   const [workArrangement, setWorkArrangement] = useState<WorkArrangement>("");
   const [visaNote, setVisaNote] = useState("");
   const [compensationRange, setCompensationRange] = useState("");
+  const [softPreferences, setSoftPreferences] = useState("");
+  const [softPreferencesOpen, setSoftPreferencesOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -261,6 +263,7 @@ export function SearchSetupShell() {
               visa_note: visaNote.trim() || undefined,
               compensation_range: compensationRange.trim() || undefined,
             },
+            soft_preferences: csvToList(softPreferences),
             profile_id: profile.id,
           },
         },
@@ -493,6 +496,7 @@ export function SearchSetupShell() {
           )}
 
           {renderConstraintsSection()}
+          {renderSoftPreferencesSection()}
 
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setPhase("source-select")}>
@@ -555,7 +559,12 @@ export function SearchSetupShell() {
           </div>
         </div>
 
-        {searchSource === "profile_only" && renderConstraintsSection()}
+        {searchSource === "profile_only" && (
+          <>
+            {renderConstraintsSection()}
+            {renderSoftPreferencesSection()}
+          </>
+        )}
 
         {error && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -682,6 +691,44 @@ export function SearchSetupShell() {
                   onChange={(e) => setVisaNote(e.target.value)}
                 />
               </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderSoftPreferencesSection() {
+    return (
+      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setSoftPreferencesOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+        >
+          <span>Soft Preferences</span>
+          <span className="flex items-center gap-1 text-xs text-zinc-400">
+            {softPreferencesOpen ? "hide" : "show"}
+            {softPreferencesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </span>
+        </button>
+
+        {softPreferencesOpen && (
+          <div className="px-4 pb-4 space-y-2 border-t border-zinc-100 bg-zinc-50 pt-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-500">
+                Soft preferences (prefer / ideally)
+              </label>
+              <input
+                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                placeholder="prefer buy-side, market-facing analytics, automation-heavy workflow"
+                value={softPreferences}
+                onChange={(e) => setSoftPreferences(e.target.value)}
+              />
+              <p className="text-[11px] text-zinc-400">
+                Influence ranking and expansion; do not exclude jobs. Use &quot;Exclude role
+                types&quot; for hard exclusions.
+              </p>
             </div>
           </div>
         )}

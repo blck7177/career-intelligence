@@ -22,7 +22,7 @@ This is the structured output of the Intent Translator. It is your primary direc
 | `discovery_intent.target_role_families` | List of role directions with name, rationale, and source |
 | `discovery_intent.excluded_role_families` | Role directions you must not pursue |
 | `discovery_intent.hard_constraints` | Mandatory constraints (location, seniority, exclusions, visa, etc.) |
-| `discovery_intent.soft_preferences` | Preferences to consider during ranking and filtering |
+| `discovery_intent.soft_preferences` | Per-run ranking signals from user input (`JobDiscoveryFrontendInput.soft_preferences`) plus LLM extraction from `raw_user_request` — not from profile |
 | `discovery_intent.expansion_scope` | `narrow` / `standard` / `wide` — how broadly you may expand searches |
 | `discovery_intent.capability_signals` | Profile-derived capability clusters (empty if no profile) |
 | `discovery_intent.ambiguity_flags` | Unresolved ambiguities — treat these as informational, not directives |

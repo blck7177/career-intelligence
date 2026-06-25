@@ -913,7 +913,6 @@ class ProfileRepository:
         tools: Optional[list] = None,
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
-        preferences_json: Optional[dict] = None,
         profile_hash: str = "empty",
     ) -> CandidateProfile:
         """Create or update the profile for a workspace."""
@@ -931,7 +930,6 @@ class ProfileRepository:
         profile.tools = tools
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
-        profile.preferences_json = preferences_json
         profile.profile_hash = profile_hash
 
         self._s.flush()

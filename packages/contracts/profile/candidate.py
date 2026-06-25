@@ -63,6 +63,3 @@ class CandidateProfile(BaseModel):
 
     # Projects — primary evidence for FitReport strong_matches / gaps
     representative_projects: list[RepresentativeProject] = Field(default_factory=list)
-
-    # Future: soft preferences (not yet wired into any LLM chain)
-    preferences_json: Optional[dict] = None

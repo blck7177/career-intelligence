@@ -58,7 +58,7 @@ Service owns canonical database.
 | `target_role_families` | 要搜索的 role 方向列表 | 每条含 `name`, `rationale`, `source`, `confidence` |
 | `excluded_role_families` | 明确排除的 role 方向 | 搜索中完全不触碰这些方向 |
 | `hard_constraints` | 强制约束 | **必须遵守**，见下方约束规则 |
-| `soft_preferences` | 优先偏好 | 可在排序和过滤时参考，低 yield 时可放宽 |
+| `soft_preferences` | 优先偏好（来自本次 run input + 用户自然语言，非 profile 推断） | 可在排序和过滤时参考，低 yield 时可放宽 |
 | `expansion_scope` | `narrow` / `standard` / `wide` | 控制你可以扩展多远，见下方规则 |
 | `profile_role` | `none` / `supporting` / `primary` | 了解 profile 在这轮的权重 |
 | `capability_signals` | Profile 能力聚类（无 profile 时为空） | 作为扩展搜索的参考信号 |

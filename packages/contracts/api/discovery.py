@@ -8,6 +8,7 @@ Rules:
   - Every field here comes directly from the user.
   - Nothing is inferred, defaulted, or enriched by the platform at this layer.
   - Platform context (profile, catalog, strategy) is injected later by the worker.
+  - Soft preferences belong here (per-run input), not in CandidateProfile.
 """
 
 from __future__ import annotations
@@ -77,6 +78,10 @@ class JobDiscoveryFrontendInput(BaseModel):
     hard_constraints: DiscoveryHardConstraints = Field(
         default_factory=DiscoveryHardConstraints
     )
+
+    soft_preferences: list[str] = Field(default_factory=list)
+    # Per-run soft ranking signals, e.g. "prefer buy-side", "market-facing analytics".
+    # Influence ranking/expansion; do not auto-exclude jobs (use hard_constraints for that).
 
     profile_id: Optional[str] = None
     # Optional reference to a workspace profile.

@@ -5,7 +5,7 @@ Field names in ProfileImportDraft MUST match ProfileUpdate (apps/api/routes/prof
 so the frontend can pass the draft directly to PUT /api/app/profile after user review.
 
 preferences_json is deliberately excluded: resumes indicate what someone has done,
-not what they want. That field stays user-controlled.
+not what they want. Job-search preferences belong in JobDiscoveryFrontendInput.soft_preferences.
 """
 
 from __future__ import annotations

@@ -37,6 +37,7 @@ from packages.infrastructure.llm.intent_translator import (
     IntentTranslationLLMOutput,
     IntentTranslator,
     _expansion_scope_for_mode,
+    _merge_soft_preferences,
     _profile_role_for_mode,
 )
 
@@ -51,6 +52,7 @@ def make_frontend(
     search_mode: str = "direct",
     location: str | None = "NYC",
     seniority: list[str] | None = None,
+    soft_preferences: list[str] | None = None,
 ) -> JobDiscoveryFrontendInput:
     return JobDiscoveryFrontendInput(
         raw_user_request=raw_user_request,
@@ -59,6 +61,7 @@ def make_frontend(
             location=location,
             seniority=seniority or [],
         ),
+        soft_preferences=soft_preferences or [],
     )
 
 
@@ -297,6 +300,41 @@ class TestBuildUserPrompt:
         """System prompt should reference IntentTranslationLLMOutput, not DiscoveryIntent."""
         assert "DiscoveryIntent schema" not in INTENT_TRANSLATOR_SYSTEM_PROMPT_V2
 
+    def test_frontend_soft_preferences_in_prompt(self):
+        frontend = make_frontend(soft_preferences=["prefer buy-side"])
+        prompt = self.translator._build_user_prompt(
+            frontend, ProfileSnapshot.empty(), "none"
+        )
+        start = prompt.index("<frontend_input_json>") + len("<frontend_input_json>")
+        end = prompt.index("</frontend_input_json>")
+        data = json.loads(prompt[start:end].strip())
+        assert data["soft_preferences"] == ["prefer buy-side"]
+
+
+# ---------------------------------------------------------------------------
+# _merge_soft_preferences
+# ---------------------------------------------------------------------------
+
+
+class TestMergeSoftPreferences:
+    def test_frontend_only(self):
+        assert _merge_soft_preferences(["prefer buy-side"], []) == ["prefer buy-side"]
+
+    def test_llm_only(self):
+        assert _merge_soft_preferences([], ["prefer remote"]) == ["prefer remote"]
+
+    def test_frontend_wins_on_case_insensitive_duplicate(self):
+        merged = _merge_soft_preferences(
+            ["Prefer Buy-Side"],
+            ["prefer buy-side", "market-facing analytics"],
+        )
+        assert merged == ["Prefer Buy-Side", "market-facing analytics"]
+
+    def test_strips_and_skips_empty(self):
+        assert _merge_soft_preferences(["  prefer buy-side  ", ""], ["  "]) == [
+            "prefer buy-side"
+        ]
+
 
 # ---------------------------------------------------------------------------
 # translate() — merge logic (LLM mocked)
@@ -348,6 +386,21 @@ class TestTranslateMerge:
         intent = translator.translate(frontend)
         assert intent.hard_constraints.location == "NYC"
         assert intent.hard_constraints.seniority == ["associate"]
+
+    def test_frontend_soft_preferences_merged_when_llm_empty(self):
+        frontend = make_frontend(soft_preferences=["prefer buy-side"])
+        translator = self._make_translator_with_mock(make_llm_output(soft_prefs=[]))
+        intent = translator.translate(frontend)
+        assert intent.soft_preferences == ["prefer buy-side"]
+
+    def test_frontend_and_llm_soft_preferences_merged_with_dedupe(self):
+        frontend = make_frontend(soft_preferences=["Prefer Buy-Side"])
+        llm_output = make_llm_output(
+            soft_prefs=["prefer buy-side", "market-facing analytics"]
+        )
+        translator = self._make_translator_with_mock(llm_output)
+        intent = translator.translate(frontend)
+        assert intent.soft_preferences == ["Prefer Buy-Side", "market-facing analytics"]
 
     def test_complete_structured_called_with_correct_schema(self):
         mock_client = MagicMock()
