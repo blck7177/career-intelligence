@@ -92,9 +92,8 @@ SAMPLE_PROFILE = {
     "id": "cand_sample_stable",
     "years_experience": 5,
     "summary": "Risk analyst at mid-size bank",
-    "domain_experience": ["market risk", "credit risk"],
+    "subject_areas": ["market risk", "credit risk", "fixed income", "derivatives"],
     "technical_skills": ["Python", "SQL", "VaR", "stress testing"],
-    "finance_domains": ["fixed income", "derivatives"],
     "tools": ["Bloomberg", "Excel"],
     "representative_projects": [
         {

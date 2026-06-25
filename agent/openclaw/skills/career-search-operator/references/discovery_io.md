@@ -260,7 +260,8 @@ Manifest 必须包含：
   "status": "completed",
   "stop_reason": "budget.max_candidates reached",
   "output_paths": {
-    "tool_events_path": "<payload.output_paths.tool_events_path 来自 input.json>"
+    "tool_events_path": "<payload.output_paths.tool_events_path 来自 input.json>",
+    "output_manifest_path": "<payload.output_paths.output_manifest_path 来自 input.json>"
   },
   "artifact_paths": {
     "candidate_pool": "<payload.output_paths.candidate_pool_path>",
@@ -274,7 +275,8 @@ Manifest 必须包含：
     "sources_added": ["ashby.io/newco"]
   }
 }
-// output 路径：payload.output_paths.output_manifest_path
+// platform manifest 路径：由 wrapper 从 output_paths.output_manifest_path（或 run_id/task_id）推导；
+// --output 仅写 workspace ack JSON，不要手抄绝对 manifest 路径。
 ```
 
 wrapper 会自动将 `summary.candidate_count`、`summary.sources_tried`、`summary.sources_added` 提升到 manifest 顶层，供 Validator Gate 读取。

@@ -43,8 +43,7 @@ class ProfileImportDraft(BaseModel):
     education_summary: str = ""
     years_experience: Optional[int] = None
     technical_skills: list[str] = Field(default_factory=list)
-    domain_experience: list[str] = Field(default_factory=list)
-    finance_domains: list[str] = Field(default_factory=list)
+    subject_areas: list[str] = Field(default_factory=list)
     tools: list[str] = Field(default_factory=list)
     representative_projects: list[ImportProject] = Field(default_factory=list)
     parse_notes: ParseNotes = Field(default_factory=ParseNotes)

@@ -33,14 +33,14 @@ _MAX_RESUME_LENGTH = 50_000
 
 _SYSTEM_PROMPT = """\
 You are converting a resume into a structured candidate profile for job search \
-and fit analysis in quantitative finance and risk.
+and fit analysis.
 
 Rules:
 - Extract only facts present in the resume. Do not invent employers, degrees, \
 dates, certifications, locations, or tools.
 - You may synthesize a broader experience narrative from bullet points, but \
 every claim must be grounded in the resume text.
-- For technical_skills, domain_experience, finance_domains, and tools: only \
+- For technical_skills, subject_areas, and tools: only \
 include items explicitly mentioned or strongly implied by the resume.
 - For representative_projects: restructure notable accomplishments into \
 title / description / skills_used / quantified_impact format.

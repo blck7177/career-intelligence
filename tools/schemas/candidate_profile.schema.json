@@ -42,15 +42,10 @@
       "items": { "type": "string" },
       "description": "Programming languages, quantitative methods, and data tools. UI label: 'Technical skills / methods'. Covers what was previously split across technical_skills and analytical_methods. e.g. ['Python', 'SQL', 'VaR', 'Monte Carlo', 'stress testing']"
     },
-    "domain_experience": {
+    "subject_areas": {
       "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Finance/risk functional domains. e.g. ['market risk', 'model validation', 'credit risk', 'PPNR']"
-    },
-    "finance_domains": {
-      "type": ["array", "null"],
-      "items": { "type": "string" },
-      "description": "Asset classes and product knowledge. e.g. ['derivatives', 'fixed income', 'structured products', 'equities']"
+      "description": "Functional, industry, or thematic areas of experience. e.g. ['product management', 'market risk', 'clinical trials', 'fixed income']"
     },
     "tools": {
       "type": ["array", "null"],

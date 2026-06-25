@@ -713,7 +713,7 @@ def _load_profile(workspace_id: str) -> ProfileSnapshot:
             experience_summary=row.experience_summary,
             education_summary=row.education_summary,
             technical_skills=row.technical_skills or [],
-            domain_areas=row.domain_experience or [],       # DB column renamed: domain_experience
+            subject_areas=row.subject_areas or [],
             years_of_experience=row.years_experience,       # DB column renamed: years_experience
         )
         logger.debug(

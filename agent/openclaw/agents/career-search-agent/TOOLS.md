@@ -19,8 +19,10 @@ Only calls through these exec wrappers create the signed `tool_events.jsonl` led
 - All `--output` files must use `./` prefix (workspace-relative).  The subprocess CWD
   is your workspace, so `./result.json` lands in your workspace and you can read it
   back with `print lines 1-N from ./result.json`.
-- Exception: `career_write_manifest --output` must use the exact `output_manifest_path`
-  from your task spec (an absolute path on the artifact volume).
+- **`career_write_manifest`**: the platform manifest is written to the canonical path
+  derived from `run_id` / `task_id` / `output_paths.output_manifest_path`. **Do not
+  construct manifest paths manually.** Pass any workspace-relative `./manifest_write_result.json`
+  for `--output` (ack JSON only).
 
 ---
 
@@ -141,7 +143,8 @@ Write the final output manifest.  Call **once** at the very end before stopping.
   "sources_tried": ["greenhouse.io"],
   "sources_added": [],
   "output_paths": {
-    "tool_events_path": "<payload.output_paths.tool_events_path from task spec>"
+    "tool_events_path": "<payload.output_paths.tool_events_path from task spec>",
+    "output_manifest_path": "<payload.output_paths.output_manifest_path from task spec>"
   },
   "artifact_paths": {
     "candidate_pool": "<output_paths.candidate_pool_path from task spec>",
@@ -153,12 +156,16 @@ Write the final output manifest.  Call **once** at the very end before stopping.
 ```
 → `file_write ./manifest_spec.json <above JSON>`
 
-**Step 2 — run (use the exact output_manifest_path from your task spec):**
+**Step 2 — run:**
 ```
 /usr/local/bin/python3 /app/tools/wrappers/agent_tools/career_write_manifest.py \
   --task-spec ./manifest_spec.json \
-  --output <output_paths.output_manifest_path from task spec>
+  --output ./manifest_write_result.json
 ```
+
+The wrapper writes `output_manifest.json` to the canonical platform path (from
+`output_paths.output_manifest_path` or `run_id`/`task_id`). Do not pass a hand-copied
+absolute manifest path for `--output`.
 
 ---
 

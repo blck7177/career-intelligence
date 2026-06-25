@@ -16,8 +16,7 @@ type FieldState = {
   experience_summary: string;
   education_summary: string;
   technical_skills: string;
-  domain_experience: string;
-  finance_domains: string;
+  subject_areas: string;
   tools: string;
   years_experience: string;
 };
@@ -27,8 +26,7 @@ const EMPTY_FIELDS: FieldState = {
   experience_summary: "",
   education_summary: "",
   technical_skills: "",
-  domain_experience: "",
-  finance_domains: "",
+  subject_areas: "",
   tools: "",
   years_experience: "",
 };
@@ -39,8 +37,7 @@ function profileToFields(p: ProfileRead): FieldState {
     experience_summary: p.experience_summary ?? "",
     education_summary: p.education_summary ?? "",
     technical_skills: ((p.technical_skills ?? []) as string[]).join(", "),
-    domain_experience: ((p.domain_experience ?? []) as string[]).join(", "),
-    finance_domains: ((p.finance_domains ?? []) as string[]).join(", "),
+    subject_areas: ((p.subject_areas ?? []) as string[]).join(", "),
     tools: ((p.tools ?? []) as string[]).join(", "),
     years_experience: p.years_experience != null ? String(p.years_experience) : "",
   };
@@ -58,10 +55,7 @@ function fieldsToUpdate(f: FieldState, serverProfile: ProfileRead | null): Profi
     experience_summary: f.experience_summary || null,
     education_summary: f.education_summary || null,
     technical_skills: parseList(f.technical_skills).length ? parseList(f.technical_skills) : null,
-    domain_experience: parseList(f.domain_experience).length
-      ? parseList(f.domain_experience)
-      : null,
-    finance_domains: parseList(f.finance_domains).length ? parseList(f.finance_domains) : null,
+    subject_areas: parseList(f.subject_areas).length ? parseList(f.subject_areas) : null,
     tools: parseList(f.tools).length ? parseList(f.tools) : null,
     years_experience: f.years_experience ? parseInt(f.years_experience, 10) || null : null,
     representative_projects: serverProfile?.representative_projects ?? null,
@@ -76,8 +70,7 @@ type ProfileDraft = {
   education_summary?: string;
   years_experience?: number | null;
   technical_skills?: string[];
-  domain_experience?: string[];
-  finance_domains?: string[];
+  subject_areas?: string[];
   tools?: string[];
   representative_projects?: unknown[];
 };
@@ -94,8 +87,7 @@ function draftToFields(d: ProfileDraft): FieldState {
     experience_summary: d.experience_summary ?? "",
     education_summary: d.education_summary ?? "",
     technical_skills: (d.technical_skills ?? []).join(", "),
-    domain_experience: (d.domain_experience ?? []).join(", "),
-    finance_domains: (d.finance_domains ?? []).join(", "),
+    subject_areas: (d.subject_areas ?? []).join(", "),
     tools: (d.tools ?? []).join(", "),
     years_experience: d.years_experience != null ? String(d.years_experience) : "",
   };
@@ -247,7 +239,7 @@ export default function ProfilePage() {
     );
   }
 
-  const domainList = fields.domain_experience
+  const subjectAreaList = fields.subject_areas
     .split(",")
     .map((d) => d.trim())
     .filter(Boolean);
@@ -256,7 +248,7 @@ export default function ProfilePage() {
     .map((s) => s.trim())
     .filter(Boolean);
   const hasProfileData =
-    profileHash && (domainList.length > 0 || skillList.length > 0 || fields.years_experience);
+    profileHash && (subjectAreaList.length > 0 || skillList.length > 0 || fields.years_experience);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-10">
@@ -286,11 +278,11 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {domainList.length > 0 && (
+          {subjectAreaList.length > 0 && (
             <div>
-              <p className="text-xs text-zinc-400 mb-2">Domains</p>
+              <p className="text-xs text-zinc-400 mb-2">Subject areas</p>
               <div className="flex flex-wrap gap-1.5">
-                {domainList.map((d) => (
+                {subjectAreaList.map((d) => (
                   <span
                     key={d}
                     className="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-medium border border-indigo-100"
@@ -460,18 +452,10 @@ export default function ProfilePage() {
         />
 
         <Field
-          label="Domain Areas"
-          hint="Comma-separated — e.g. market risk, model risk, credit risk, PPNR"
-          value={fields.domain_experience}
-          onChange={handleChange("domain_experience")}
-          rows={2}
-        />
-
-        <Field
-          label="Finance Domains"
-          hint="Comma-separated — e.g. CCAR, VaR, PPNR, valuation control"
-          value={fields.finance_domains}
-          onChange={handleChange("finance_domains")}
+          label="Subject areas"
+          hint="Comma-separated — e.g. product management, market risk, clinical trials, fixed income"
+          value={fields.subject_areas}
+          onChange={handleChange("subject_areas")}
           rows={2}
         />
 

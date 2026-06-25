@@ -45,8 +45,7 @@ class ProfileRead(BaseModel):
     education_summary: Optional[str] = None
     years_experience: Optional[int] = None
     technical_skills: Optional[list] = None
-    domain_experience: Optional[list] = None
-    finance_domains: Optional[list] = None
+    subject_areas: Optional[list] = None
     tools: Optional[list] = None
     representative_projects: Optional[list] = None
     profile_hash: str
@@ -60,8 +59,7 @@ class ProfileUpdate(BaseModel):
     education_summary: Optional[str] = None
     years_experience: Optional[int] = None
     technical_skills: Optional[list] = None
-    domain_experience: Optional[list] = None
-    finance_domains: Optional[list] = None
+    subject_areas: Optional[list] = None
     tools: Optional[list] = None
     representative_projects: Optional[list] = None
 
@@ -72,15 +70,14 @@ class ProfileUpdate(BaseModel):
 
 _DEFAULT_PROFILE = ProfileUpdate(
     summary=(
-        "Risk analytics professional with experience in quantitative finance. "
+        "Professional with relevant experience in your field. "
         "Edit this profile to personalize your job discovery and fit analysis."
     ),
     experience_summary="",
     education_summary="",
     years_experience=None,
     technical_skills=["Python", "SQL"],
-    domain_experience=["market risk"],
-    finance_domains=[],
+    subject_areas=[],
     tools=[],
     representative_projects=[],
 )
@@ -121,8 +118,7 @@ def get_profile(
             education_summary=_DEFAULT_PROFILE.education_summary,
             years_experience=_DEFAULT_PROFILE.years_experience,
             technical_skills=_DEFAULT_PROFILE.technical_skills,
-            domain_experience=_DEFAULT_PROFILE.domain_experience,
-            finance_domains=_DEFAULT_PROFILE.finance_domains,
+            subject_areas=_DEFAULT_PROFILE.subject_areas,
             tools=_DEFAULT_PROFILE.tools,
             representative_projects=_DEFAULT_PROFILE.representative_projects,
             profile_hash=default_hash,
@@ -146,8 +142,7 @@ def upsert_profile(
         education_summary=body.education_summary,
         years_experience=body.years_experience,
         technical_skills=body.technical_skills,
-        domain_experience=body.domain_experience,
-        finance_domains=body.finance_domains,
+        subject_areas=body.subject_areas,
         tools=body.tools,
         representative_projects=body.representative_projects,
         profile_hash=profile_hash,

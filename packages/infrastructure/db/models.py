@@ -512,10 +512,9 @@ class CandidateProfile(Base):
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     education_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    # Skills & domains
+    # Skills & subject areas
     technical_skills: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    domain_experience: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    finance_domains: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    subject_areas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     tools: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     # Projects (FitReport evidence)
     representative_projects: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)

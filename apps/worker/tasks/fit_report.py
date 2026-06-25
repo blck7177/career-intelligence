@@ -73,9 +73,8 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
                 "id": profile_row.id,
                 "years_experience": profile_row.years_experience,
                 "summary": profile_row.summary or "",
-                "domain_experience": profile_row.domain_experience or [],
+                "subject_areas": profile_row.subject_areas or [],
                 "technical_skills": profile_row.technical_skills or [],
-                "finance_domains": profile_row.finance_domains or [],
                 "tools": profile_row.tools or [],
                 "representative_projects": profile_row.representative_projects or [],
             }

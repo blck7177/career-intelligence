@@ -15,8 +15,11 @@ Write the final output manifest. Call once when reflection is complete.
 ```
 python3 /app/tools/wrappers/agent_tools/career_write_manifest.py \
   --task-spec /path/to/manifest_data.json \
-  --output /path/to/output_manifest.json
+  --output ./manifest_write_result.json
 ```
+
+Include `output_paths.output_manifest_path` in the task spec. The wrapper writes the
+platform manifest to the canonical path — do not construct manifest paths manually.
 
 task-spec fields:
 - `invocation_id`, `status` (`completed`|`failed`), `stop_reason`

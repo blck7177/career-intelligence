@@ -3,12 +3,21 @@
 career_write_manifest — Write the agent output manifest to the designated path.
 
 Usage:
-    python career_write_manifest.py --task-spec <path> --output <path>
+    python career_write_manifest.py --task-spec <path> [--output <path>]
 
 task-spec JSON must contain:
   - invocation_id, status, stop_reason
   - artifact_paths: dict of artifact_type → file path
   - summary: dict of stats
+  - run_id, task_id (required when output_manifest_path is absent)
+  - output_paths.output_manifest_path (preferred canonical path)
+
+The manifest is always written to the platform-derived canonical path:
+  1. spec["output_paths"]["output_manifest_path"]
+  2. AGENT_ARTIFACTS_DIR / run_id / task_id / "output_manifest.json"
+
+--output is optional and workspace-relative; it receives a small ack JSON only.
+Agents must not construct manifest paths manually.
 
 This is the LAST wrapper the agent calls before stopping.
 This wrapper is in the OpenClaw exec allowlist.
@@ -28,21 +37,54 @@ import click
 
 
 VALID_STATUSES = {"completed", "partial", "failed"}
+_DEFAULT_ARTIFACTS_DIR = "/app/data/agent_artifacts"
+
+
+def resolve_manifest_output_path(spec: dict) -> Path:
+    """Derive the canonical output_manifest.json path from task spec (never from CLI)."""
+    output_paths = spec.get("output_paths") or {}
+    manifest_path = output_paths.get("output_manifest_path")
+    if manifest_path:
+        return Path(manifest_path)
+
+    run_id = spec.get("run_id", "")
+    task_id = spec.get("task_id", "")
+    if not run_id or not task_id:
+        raise ValueError(
+            "task spec must include output_paths.output_manifest_path "
+            "or both run_id and task_id"
+        )
+
+    artifacts_dir = Path(spec.get("artifacts_dir") or os.environ.get("AGENT_ARTIFACTS_DIR", _DEFAULT_ARTIFACTS_DIR))
+    return artifacts_dir / run_id / task_id / "output_manifest.json"
 
 
 @click.command()
 @click.option("--task-spec", required=True, type=click.Path(exists=True))
-@click.option("--output", required=True, type=click.Path())
+@click.option(
+    "--output",
+    default="./manifest_write_result.json",
+    show_default=True,
+    type=click.Path(),
+    help="Workspace-relative ack JSON path (manifest is not written here).",
+)
 def main(task_spec: str, output: str) -> None:
+    spec_path = Path(task_spec)
     try:
-        spec = json.loads(Path(task_spec).read_text())
+        spec = json.loads(spec_path.read_text())
     except Exception as exc:
-        _fail(output, f"Failed to read task spec: {exc}")
+        _fail(output, None, f"Failed to read task spec: {exc}")
+        sys.exit(1)
+
+    try:
+        manifest_output_path = resolve_manifest_output_path(spec)
+    except ValueError as exc:
+        _fail(output, None, str(exc))
         sys.exit(1)
 
     status = spec.get("status", "")
     if status not in VALID_STATUSES:
-        _fail(output, f"status must be one of {VALID_STATUSES}, got: {status!r}")
+        _fail(output, manifest_output_path, f"status must be one of {VALID_STATUSES}, got: {status!r}")
         sys.exit(1)
 
     summary = spec.get("summary", {})
@@ -90,14 +132,10 @@ def main(task_spec: str, output: str) -> None:
         manifest["patches_proposed"] = patches_proposed
 
     # Sync workspace-local artifacts to their declared artifact-volume paths.
-    # The agent writes search_ledger.jsonl and coverage_report.md to the workspace
-    # using relative paths, but the manifest declares absolute artifact-volume paths.
-    # We copy them here so ProvenanceValidator finds the files where it expects them.
     _sync_workspace_artifacts(spec.get("artifact_paths", {}))
 
-    output_path = Path(output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(manifest, indent=2))
+    manifest_output_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_output_path.write_text(json.dumps(manifest, indent=2))
 
     # Append a signed ledger event so ToolLedgerValidator can verify manifest provenance.
     signing_key = os.environ.get("TOOL_LEDGER_SIGNING_KEY", "")
@@ -107,7 +145,7 @@ def main(task_spec: str, output: str) -> None:
             sys.path.insert(0, "/app")  # PYTHONPATH is stripped by OpenClaw exec security policy
             from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
 
-            manifest_hash = "sha256:" + hashlib.sha256(output_path.read_bytes()).hexdigest()
+            manifest_hash = "sha256:" + hashlib.sha256(manifest_output_path.read_bytes()).hexdigest()
             invocation_id = spec.get("invocation_id", "")
             run_id = spec.get("run_id", "")
             task_id = spec.get("task_id", "")
@@ -121,7 +159,7 @@ def main(task_spec: str, output: str) -> None:
                     "event_type": "manifest_write",
                     "status": "ok",
                     "candidate_count": candidate_count,
-                    "output_path": str(output_path),
+                    "output_path": str(manifest_output_path),
                     "output_hash": manifest_hash,
                 },
                 signing_key,
@@ -129,7 +167,14 @@ def main(task_spec: str, output: str) -> None:
         except Exception as exc:  # noqa: BLE001
             click.echo(f"WARNING: failed to append signed ledger event: {exc}", err=True)
 
-    click.echo(f"Manifest written to {output}", err=True)
+    ack = {
+        "status": "ok",
+        "manifest_path": str(manifest_output_path),
+        "manifest_status": status,
+    }
+    Path(output).write_text(json.dumps(ack, indent=2))
+
+    click.echo(f"Manifest written to {manifest_output_path}", err=True)
 
 
 def _sync_workspace_artifacts(artifact_paths: dict) -> None:
@@ -160,8 +205,16 @@ def _sync_workspace_artifacts(artifact_paths: dict) -> None:
                 )
 
 
-def _fail(output: str, message: str) -> None:
-    Path(output).write_text(json.dumps({"error": message, "status": "failed"}))
+def _fail(output: str, manifest_path: Path | None, message: str) -> None:
+    error_payload = {"error": message, "status": "failed"}
+    if manifest_path is not None:
+        try:
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(json.dumps(error_payload))
+        except OSError:
+            Path(output).write_text(json.dumps(error_payload))
+    else:
+        Path(output).write_text(json.dumps(error_payload))
     click.echo(f"ERROR: {message}", err=True)
 
 

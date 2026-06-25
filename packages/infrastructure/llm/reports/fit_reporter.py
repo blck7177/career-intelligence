@@ -17,11 +17,10 @@ from typing import Any
 
 from packages.contracts.reports.fit_report import FitReportStructured
 
-FIT_PROMPT_VERSION = "0.1.0"
+FIT_PROMPT_VERSION = "0.2.0"
 
 _SYSTEM_PROMPT = """\
-You are a senior career advisor specialising in finance and risk roles at investment banks, \
-asset managers, and financial institutions. Your task is to analyse how well a candidate's \
+You are a senior career advisor. Your task is to analyse how well a candidate's \
 experience and skills match a specific role, based on a deep job intelligence report.
 
 Be specific and evidence-based. When citing strong matches, reference the candidate's actual \
@@ -65,9 +64,8 @@ Location: {job_record.get('location', 'Unknown')}
 ## Candidate Profile
 Years of experience: {candidate_profile.get('years_experience', 'Unknown')}
 Background: {candidate_profile.get('summary', '')}
-Domain experience: {', '.join(candidate_profile.get('domain_experience', []))}
+Subject areas: {', '.join(candidate_profile.get('subject_areas', []))}
 Technical skills: {', '.join(candidate_profile.get('technical_skills', []))}
-Finance domains: {', '.join(candidate_profile.get('finance_domains', []))}
 Tools: {', '.join(candidate_profile.get('tools', []))}
 
 Key projects:{projects_text}

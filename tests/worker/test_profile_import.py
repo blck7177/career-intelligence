@@ -49,8 +49,7 @@ def _make_draft() -> ProfileImportDraft:
         education_summary="MS Financial Engineering, Columbia University",
         years_experience=4,
         technical_skills=["Python", "SQL", "R"],
-        domain_experience=["market risk", "model validation"],
-        finance_domains=["VaR", "CCAR"],
+        subject_areas=["market risk", "model validation", "VaR", "CCAR"],
         tools=["Python", "R", "Bloomberg"],
         representative_projects=[
             ImportProject(

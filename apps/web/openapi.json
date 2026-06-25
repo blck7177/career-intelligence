@@ -1944,7 +1944,7 @@
             ],
             "title": "Technical Skills"
           },
-          "domain_experience": {
+          "subject_areas": {
             "anyOf": [
               {
                 "items": {},
@@ -1954,19 +1954,7 @@
                 "type": "null"
               }
             ],
-            "title": "Domain Experience"
-          },
-          "finance_domains": {
-            "anyOf": [
-              {
-                "items": {},
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finance Domains"
+            "title": "Subject Areas"
           },
           "tools": {
             "anyOf": [
@@ -2063,7 +2051,7 @@
             ],
             "title": "Technical Skills"
           },
-          "domain_experience": {
+          "subject_areas": {
             "anyOf": [
               {
                 "items": {},
@@ -2073,19 +2061,7 @@
                 "type": "null"
               }
             ],
-            "title": "Domain Experience"
-          },
-          "finance_domains": {
-            "anyOf": [
-              {
-                "items": {},
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Finance Domains"
+            "title": "Subject Areas"
           },
           "tools": {
             "anyOf": [

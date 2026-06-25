@@ -79,7 +79,9 @@ This is the structured output of the Intent Translator. It is your primary direc
 
 ## Output Contract
 
-Write your output manifest to `payload.output_paths.output_manifest_path` before stopping.
+Write your output manifest via `career_write_manifest` before stopping.
+The wrapper writes to `payload.output_paths.output_manifest_path` (canonical platform path).
+Do not construct manifest file paths manually.
 
 The manifest must contain:
 - `status`: `completed` | `partial` | `failed`

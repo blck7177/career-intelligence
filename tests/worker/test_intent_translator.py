@@ -68,12 +68,12 @@ def make_frontend(
 def make_profile(
     summary: str = "Risk analytics professional",
     skills: list[str] | None = None,
-    domains: list[str] | None = None,
+    subject_areas: list[str] | None = None,
 ) -> ProfileSnapshot:
     return ProfileSnapshot(
         summary=summary,
         technical_skills=skills or ["Python", "VaR"],
-        domain_areas=domains or ["market risk"],
+        subject_areas=subject_areas or ["market risk"],
         years_of_experience=4,
     )
 
@@ -249,7 +249,7 @@ class TestBuildUserPrompt:
         end = prompt.index("</profile_snapshot_json>")
         data = json.loads(prompt[start:end].strip())
         assert data["summary"] == "Risk analyst with 4 years experience"
-        assert "domain_areas" in data
+        assert "subject_areas" in data
 
     def test_non_empty_profile_has_no_profile_note(self):
         frontend = make_frontend()

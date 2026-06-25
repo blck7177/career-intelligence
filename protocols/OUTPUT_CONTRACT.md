@@ -18,7 +18,6 @@
 - required_skills: list[string]
 - preferred_skills: list[string]
 - tools_mentioned: list[string]
-- finance_domains: list[string]
 - seniority_inferred: string
 
 ### 分类字段（workstream classification）

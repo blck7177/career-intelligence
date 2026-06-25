@@ -36,7 +36,7 @@ from packages.infrastructure.llm.client import LLMClient, LLMCallError, get_llm_
 
 logger = logging.getLogger(__name__)
 
-TRANSLATOR_VERSION = "v2.1"
+TRANSLATOR_VERSION = "v2.2"
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +363,7 @@ class IntentTranslator:
                     "summary": profile_snapshot.summary,
                     "experience_summary": profile_snapshot.experience_summary,
                     "technical_skills": profile_snapshot.technical_skills or [],
-                    "domain_areas": profile_snapshot.domain_areas or [],
+                    "subject_areas": profile_snapshot.subject_areas or [],
                     "years_of_experience": profile_snapshot.years_of_experience,
                     "education_summary": profile_snapshot.education_summary,
                 }.items()

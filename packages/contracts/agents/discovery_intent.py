@@ -49,8 +49,8 @@ class ProfileSnapshot(BaseModel):
     technical_skills: list[str] = Field(default_factory=list)
     # e.g. ["Python", "R", "VaR", "stress testing", "scenario analysis"]
 
-    domain_areas: list[str] = Field(default_factory=list)
-    # e.g. ["market risk", "model risk", "credit risk", "PPNR"]
+    subject_areas: list[str] = Field(default_factory=list)
+    # e.g. ["product management", "market risk", "clinical trials"]
 
     years_of_experience: Optional[int] = None
 
@@ -70,7 +70,7 @@ class ProfileSnapshot(BaseModel):
                 self.summary,
                 self.experience_summary,
                 self.technical_skills,
-                self.domain_areas,
+                self.subject_areas,
             ]
         )
 
@@ -133,7 +133,7 @@ class CapabilitySignal(BaseModel):
     # e.g. ["exposure management", "portfolio risk analytics"]
 
     signal_type: Literal["domain", "technical", "business"]
-    # domain   = financial domain knowledge (e.g. VaR, credit risk)
+    # domain   = subject/domain knowledge (e.g. VaR, credit risk, product management)
     # technical = tools, methods, quantitative skills
     # business = process, governance, stakeholder, communication skills
 

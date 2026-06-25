@@ -46,7 +46,6 @@
     "required_skills": { "type": "array", "items": { "type": "string" } },
     "preferred_skills": { "type": "array", "items": { "type": "string" } },
     "tools_mentioned": { "type": "array", "items": { "type": "string" } },
-    "finance_domains": { "type": "array", "items": { "type": "string" } },
     "seniority_inferred": { "type": "string" },
     "primary_workstream": { "type": "string", "minLength": 1 },
     "secondary_workstreams": { "type": "array", "items": { "type": "string" } },

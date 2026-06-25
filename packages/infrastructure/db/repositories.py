@@ -908,8 +908,7 @@ class ProfileRepository:
         experience_summary: Optional[str] = None,
         education_summary: Optional[str] = None,
         technical_skills: Optional[list] = None,
-        domain_experience: Optional[list] = None,
-        finance_domains: Optional[list] = None,
+        subject_areas: Optional[list] = None,
         tools: Optional[list] = None,
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
@@ -925,8 +924,7 @@ class ProfileRepository:
         profile.experience_summary = experience_summary
         profile.education_summary = education_summary
         profile.technical_skills = technical_skills
-        profile.domain_experience = domain_experience
-        profile.finance_domains = finance_domains
+        profile.subject_areas = subject_areas
         profile.tools = tools
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
