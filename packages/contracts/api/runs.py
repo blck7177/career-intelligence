@@ -8,9 +8,11 @@ OpenClaw session keys, skill paths, and agent internals are NOT included.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from packages.contracts.api.discovery import JobDiscoveryFrontendInput
 
 
 # ---------------------------------------------------------------------------
@@ -58,11 +60,111 @@ class RunResultSummary(BaseModel):
     parse_notes: Optional[dict] = None
 
 
-class RunCreate(BaseModel):
-    """Request body for POST /api/runs."""
+# ---------------------------------------------------------------------------
+# Per-run-type input schemas
+# ---------------------------------------------------------------------------
 
-    run_type: str = Field(..., examples=["job_discovery"])
-    input_snapshot: dict = Field(default_factory=dict)
+
+class JobReportInput(BaseModel):
+    """Input for run_type=job_report."""
+
+    job_id: str
+    use_research: bool = True
+    force_refresh: bool = False
+    research_artifact_id: Optional[str] = None
+
+
+class FitReportInput(BaseModel):
+    """Input for run_type=fit_report."""
+
+    job_id: str
+    job_report_id: Optional[str] = None
+    force_refresh: bool = False
+
+
+class ProfileImportInput(BaseModel):
+    """Input for run_type=profile_import."""
+
+    resume_text: str = Field(..., min_length=1)
+    source_type: Literal["paste"] = "paste"
+
+
+class JobResearchInput(BaseModel):
+    """Input for run_type=job_research."""
+
+    job_id: str
+    max_tool_calls: int = Field(default=20, ge=1, le=100)
+    timeout_seconds: int = Field(default=600, ge=60, le=3600)
+    model_config = ConfigDict(extra="allow")
+
+
+class RunReflectionInput(BaseModel):
+    """Input for run_type=run_reflection."""
+
+    run_id: str
+    max_tool_calls: int = Field(default=10, ge=1, le=100)
+    timeout_seconds: int = Field(default=300, ge=60, le=3600)
+    model_config = ConfigDict(extra="allow")
+
+
+# ---------------------------------------------------------------------------
+# RunCreate — discriminated union on run_type
+# ---------------------------------------------------------------------------
+
+
+class JobDiscoveryRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_discovery."""
+
+    run_type: Literal["job_discovery"]
+    input_snapshot: JobDiscoveryFrontendInput
+
+
+class JobReportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_report."""
+
+    run_type: Literal["job_report"]
+    input_snapshot: JobReportInput
+
+
+class FitReportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=fit_report."""
+
+    run_type: Literal["fit_report"]
+    input_snapshot: FitReportInput
+
+
+class ProfileImportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=profile_import."""
+
+    run_type: Literal["profile_import"]
+    input_snapshot: ProfileImportInput
+
+
+class JobResearchRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_research."""
+
+    run_type: Literal["job_research"]
+    input_snapshot: JobResearchInput
+
+
+class RunReflectionRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=run_reflection."""
+
+    run_type: Literal["run_reflection"]
+    input_snapshot: RunReflectionInput
+
+
+RunCreate = Annotated[
+    Union[
+        JobDiscoveryRunCreate,
+        JobReportRunCreate,
+        FitReportRunCreate,
+        ProfileImportRunCreate,
+        JobResearchRunCreate,
+        RunReflectionRunCreate,
+    ],
+    Field(discriminator="run_type"),
+]
 
 
 class RunRead(BaseModel):

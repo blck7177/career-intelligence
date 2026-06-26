@@ -172,9 +172,30 @@ def main(task_spec: str, output: str) -> None:
         "manifest_path": str(manifest_output_path),
         "manifest_status": status,
     }
-    Path(output).write_text(json.dumps(ack, indent=2))
+    _write_ack_if_safe(output, manifest_output_path, ack)
 
     click.echo(f"Manifest written to {manifest_output_path}", err=True)
+
+
+def _write_ack_if_safe(output: str, manifest_output_path: Path, ack: dict) -> None:
+    """Write workspace ack JSON unless --output targets the canonical manifest path."""
+    ack_path = Path(output)
+    try:
+        if ack_path.resolve() == manifest_output_path.resolve():
+            click.echo(
+                "Skipping ack write: --output equals canonical manifest path",
+                err=True,
+            )
+            return
+    except OSError:
+        # Unresolvable paths (e.g. missing parent) — compare as strings as fallback.
+        if str(ack_path) == str(manifest_output_path):
+            click.echo(
+                "Skipping ack write: --output equals canonical manifest path",
+                err=True,
+            )
+            return
+    ack_path.write_text(json.dumps(ack, indent=2))
 
 
 def _sync_workspace_artifacts(artifact_paths: dict) -> None:

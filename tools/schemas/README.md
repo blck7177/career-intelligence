@@ -35,7 +35,7 @@ agent tool wrappers.
 | `candidate_profile.schema.json` | CLI query tools; search input |
 | `discovery_intent.schema.json` | `payload.discovery_intent` in career-search-agent input.json (aligned with `packages/contracts/agents/discovery_intent.py`) |
 | `search_agent_input.schema.json` | `career_search_status.py` wrapper |
-| `search_objective.schema.json` | Search strategy input |
+| `search_objective.schema.json` | Legacy reference (career-openclaw Objective Controller; not used by career-intelligence runtime) |
 | `search_query.schema.json` | Per-source search query |
 | `research_bundle.schema.json` | `career-research-agent` output |
 | `run_config.schema.json` | Run configuration input |

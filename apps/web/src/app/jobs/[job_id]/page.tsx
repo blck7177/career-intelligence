@@ -79,7 +79,7 @@ function JobIntelligenceReport({ report }: { report: JobReportResponse }) {
       {primaryWorkstream && (
         <div>
           <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
-            Primary Workstream
+            Role category
           </p>
           <p className="text-sm font-medium text-zinc-800">{primaryWorkstream}</p>
         </div>

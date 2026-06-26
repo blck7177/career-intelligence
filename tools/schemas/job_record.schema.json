@@ -47,7 +47,11 @@
     "preferred_skills": { "type": "array", "items": { "type": "string" } },
     "tools_mentioned": { "type": "array", "items": { "type": "string" } },
     "seniority_inferred": { "type": "string" },
-    "primary_workstream": { "type": "string", "minLength": 1 },
+    "primary_workstream": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Internal key for role category; product label: role category. Exact label from configs/workstream_taxonomy.yaml, or 'unknown'."
+    },
     "secondary_workstreams": { "type": "array", "items": { "type": "string" } },
     "classification_confidence": {
       "type": "string",

@@ -12,6 +12,8 @@ Changes:
 
 from __future__ import annotations
 
+import json
+
 import sqlalchemy as sa
 from alembic import op
 
@@ -55,9 +57,12 @@ def upgrade() -> None:
         subject_areas = _merge_subject_areas(row.domain_experience, row.finance_domains)
         conn.execute(
             sa.text(
-                "UPDATE candidate_profiles SET subject_areas = :subject_areas WHERE id = :id"
+                "UPDATE candidate_profiles SET subject_areas = CAST(:subject_areas AS JSON) WHERE id = :id"
             ),
-            {"subject_areas": subject_areas, "id": row.id},
+            {
+                "subject_areas": json.dumps(subject_areas) if subject_areas is not None else None,
+                "id": row.id,
+            },
         )
 
     op.drop_column("candidate_profiles", "finance_domains")
@@ -84,11 +89,12 @@ def downgrade() -> None:
         conn.execute(
             sa.text(
                 "UPDATE candidate_profiles "
-                "SET domain_experience = :domain_experience, finance_domains = :finance_domains "
+                "SET domain_experience = CAST(:domain_experience AS JSON), "
+                "finance_domains = CAST(:finance_domains AS JSON) "
                 "WHERE id = :id"
             ),
             {
-                "domain_experience": domain_experience,
+                "domain_experience": json.dumps(domain_experience) if domain_experience is not None else None,
                 "finance_domains": None,
                 "id": row.id,
             },

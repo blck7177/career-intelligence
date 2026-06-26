@@ -1,10 +1,10 @@
 """
-TaxonomyLoader — loads workstream taxonomy from configs/workstream_taxonomy.yaml.
+TaxonomyLoader — loads role category taxonomy from configs/workstream_taxonomy.yaml.
 
 Pure function (reads a config file). No DB, no LLM.
 The taxonomy is used by role_analyzer to:
   - Provide labels to Layer 1 (role archetype section)
-  - Constrain Layer 2 primary_workstream to exact taxonomy labels
+  - Constrain Layer 2 primary_workstream to exact taxonomy labels (product label: role category)
 """
 from __future__ import annotations
 

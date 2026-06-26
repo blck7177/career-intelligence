@@ -74,7 +74,7 @@ You may receive some or all of the following:
 * Job description text
 * Source URL
 * Existing structured JD extraction
-* Existing role taxonomy or workstream taxonomy
+* Existing role taxonomy or role category taxonomy
 * Optional company or team research notes
 
 Use the job description as the primary source of truth. Use any external or company research only as supporting context.
@@ -369,13 +369,13 @@ Rules:
 3. If the report is ambiguous on a field, consult the raw JD excerpt only to resolve ambiguity — do not re-reason.
 4. For evidence fields: copy exact phrases or sentences from the report or JD. Do not paraphrase.
 5. For confidence fields: "high" = strongly supported by multiple evidence points; "medium" = inferred from limited signals; "low" = uncertain.
-6. For primary_workstream: use ONLY the exact label string from the taxonomy list provided. Do not invent new labels. Use "unknown" if no label fits.
+6. For primary_workstream (role category): use ONLY the exact label string from the taxonomy list provided. Do not invent new labels. Use "unknown" if no label fits.
 7. For underlying_skill_demands: include the most important capabilities only (up to 8). Quality over quantity.
 8. Output valid JSON only. No markdown code fences, no commentary outside the JSON object.
 """
 
 _LAYER2_USER_TEMPLATE = """\
-=== WORKSTREAM TAXONOMY LABELS (use exact strings for workstream fields) ===
+=== ROLE CATEGORY TAXONOMY LABELS (use exact strings for primary_workstream / secondary_workstreams fields) ===
 {taxonomy_labels}
 
 === LAYER 1 JOB INTELLIGENCE REPORT ===

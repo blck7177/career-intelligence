@@ -59,7 +59,7 @@ function JobReportContent({ report }: { report: JobReportResponse }) {
       <CardContent className="space-y-3 text-xs text-zinc-700">
         {primaryWorkstream && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Primary Workstream</p>
+            <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
             <p>{primaryWorkstream}</p>
           </div>
         )}

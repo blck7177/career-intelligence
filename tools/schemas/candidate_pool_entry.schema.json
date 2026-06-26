@@ -40,7 +40,7 @@
     },
     "workstream_hint": {
       "type": "string",
-      "description": "Initial workstream guess (may be 'unknown'); refined later by the classifier."
+      "description": "Legacy optional hint for role category (primary_workstream label guess); may be 'unknown'; refined by job report classifier."
     },
     "fetch_status": {
       "type": "string",

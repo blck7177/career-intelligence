@@ -53,7 +53,7 @@ function JobReportContent({ report }: { report: JobReportResponse }) {
       </div>
       {(s.primary_workstream as string | undefined) && (
         <div>
-          <p className="font-medium text-zinc-500 mb-0.5">Primary Workstream</p>
+          <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
           <p>{s.primary_workstream as string}</p>
         </div>
       )}

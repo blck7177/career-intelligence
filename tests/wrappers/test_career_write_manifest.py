@@ -142,3 +142,30 @@ class TestCareerWriteManifestCanonicalWrite:
 
         assert result.exit_code == 0, result.output
         assert canonical.exists()
+
+    def test_same_path_as_output_does_not_clobber_manifest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Agent may still pass canonical path as --output; manifest must survive."""
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir()
+        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _KEY)
+
+        spec = _base_spec(artifacts_root)
+        canonical = Path(spec["output_paths"]["output_manifest_path"])
+        canonical.parent.mkdir(parents=True, exist_ok=True)
+
+        spec_path = tmp_path / "manifest_spec.json"
+        spec_path.write_text(json.dumps(spec))
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            ["--task-spec", str(spec_path), "--output", str(canonical)],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(canonical.read_text())
+        assert payload["status"] == "completed"
+        assert payload["invocation_id"] == spec["invocation_id"]
+        assert payload["candidate_count"] == 2
+        assert "manifest_path" not in payload, "ack must not overwrite platform manifest"

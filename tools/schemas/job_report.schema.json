@@ -202,19 +202,22 @@
     "primary_workstream": {
       "type": "string",
       "minLength": 1,
-      "description": "Primary workstream label from configs/workstream_taxonomy.yaml, or 'unknown'."
+      "description": "Internal key for role category; product label: role category. Exact label from configs/workstream_taxonomy.yaml, or 'unknown'."
     },
     "secondary_workstreams": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "Secondary role category labels (internal workstream keys)."
     },
     "workstream_evidence": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": { "type": "string" },
+      "description": "Evidence supporting role category classification (internal workstream keys)."
     },
     "workstream_confidence": {
       "type": "string",
-      "enum": ["high", "medium", "low"]
+      "enum": ["high", "medium", "low"],
+      "description": "Confidence in role category classification (internal workstream key)."
     },
 
     "uncertainty_notes": {

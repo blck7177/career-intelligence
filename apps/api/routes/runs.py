@@ -60,6 +60,16 @@ def _assert_run_owned(run, workspace: Workspace) -> None:
         raise HTTPException(status_code=403, detail="Access denied.")
 
 
+_TASK_TYPE_MAP: dict[str, str] = {
+    "job_discovery": "agent.job_discovery",
+    "job_research": "agent.job_research",
+    "run_reflection": "agent.run_reflection",
+    "job_report": "job_report",
+    "fit_report": "fit_report",
+    "profile_import": "profile_import",
+}
+
+
 @router.post("", response_model=RunRead, status_code=201)
 def create_run(
     body: RunCreate,
@@ -74,26 +84,16 @@ def create_run(
     run_repo = RunRepository(db)
     task_repo = TaskRepository(db)
 
+    task_type = _TASK_TYPE_MAP[body.run_type]
+
     correlation_id = str(uuid.uuid4())
 
     run = run_repo.create(
         workspace_id=workspace.id,
         run_type=body.run_type,
-        input_snapshot_json=body.input_snapshot,
+        input_snapshot_json=body.input_snapshot.model_dump(mode="json"),
         correlation_id=correlation_id,
     )
-
-    task_type_map = {
-        "job_discovery": "agent.job_discovery",
-        "job_research": "agent.job_research",
-        "run_reflection": "agent.run_reflection",
-        "job_report": "job_report",
-        "fit_report": "fit_report",
-        "profile_import": "profile_import",
-    }
-    task_type = task_type_map.get(body.run_type)
-    if task_type is None:
-        raise HTTPException(status_code=400, detail=f"Unknown run_type: {body.run_type!r}")
 
     idempotency_key = f"{task_type}:{workspace.id}:{run.id}"
 
@@ -106,7 +106,7 @@ def create_run(
 
     db.commit()
 
-    from packages.domain.agent_jobs.routing import celery_queue_for_task_type
+    from packages.domain.agent_jobs.routing import celery_queue_for_task_type  # noqa: PLC0415
 
     envelope = TaskEnvelope(
         task_id=task.id,

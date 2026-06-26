@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import ValidationError
+
+from packages.contracts.api.runs import FitReportInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.repositories import (
     ProfileRepository,
@@ -49,15 +52,14 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         run = RunRepository(session).get_or_raise(env.run_id)
         snap = run.input_snapshot_json or {}
 
-    job_id = snap.get("job_id")
-    job_report_id = snap.get("job_report_id")
-    force_refresh = bool(snap.get("force_refresh", False))
-
-    if not job_id:
+    try:
+        inp = FitReportInput.model_validate(snap)
+    except ValidationError as exc:
+        logger.error("fit_report: invalid input_snapshot: %s", exc)
         _mark_failed(
             env,
-            error_code="MISSING_JOB_ID",
-            message="job_id is required in input_snapshot",
+            error_code="INVALID_INPUT",
+            message=f"Invalid fit_report input_snapshot: {exc}",
         )
         return {"status": "failed", "task_id": env.task_id}
 

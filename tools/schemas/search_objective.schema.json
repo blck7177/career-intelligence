@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "search_objective.schema.json",
   "title": "SearchObjective",
-  "description": "Worker-owned execution contract for a discovery run. Created by the Objective Controller after Intent Translation. Defines what the run must achieve, hard constraints, budget split across attempts, and completion criteria. The agent never reads this directly — it receives a per-attempt AttemptContext derived from it.",
+  "description": "LEGACY — not consumed by career-intelligence worker/runtime (Objective Controller lives in career-openclaw). Retained for reference only. Worker-owned execution contract for a discovery run. Created by the Objective Controller after Intent Translation. Defines what the run must achieve, hard constraints, budget split across attempts, and completion criteria. The agent never reads this directly — it receives a per-attempt AttemptContext derived from it.",
   "type": "object",
   "additionalProperties": false,
   "required": ["objective_id", "target_new_jobs", "max_attempts", "per_attempt_budget", "completion_criteria"],
@@ -44,7 +44,7 @@
         "workstreams": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Required workstream families."
+          "description": "Required role category labels (legacy internal key: workstreams)."
         },
         "exclusions": {
           "type": "array",

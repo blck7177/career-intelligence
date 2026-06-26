@@ -5,9 +5,8 @@ Execution mode: DETERMINISTIC
 Purpose: Generate a Job Intelligence Report for a given job record.
 
 Input (from run.input_snapshot_json):
-  Formal path:  { "job_id": str, "use_research": bool, "force_refresh": bool,
-                  "research_artifact_id": str | None }
-  Smoke path:   { "job_snapshot": dict, "use_research": bool, "force_refresh": bool }
+  { "job_id": str, "use_research": bool, "force_refresh": bool,
+    "research_artifact_id": str | None }
 
 Output:
   - job_report.md artifact (narrative)
@@ -19,6 +18,9 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import ValidationError
+
+from packages.contracts.api.runs import JobReportInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.repositories import (
     RunRepository,
@@ -42,17 +44,12 @@ def handle_job_report(env: TaskEnvelope) -> dict:
         run = RunRepository(session).get_or_raise(env.run_id)
         snap = run.input_snapshot_json or {}
 
-    job_id = snap.get("job_id")
-    job_snapshot = snap.get("job_snapshot")
-    use_research = bool(snap.get("use_research", True))
-    force_refresh = bool(snap.get("force_refresh", False))
-    research_artifact_id = snap.get("research_artifact_id")
-
-    if not job_id:
-        # job_snapshot-only path fabricates a smoke_xxx job_id that violates
-        # the jobs.id FK in Postgres. Production always requires a real job_id.
-        _mark_failed(env, error_code="MISSING_JOB_ID",
-                     message="job_id is required; job_snapshot-only path is not supported in production")
+    try:
+        inp = JobReportInput.model_validate(snap)
+    except ValidationError as exc:
+        logger.error("job_report: invalid input_snapshot: %s", exc)
+        _mark_failed(env, error_code="INVALID_INPUT",
+                     message=f"Invalid job_report input_snapshot: {exc}")
         return {"status": "failed", "task_id": env.task_id}
 
     try:
@@ -62,11 +59,10 @@ def handle_job_report(env: TaskEnvelope) -> dict:
                 run_id=env.run_id,
                 task_id=env.task_id,
                 workspace_id=env.workspace_id,
-                job_id=job_id,
-                job_snapshot=job_snapshot,
-                use_research=use_research,
-                research_artifact_id=research_artifact_id,
-                force_refresh=force_refresh,
+                job_id=inp.job_id,
+                use_research=inp.use_research,
+                research_artifact_id=inp.research_artifact_id,
+                force_refresh=inp.force_refresh,
             )
     except ValueError as exc:
         logger.warning("job_report: input error: %s", exc)

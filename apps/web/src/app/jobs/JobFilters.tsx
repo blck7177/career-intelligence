@@ -63,7 +63,7 @@ export function JobFilters({ profiles, workstreams }: JobFiltersProps) {
 
       {workstreams.length > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-zinc-500 whitespace-nowrap">Workstream:</span>
+          <span className="text-xs text-zinc-500 whitespace-nowrap">Role category:</span>
           <select
             value={workstream}
             onChange={(e) => update("workstream", e.target.value || null)}
