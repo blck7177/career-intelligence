@@ -34,6 +34,22 @@ from packages.infrastructure.db.repositories import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Dev auth bypass — local/test only, never in production
+# ---------------------------------------------------------------------------
+
+_DEV_AUTH_BYPASS = os.environ.get("DEV_AUTH_BYPASS", "").lower() == "true"
+_APP_ENV = os.environ.get("APP_ENV", "development")
+
+if _DEV_AUTH_BYPASS and _APP_ENV in ("production", "staging"):
+    raise RuntimeError(
+        "DEV_AUTH_BYPASS=true is forbidden when APP_ENV={_APP_ENV}. "
+        "Remove DEV_AUTH_BYPASS from the environment."
+    )
+
+if _DEV_AUTH_BYPASS:
+    logger.warning("DEV_AUTH_BYPASS is enabled — all requests use a fixed dev user. NOT FOR PRODUCTION.")
+
+# ---------------------------------------------------------------------------
 # JWKS client — module-level singleton; PyJWKClient handles caching internally
 # (cache_jwk_set=True, lifespan=300s by default).  Signing keys are also
 # cached with cache_keys=True so the JWKS endpoint is not hit on every request.
@@ -84,6 +100,9 @@ def get_current_user(
     Validate the Clerk Bearer JWT and return the local User record.
     Auto-provisions the User (and a Workspace) on first login.
     """
+    if _DEV_AUTH_BYPASS:
+        return _get_or_create_dev_user(db)
+
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header required.")
     if not authorization.startswith("Bearer "):
@@ -170,4 +189,24 @@ def _provision_user(db: Session, *, clerk_user_id: str, email: str) -> User:
     logger.info(
         "auth: provisioned workspace %s for user %s", workspace.id, user.id
     )
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Dev auth bypass helper
+# ---------------------------------------------------------------------------
+
+_DEV_USER_EMAIL = "dev-test@localhost"
+_DEV_CLERK_ID = "dev_bypass_user"
+
+
+def _get_or_create_dev_user(db: Session) -> User:
+    """Return a fixed dev user, creating it on first call."""
+    user_repo = UserRepository(db)
+    user = user_repo.get_by_provider("clerk", _DEV_CLERK_ID)
+    if user is None:
+        user = _provision_user(db, clerk_user_id=_DEV_CLERK_ID, email=_DEV_USER_EMAIL)
+        user.is_admin = True
+        db.commit()
+        logger.info("auth: created dev bypass user %s", user.id)
     return user
