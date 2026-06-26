@@ -357,11 +357,21 @@ def _mark_needs_review(
 ) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
         task_repo.mark_needs_review(
             env.task_id,
             error_code=error_code,
             error_message=reason[:500],
+        )
+        run_repo.complete(
+            env.run_id,
+            status="needs_review",
+            result_summary={
+                "validation_status": "failed",
+                "error_code": error_code,
+                "invocation_id": invocation_id,
+            },
         )
         event_repo.append(
             task_id=env.task_id,
