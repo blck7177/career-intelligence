@@ -285,11 +285,12 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
-    reflected_run_id = manifest.run_id
+    reflected_run_id = inp.run_id
 
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
 
         for artifact_type, path_str in manifest.artifact_paths.items():
@@ -314,6 +315,15 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         )
 
         task_repo.mark_succeeded(env.task_id)
+        run_repo.complete(
+            env.run_id,
+            status="succeeded",
+            result_summary={
+                "reflected_run_id": reflected_run_id,
+                "patches_proposed": manifest.patches_proposed,
+                "invocation_id": invocation_id,
+            },
+        )
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,

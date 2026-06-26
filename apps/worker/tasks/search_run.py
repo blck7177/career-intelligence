@@ -734,7 +734,7 @@ def _load_profile(workspace_id: str) -> ProfileSnapshot:
             education_summary=row.education_summary,
             technical_skills=row.technical_skills or [],
             subject_areas=row.subject_areas or [],
-            years_of_experience=row.years_experience,       # DB column renamed: years_experience
+            years_experience=row.years_experience,
         )
         logger.debug(
             "search_run: loaded profile %s for workspace %s (is_empty=%s)",

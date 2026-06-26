@@ -43,7 +43,7 @@ def load_taxonomy(taxonomy_path: Path | None = None) -> list[dict[str, Any]]:
             data = yaml.safe_load(f)
         if not isinstance(data, dict):
             return []
-        categories = data.get("role_categories") or data.get("workstreams") or []
+        categories = data.get("role_categories") or []
         logger.debug("Loaded %d role categories from %s", len(categories), path)
         return categories
     except Exception as exc:

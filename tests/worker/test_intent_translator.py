@@ -74,7 +74,7 @@ def make_profile(
         summary=summary,
         technical_skills=skills or ["Python", "VaR"],
         subject_areas=subject_areas or ["market risk"],
-        years_of_experience=4,
+        years_experience=4,
     )
 
 

@@ -212,6 +212,8 @@ class OpenClawGatewayRuntime(AgentRuntime):
                 f"  {spec.input_spec_path}"
             )
 
+        evidence_paragraph = _evidence_instructions(spec.agent_id)
+
         return (
             f"Agent: {spec.agent_id}\n"
             f"Invocation ID: {spec.invocation_id}\n\n"
@@ -220,16 +222,31 @@ class OpenClawGatewayRuntime(AgentRuntime):
             f"platform manifest to the canonical path derived from your task spec "
             f"(expected: {spec.output_manifest_path}). Do not pass a hand-copied "
             f"manifest path to --output.\n\n"
-            f"This is a real production run. You MUST perform genuine discovery "
-            f"actions (web_search, web_fetch, or approved exec wrappers) before "
-            f"writing the manifest. Do NOT write placeholder or mock output. "
-            f"Do NOT mark status as completed or partial without real tool calls "
-            f"that support it.\n\n"
+            f"{evidence_paragraph}\n\n"
             f"Follow the active skill instructions.\n"
             f"Do not write to the database.\n"
             f"Do not modify files outside your designated run directory.\n"
             f"Stop after writing the manifest."
         )
+
+
+def _evidence_instructions(agent_id: str) -> str:
+    """Return the agent-type-specific evidence paragraph for the invocation message."""
+    if agent_id == "career-reflect-agent":
+        return (
+            "This is a real production run. You MUST analyze the provided run "
+            "artifacts (coverage report, search ledger, candidate pool) before "
+            "writing the manifest. Do NOT write placeholder or mock output. "
+            "Do NOT mark status as completed or partial without genuine analysis "
+            "of the prior run's results."
+        )
+    return (
+        "This is a real production run. You MUST perform genuine discovery "
+        "actions (web_search, web_fetch, or approved exec wrappers) before "
+        "writing the manifest. Do NOT write placeholder or mock output. "
+        "Do NOT mark status as completed or partial without real tool calls "
+        "that support it."
+    )
 
 
 # ---------------------------------------------------------------------------

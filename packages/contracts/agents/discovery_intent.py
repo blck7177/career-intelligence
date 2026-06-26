@@ -52,7 +52,7 @@ class ProfileSnapshot(BaseModel):
     subject_areas: list[str] = Field(default_factory=list)
     # e.g. ["product management", "market risk", "clinical trials"]
 
-    years_of_experience: Optional[int] = None
+    years_experience: Optional[int] = None
 
     education_summary: Optional[str] = None
     # e.g. "MS Financial Engineering, Columbia University"

@@ -15,7 +15,7 @@ Fields removed vs old split models:
   - domain_experience + finance_domains: merged into subject_areas
 
 Fields unified vs old split models:
-  - years_of_experience (Discovery) / years_experience (FitReport) → years_experience
+  - years_of_experience → years_experience (unified across all layers)
 """
 
 from __future__ import annotations

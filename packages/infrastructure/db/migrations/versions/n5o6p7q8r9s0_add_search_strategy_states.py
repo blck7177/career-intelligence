@@ -1,7 +1,7 @@
 """add search_strategy_states table
 
 Revision ID: n5o6p7q8r9s0
-Revises: m4n5o6p7q8r9
+Revises: o6p7q8r9s0t1
 Create Date: 2026-06-25
 """
 

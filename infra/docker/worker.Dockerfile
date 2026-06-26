@@ -37,6 +37,7 @@ RUN if [ -n "$EXTRA_DEPS" ]; then \
 COPY apps/ apps/
 COPY packages/ packages/
 COPY tools/ tools/
+COPY configs/ configs/
 COPY alembic.ini .
 
 # Pre-create the artifact dir owned by appuser so the named volume inherits

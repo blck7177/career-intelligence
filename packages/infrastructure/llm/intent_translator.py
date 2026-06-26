@@ -364,7 +364,7 @@ class IntentTranslator:
                     "experience_summary": profile_snapshot.experience_summary,
                     "technical_skills": profile_snapshot.technical_skills or [],
                     "subject_areas": profile_snapshot.subject_areas or [],
-                    "years_of_experience": profile_snapshot.years_of_experience,
+                    "years_experience": profile_snapshot.years_experience,
                     "education_summary": profile_snapshot.education_summary,
                 }.items()
                 if v is not None and v != []
