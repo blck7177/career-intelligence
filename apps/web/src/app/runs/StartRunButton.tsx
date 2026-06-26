@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { Button } from "@/components/ui/button";
-import { createRun } from "@/api/client";
+import { createRun, type RunCreate } from "@/api/client";
 import { Plus, Loader2, X, ChevronDown } from "lucide-react";
 
 type FormMode = "none" | "job_report" | "fit_report" | "discovery";
@@ -18,7 +18,7 @@ function JobReportForm({
   onCancel,
   loading,
 }: {
-  onSubmit: (snapshot: Record<string, unknown>) => void;
+  onSubmit: (body: RunCreate) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
@@ -33,10 +33,13 @@ function JobReportForm({
     e.preventDefault();
     if (!jobId.trim() || researchBlocked) return;
     onSubmit({
-      job_id: jobId.trim(),
-      use_research: useResearch,
-      research_artifact_id: useResearch ? researchArtifactId.trim() : undefined,
-      force_refresh: forceRefresh,
+      run_type: "job_report",
+      input_snapshot: {
+        job_id: jobId.trim(),
+        use_research: useResearch,
+        research_artifact_id: useResearch ? researchArtifactId.trim() : undefined,
+        force_refresh: forceRefresh,
+      },
     });
   }
 
@@ -114,7 +117,7 @@ function FitReportForm({
   onCancel,
   loading,
 }: {
-  onSubmit: (snapshot: Record<string, unknown>) => void;
+  onSubmit: (body: RunCreate) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
@@ -126,9 +129,12 @@ function FitReportForm({
     e.preventDefault();
     if (!jobId.trim()) return;
     onSubmit({
-      job_id: jobId.trim(),
-      job_report_id: jobReportId.trim() || undefined,
-      force_refresh: forceRefresh,
+      run_type: "fit_report",
+      input_snapshot: {
+        job_id: jobId.trim(),
+        job_report_id: jobReportId.trim() || undefined,
+        force_refresh: forceRefresh,
+      },
     });
   }
 
@@ -198,12 +204,12 @@ export function StartRunButton() {
   const [formMode, setFormMode] = useState<FormMode>("none");
   const [menuOpen, setMenuOpen] = useState(false);
 
-  async function startRun(runType: string, inputSnapshot: Record<string, unknown>) {
+  async function startRun(body: RunCreate) {
     setLoading(true);
     setError(null);
     try {
       const token = await getToken();
-      const run = await createRun({ run_type: runType, input_snapshot: inputSnapshot }, token);
+      const run = await createRun(body, token);
       setFormMode("none");
       router.push(`/runs/${run.id}`);
     } catch (err) {
@@ -271,14 +277,14 @@ export function StartRunButton() {
         <JobReportForm
           loading={loading}
           onCancel={() => { setFormMode("none"); setError(null); }}
-          onSubmit={(snap) => startRun("job_report", snap)}
+          onSubmit={(body) => startRun(body)}
         />
       )}
       {formMode === "fit_report" && (
         <FitReportForm
           loading={loading}
           onCancel={() => { setFormMode("none"); setError(null); }}
-          onSubmit={(snap) => startRun("fit_report", snap)}
+          onSubmit={(body) => startRun(body)}
         />
       )}
 

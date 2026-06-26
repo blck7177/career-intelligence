@@ -4,7 +4,7 @@ JobReportService — orchestrates Job Intelligence Report generation.
 Entry point: create_job_report()
 
 Flow:
-  1. Load job record (from DB by job_id, or from job_snapshot smoke path)
+  1. Load job record from DB by job_id (must be reportable)
   2. Check cache (job_id + jd_hash + prompt_version + research_bundle_hash)
   3. Load taxonomy
   4. Load research notes from artifact (optional)
@@ -61,8 +61,7 @@ def create_job_report(
     run_id: str,
     task_id: str,
     workspace_id: str,
-    job_id: Optional[str] = None,
-    job_snapshot: Optional[dict[str, Any]] = None,
+    job_id: str,
     use_research: bool = True,
     research_artifact_id: Optional[str] = None,
     force_refresh: bool = False,
@@ -70,7 +69,7 @@ def create_job_report(
     """
     Generate (or return cached) a global Job Intelligence Report.
 
-    Either job_id (loads from DB) or job_snapshot (smoke/test path) must be provided.
+    job_id must reference a reportable job in the DB.
 
     Returns:
         {
@@ -81,22 +80,14 @@ def create_job_report(
           "structured_artifact_id": str,
         }
     """
-    if not job_id and not job_snapshot:
-        raise ValueError("Either job_id or job_snapshot must be provided.")
-
     job_repo = JobRepository(session)
     report_repo = JobReportRepository(session)
     artifact_repo = ArtifactRepository(session)
 
     # 1. Load job record
-    if job_id:
-        job_record = _job_orm_to_dict(job_repo.get_reportable(job_id))
-    else:
-        # Smoke path: job_snapshot dict must have title, company, jd_text at minimum
-        job_record = job_snapshot  # type: ignore[assignment]
-        job_id = job_record.get("id") or job_record.get("job_id") or "smoke_" + uuid.uuid4().hex[:8]
+    job_record = _job_orm_to_dict(job_repo.get_reportable(job_id))
 
-    jd_text = job_record.get("jd_text") or job_record.get("description") or ""
+    jd_text = job_record.get("jd_text") or ""
     if not jd_text.strip():
         raise ValueError(f"No jd_text available for job {job_id!r}")
 

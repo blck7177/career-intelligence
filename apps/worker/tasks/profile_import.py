@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import logging
 
+from pydantic import ValidationError
+
 from packages.contracts.api.profile_import import ProfileImportDraft
+from packages.contracts.api.runs import ProfileImportInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.repositories import (
     RunRepository,
@@ -64,7 +67,18 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
         run = RunRepository(session).get_or_raise(env.run_id)
         snap = run.input_snapshot_json or {}
 
-    resume_text = (snap.get("resume_text") or "").strip()
+    try:
+        inp = ProfileImportInput.model_validate(snap)
+    except ValidationError as exc:
+        logger.error("profile_import: invalid input_snapshot: %s", exc)
+        _mark_failed(
+            env,
+            error_code="INVALID_INPUT",
+            message=f"Invalid profile_import input_snapshot: {exc}",
+        )
+        return {"status": "failed", "task_id": env.task_id}
+
+    resume_text = inp.resume_text.strip()
 
     if not resume_text:
         _mark_failed(

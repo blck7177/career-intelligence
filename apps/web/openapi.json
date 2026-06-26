@@ -1416,6 +1416,84 @@
         ],
         "title": "AgentInvocationRead"
       },
+      "DiscoveryHardConstraints": {
+        "properties": {
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "seniority": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Seniority"
+          },
+          "exclude_role_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Role Types"
+          },
+          "must_include_keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Must Include Keywords"
+          },
+          "work_arrangement": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "hybrid",
+                  "remote",
+                  "onsite",
+                  "any"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Arrangement"
+          },
+          "visa_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visa Note"
+          },
+          "compensation_range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compensation Range"
+          }
+        },
+        "type": "object",
+        "title": "DiscoveryHardConstraints",
+        "description": "Explicit constraints the user provided.\n\nAll fields are optional. An absent field means the user did not specify\nthat constraint \u2014 the platform must NOT infer a default value for it."
+      },
       "FailedValidatorSummary": {
         "properties": {
           "name": {
@@ -1437,6 +1515,36 @@
         ],
         "title": "FailedValidatorSummary",
         "description": "One validator's failure detail within a needs_review result_summary."
+      },
+      "FitReportInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "job_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Report Id"
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "FitReportInput",
+        "description": "Input for run_type=fit_report."
       },
       "FitReportResponse": {
         "properties": {
@@ -1538,6 +1646,25 @@
         ],
         "title": "FitReportResponse"
       },
+      "FitReportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "fit_report",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/FitReportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "FitReportRunCreate",
+        "description": "POST /api/app/runs with run_type=fit_report."
+      },
       "FitReportSummary": {
         "properties": {
           "id": {
@@ -1627,6 +1754,82 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "JobDiscoveryFrontendInput": {
+        "properties": {
+          "raw_user_request": {
+            "type": "string",
+            "minLength": 5,
+            "title": "Raw User Request",
+            "description": "User's natural language description of what they are looking for."
+          },
+          "search_mode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "exploratory",
+              "profile_guided"
+            ],
+            "title": "Search Mode"
+          },
+          "hard_constraints": {
+            "$ref": "#/components/schemas/DiscoveryHardConstraints"
+          },
+          "soft_preferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Soft Preferences"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "search_depth": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "standard",
+              "deep"
+            ],
+            "title": "Search Depth",
+            "default": "standard"
+          }
+        },
+        "type": "object",
+        "required": [
+          "raw_user_request",
+          "search_mode"
+        ],
+        "title": "JobDiscoveryFrontendInput",
+        "description": "The structured frontend payload for a job_discovery run.\n\nPlaced into RunCreate.input_snapshot by the frontend.\nThe worker parses this before calling the IntentTranslator.\n\nProfile, catalog context, and strategy context are NOT here \u2014\nthey are injected by the worker/planner from platform state."
+      },
+      "JobDiscoveryRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "job_discovery",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/JobDiscoveryFrontendInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "JobDiscoveryRunCreate",
+        "description": "POST /api/app/runs with run_type=job_discovery."
       },
       "JobList": {
         "properties": {
@@ -1783,6 +1986,41 @@
         "title": "JobRead",
         "description": "A canonical job record returned by the API."
       },
+      "JobReportInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "use_research": {
+            "type": "boolean",
+            "title": "Use Research",
+            "default": true
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "default": false
+          },
+          "research_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Artifact Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "JobReportInput",
+        "description": "Input for run_type=job_report."
+      },
       "JobReportResponse": {
         "properties": {
           "id": {
@@ -1877,6 +2115,113 @@
           "updated_at"
         ],
         "title": "JobReportResponse"
+      },
+      "JobReportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "job_report",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/JobReportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "JobReportRunCreate",
+        "description": "POST /api/app/runs with run_type=job_report."
+      },
+      "JobResearchInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Tool Calls",
+            "default": 20
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 60.0,
+            "title": "Timeout Seconds",
+            "default": 600
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "JobResearchInput",
+        "description": "Input for run_type=job_research."
+      },
+      "JobResearchRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "job_research",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/JobResearchInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "JobResearchRunCreate",
+        "description": "POST /api/app/runs with run_type=job_research."
+      },
+      "ProfileImportInput": {
+        "properties": {
+          "resume_text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Resume Text"
+          },
+          "source_type": {
+            "type": "string",
+            "const": "paste",
+            "title": "Source Type",
+            "default": "paste"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume_text"
+        ],
+        "title": "ProfileImportInput",
+        "description": "Input for run_type=profile_import."
+      },
+      "ProfileImportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "profile_import",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/ProfileImportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "ProfileImportRunCreate",
+        "description": "POST /api/app/runs with run_type=profile_import."
       },
       "ProfileRead": {
         "properties": {
@@ -2092,26 +2437,39 @@
         "title": "ProfileUpdate"
       },
       "RunCreate": {
-        "properties": {
-          "run_type": {
-            "type": "string",
-            "title": "Run Type",
-            "examples": [
-              "job_discovery"
-            ]
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/JobDiscoveryRunCreate"
           },
-          "input_snapshot": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Input Snapshot"
+          {
+            "$ref": "#/components/schemas/JobReportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/FitReportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/ProfileImportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/JobResearchRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/RunReflectionRunCreate"
           }
-        },
-        "type": "object",
-        "required": [
-          "run_type"
         ],
         "title": "RunCreate",
-        "description": "Request body for POST /api/runs."
+        "description": "Request body for POST /api/app/runs \u2014 discriminated by run_type.",
+        "discriminator": {
+          "propertyName": "run_type",
+          "mapping": {
+            "fit_report": "#/components/schemas/FitReportRunCreate",
+            "job_discovery": "#/components/schemas/JobDiscoveryRunCreate",
+            "job_report": "#/components/schemas/JobReportRunCreate",
+            "job_research": "#/components/schemas/JobResearchRunCreate",
+            "profile_import": "#/components/schemas/ProfileImportRunCreate",
+            "run_reflection": "#/components/schemas/RunReflectionRunCreate"
+          }
+        }
       },
       "RunList": {
         "properties": {
@@ -2231,6 +2589,54 @@
         ],
         "title": "RunRead",
         "description": "Response for GET /api/runs/{run_id}."
+      },
+      "RunReflectionInput": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Tool Calls",
+            "default": 10
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 60.0,
+            "title": "Timeout Seconds",
+            "default": 300
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "RunReflectionInput",
+        "description": "Input for run_type=run_reflection."
+      },
+      "RunReflectionRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "run_reflection",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/RunReflectionInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "RunReflectionRunCreate",
+        "description": "POST /api/app/runs with run_type=run_reflection."
       },
       "RunResultSummary": {
         "properties": {

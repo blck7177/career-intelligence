@@ -30,8 +30,11 @@ import logging
 import os
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from packages.contracts.agents.invocation import AgentBudget
 from packages.contracts.agents.manifests import ReflectionManifest
+from packages.contracts.api.runs import RunReflectionInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
 from packages.infrastructure.agent_runtime.openclaw import create_runtime
@@ -66,12 +69,24 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         input_snapshot = run.input_snapshot_json or {}
         workspace_id = env.workspace_id
 
+    try:
+        inp = RunReflectionInput.model_validate(input_snapshot)
+    except ValidationError as exc:
+        logger.error("reflect_run: invalid input_snapshot: %s", exc)
+        _mark_needs_review(
+            env,
+            invocation_id="",
+            reason=f"Invalid run_reflection input_snapshot: {exc}",
+            error_code="INVALID_INPUT",
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
+
     # ------------------------------------------------------------------
     # Step 2: Build AgentInvocationSpec
     # ------------------------------------------------------------------
     budget = AgentBudget(
-        max_tool_calls=input_snapshot.get("max_tool_calls", 10),
-        timeout_seconds=input_snapshot.get("timeout_seconds", 300),
+        max_tool_calls=inp.max_tool_calls,
+        timeout_seconds=inp.timeout_seconds,
     )
 
     import uuid as _uuid

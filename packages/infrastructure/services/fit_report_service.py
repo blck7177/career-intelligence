@@ -4,7 +4,7 @@ FitReportService — orchestrates workspace-private Candidate Fit Report generat
 Entry point: create_fit_report()
 
 Flow:
-  1. Load job record (from DB or job_snapshot smoke path)
+  1. Load job record from DB
   2. Load active Job Intelligence Report — raises MISSING_JOB_REPORT if none found
   3. Load structured job report JSON from artifact
   4. Resolve candidate profile (from profile_snapshot; full profile_id lookup is future work)
@@ -57,8 +57,7 @@ def create_fit_report(
     run_id: str,
     task_id: str,
     workspace_id: str,
-    job_id: Optional[str] = None,
-    job_snapshot: Optional[dict[str, Any]] = None,
+    job_id: str,
     candidate_profile_id: Optional[str] = None,
     profile_snapshot: Optional[dict[str, Any]] = None,
     job_report_id: Optional[str] = None,
@@ -79,8 +78,6 @@ def create_fit_report(
           "narrative_artifact_id": str,
         }
     """
-    if not job_id and not job_snapshot:
-        raise ValueError("Either job_id or job_snapshot must be provided.")
     if not profile_snapshot:
         raise ValueError(
             "profile_snapshot is required for MVP. "
@@ -97,10 +94,6 @@ def create_fit_report(
     report_repo = JobReportRepository(session)
     fit_repo = FitReportRepository(session)
     artifact_repo = ArtifactRepository(session)
-
-    # 1. Resolve job_id from snapshot if needed
-    if not job_id and job_snapshot:
-        job_id = job_snapshot.get("id") or job_snapshot.get("job_id") or "smoke_" + uuid.uuid4().hex[:8]
 
     # 2. Load active Job Intelligence Report
     if job_report_id:
@@ -165,21 +158,18 @@ def create_fit_report(
 
     # 7. Load job record for prompt context
     job_record: dict[str, Any] = {}
-    if job_snapshot:
-        job_record = job_snapshot
-    else:
-        from packages.infrastructure.db.repositories import JobRepository
-        job_orm = JobRepository(session).get(job_id)
-        if job_orm:
-            job_record = {
-                "id": job_orm.id,
-                "job_id": job_orm.id,
-                "title": job_orm.title,
-                "company": job_orm.company,
-                "location": job_orm.location or "",
-                "source_url": job_orm.source_url,
-                "primary_workstream": structured_job_report.get("primary_workstream", ""),
-            }
+    from packages.infrastructure.db.repositories import JobRepository  # noqa: PLC0415
+    job_orm = JobRepository(session).get(job_id)
+    if job_orm:
+        job_record = {
+            "id": job_orm.id,
+            "job_id": job_orm.id,
+            "title": job_orm.title,
+            "company": job_orm.company,
+            "location": job_orm.location or "",
+            "source_url": job_orm.source_url,
+            "primary_workstream": structured_job_report.get("primary_workstream", ""),
+        }
 
     # 8. Generate fit report
     fit_report_id = "fit_" + uuid.uuid4().hex[:8]

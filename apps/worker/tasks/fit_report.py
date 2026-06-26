@@ -99,11 +99,11 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
                 run_id=env.run_id,
                 task_id=env.task_id,
                 workspace_id=env.workspace_id,
-                job_id=job_id,
+                job_id=inp.job_id,
                 candidate_profile_id=profile_row_id,
                 profile_snapshot=profile_snapshot,
-                job_report_id=job_report_id,
-                force_refresh=force_refresh,
+                job_report_id=inp.job_report_id,
+                force_refresh=inp.force_refresh,
             )
     except ValueError as exc:
         msg = str(exc)

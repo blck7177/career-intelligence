@@ -3,8 +3,7 @@ Unit tests for job_report_service.create_job_report().
 
 Cases:
   1. Requires a job with status='reportable'; non-reportable or missing job raises ValueError.
-  2. Smoke path (job_snapshot) succeeds without a DB job row.
-  3. Cache hit: same jd_hash + prompt_version returns existing report without LLM call.
+  2. Cache hit: same jd_hash + prompt_version returns existing report without LLM call.
 """
 from __future__ import annotations
 
@@ -22,14 +21,6 @@ from packages.infrastructure.db.models import Job, JobReport
 # ---------------------------------------------------------------------------
 
 SAMPLE_JD = "We need a quantitative analyst with VaR modelling experience."
-
-SAMPLE_JOB_SNAPSHOT = {
-    "title": "Quantitative Risk Analyst",
-    "company": "Example Capital",
-    "location": "New York",
-    "jd_text": SAMPLE_JD,
-}
-
 
 def _make_structured_report() -> JobReportStructured:
     return JobReportStructured(
@@ -82,58 +73,7 @@ class TestJobReportRequiresReportableJob:
 
 
 # ---------------------------------------------------------------------------
-# Test 2: smoke path (job_snapshot bypasses DB job lookup)
-# ---------------------------------------------------------------------------
-
-
-class TestJobReportSmokeSnapshot:
-    def test_smoke_path_creates_report(self, db_session: Session, seeded_db, tmp_path):
-        """
-        When job_snapshot is provided instead of job_id, the service bypasses
-        the DB job lookup and generates a report directly.
-        """
-        structured = _make_structured_report()
-
-        with patch(
-            "packages.infrastructure.services.job_report_service.analyze_role",
-            return_value=("# Job Report\n\nNarrative.", structured, "0.2.0"),
-        ), patch(
-            "packages.infrastructure.services.job_report_service.get_taxonomy",
-            return_value={},
-        ), patch(
-            "packages.infrastructure.services.job_report_service.get_llm_client",
-            return_value=None,
-        ), patch(
-            "packages.infrastructure.services.job_report_service._ARTIFACTS_DIR",
-            str(tmp_path),
-        ):
-            result = create_job_report(
-                session=db_session,
-                run_id="run_smoke",
-                task_id="task_smoke",
-                workspace_id="ws_seed",
-                job_snapshot=SAMPLE_JOB_SNAPSHOT,
-                use_research=False,
-            )
-
-        assert result["status"] == "created"
-        assert result["job_report_id"]  # DB-assigned UUID, non-empty
-        assert result["used_research"] is False
-
-    def test_smoke_path_requires_jd_text(self, db_session: Session):
-        """job_snapshot without jd_text → ValueError before LLM is called."""
-        with pytest.raises(ValueError, match="No jd_text"):
-            create_job_report(
-                session=db_session,
-                run_id="run_1",
-                task_id="task_1",
-                workspace_id="ws_seed",
-                job_snapshot={"title": "Analyst", "company": "Corp"},
-            )
-
-
-# ---------------------------------------------------------------------------
-# Test 3: cache hit (same jd_hash + prompt_version → no LLM call)
+# Test 2: cache hit (same jd_hash + prompt_version → no LLM call)
 # ---------------------------------------------------------------------------
 
 

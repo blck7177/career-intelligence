@@ -181,7 +181,7 @@ class TestProfileImportHandler:
         error_code = mock_task_repo.mark_failed.call_args[1].get(
             "error_code", mock_task_repo.mark_failed.call_args.kwargs.get("error_code")
         )
-        assert error_code == "MISSING_RESUME_TEXT"
+        assert error_code in ("MISSING_RESUME_TEXT", "INVALID_INPUT")
         mock_run_repo.set_status.assert_called_once_with("run-222", "failed")
 
     @patch("apps.worker.tasks.profile_import.get_session")

@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from packages.contracts.api.discovery import JobDiscoveryFrontendInput
 
@@ -154,7 +154,7 @@ class RunReflectionRunCreate(BaseModel):
     input_snapshot: RunReflectionInput
 
 
-RunCreate = Annotated[
+_RunCreateUnion = Annotated[
     Union[
         JobDiscoveryRunCreate,
         JobReportRunCreate,
@@ -165,6 +165,18 @@ RunCreate = Annotated[
     ],
     Field(discriminator="run_type"),
 ]
+
+
+class RunCreate(RootModel[_RunCreateUnion]):
+    """Request body for POST /api/app/runs — discriminated by run_type."""
+
+    @property
+    def run_type(self) -> str:
+        return self.root.run_type
+
+    @property
+    def input_snapshot(self) -> BaseModel:
+        return self.root.input_snapshot
 
 
 class RunRead(BaseModel):
