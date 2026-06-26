@@ -85,7 +85,7 @@ class FitReportInput(BaseModel):
 class ProfileImportInput(BaseModel):
     """Input for run_type=profile_import."""
 
-    resume_text: str = Field(..., min_length=1)
+    resume_text: str = Field(..., min_length=1, max_length=50_000)
     source_type: Literal["paste"] = "paste"
 
 

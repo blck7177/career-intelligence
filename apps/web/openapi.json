@@ -285,11 +285,11 @@
             "required": false,
             "schema": {
               "type": "boolean",
-              "description": "Join latest active job report for workstream/seniority/confidence fields",
+              "description": "Join latest active job report for role category/seniority/confidence fields",
               "default": false,
               "title": "Include Report Summary"
             },
-            "description": "Join latest active job report for workstream/seniority/confidence fields"
+            "description": "Join latest active job report for role category/seniority/confidence fields"
           },
           {
             "name": "limit",
@@ -1937,7 +1937,7 @@
             ],
             "title": "Latest Job Report Id"
           },
-          "primary_workstream": {
+          "primary_role_category": {
             "anyOf": [
               {
                 "type": "string"
@@ -1946,7 +1946,7 @@
                 "type": "null"
               }
             ],
-            "title": "Primary Workstream"
+            "title": "Primary Role Category"
           },
           "seniority_inferred": {
             "anyOf": [
@@ -1959,7 +1959,7 @@
             ],
             "title": "Seniority Inferred"
           },
-          "workstream_confidence": {
+          "role_category_confidence": {
             "anyOf": [
               {
                 "type": "string"
@@ -1968,7 +1968,7 @@
                 "type": "null"
               }
             ],
-            "title": "Workstream Confidence"
+            "title": "Role Category Confidence"
           }
         },
         "type": "object",
@@ -2187,6 +2187,7 @@
         "properties": {
           "resume_text": {
             "type": "string",
+            "maxLength": 50000,
             "minLength": 1,
             "title": "Resume Text"
           },

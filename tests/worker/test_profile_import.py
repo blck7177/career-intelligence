@@ -222,7 +222,7 @@ class TestProfileImportHandler:
         assert result["status"] == "failed"
         mock_task_repo.mark_failed.assert_called_once()
         error_code = mock_task_repo.mark_failed.call_args.kwargs.get("error_code")
-        assert error_code == "RESUME_TOO_LONG"
+        assert error_code in ("RESUME_TOO_LONG", "INVALID_INPUT")
         mock_run_repo.set_status.assert_called_once_with("run-222", "failed")
 
     @patch("apps.worker.tasks.profile_import.get_session")
