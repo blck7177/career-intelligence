@@ -33,7 +33,7 @@ agent tool wrappers.
 | `job_record.schema.json` | Agent tool wrappers; normalized job record output contract |
 | `candidate_pool_entry.schema.json` | `career_log_candidates.py` wrapper output |
 | `candidate_profile.schema.json` | CLI query tools; search input |
-| `discovery_intent.schema.json` | `career-search-agent` input spec |
+| `discovery_intent.schema.json` | `payload.discovery_intent` in career-search-agent input.json (aligned with `packages/contracts/agents/discovery_intent.py`) |
 | `search_agent_input.schema.json` | `career_search_status.py` wrapper |
 | `search_objective.schema.json` | Search strategy input |
 | `search_query.schema.json` | Per-source search query |

@@ -40,7 +40,7 @@
     "technical_skills": {
       "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Programming languages, quantitative methods, and data tools. UI label: 'Technical skills / methods'. Covers what was previously split across technical_skills and analytical_methods. e.g. ['Python', 'SQL', 'VaR', 'Monte Carlo', 'stress testing']"
+      "description": "Programming languages, quantitative methods, and data tools. UI label: 'Technical skills / methods'. e.g. ['Python', 'SQL', 'forecasting', 'experimentation', 'API integration']"
     },
     "subject_areas": {
       "type": ["array", "null"],
@@ -50,7 +50,7 @@
     "tools": {
       "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Software platforms and vendor tools. e.g. ['Bloomberg', 'Murex', 'QuantLib', 'Tableau', 'PowerBI']"
+      "description": "Software platforms and vendor tools. e.g. ['Jira', 'Salesforce', 'Figma', 'Tableau', 'GitHub', 'Excel']"
     },
 
     "representative_projects": {

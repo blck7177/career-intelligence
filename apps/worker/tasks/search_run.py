@@ -951,53 +951,11 @@ def _compute_file_sha256(path_str: str) -> str | None:
         return None
 
 
-# Map agent-supplied source_type values (often brand names) to canonical
-# category + provider pairs.  Keys are lower-cased agent values.
-_SOURCE_TYPE_MAP: dict[str, tuple[str, str]] = {
-    # ATS platforms
-    "greenhouse":      ("ats", "greenhouse"),
-    "lever":           ("ats", "lever"),
-    "workday":         ("ats", "workday"),
-    "taleo":           ("ats", "taleo"),
-    "icims":           ("ats", "icims"),
-    "smartrecruiters": ("ats", "smartrecruiters"),
-    "eightfold":       ("ats", "eightfold"),
-    "oraclecloud":     ("ats", "oracle_cloud"),
-    "successfactors":  ("ats", "successfactors"),
-    "brassring":       ("ats", "brassring"),
-    # Job boards
-    "linkedin":        ("job_board", "linkedin"),
-    "indeed":          ("job_board", "indeed"),
-    "glassdoor":       ("job_board", "glassdoor"),
-    "builtin":         ("job_board", "builtin"),
-    "dice":            ("job_board", "dice"),
-    # Company career sites — brand names map to company_careers
-    "jpmorgan":        ("company_careers", "jpmorgan"),
-    "jpmorganchase":   ("company_careers", "jpmorgan"),
-    "citi":            ("company_careers", "citi"),
-    "citigroup":       ("company_careers", "citi"),
-    "morganstanley":   ("company_careers", "morgan_stanley"),
-    "goldmansachs":    ("company_careers", "goldman_sachs"),
-    "barclays":        ("company_careers", "barclays"),
-    "ubs":             ("company_careers", "ubs"),
-    "deutsche":        ("company_careers", "deutsche_bank"),
-}
-
-
 def _normalize_source_type(raw: str) -> tuple[str, Optional[str]]:
-    """
-    Map the agent-supplied source_type to (canonical_type, provider).
+    """Map agent-supplied source_type via configs/source_registry.yaml."""
+    from packages.domain.agent_jobs.source_registry import normalize_source_type
 
-    canonical_type: "company_careers" | "ats" | "job_board" | "unknown"
-    provider: brand/platform name or None
-    """
-    key = raw.lower().replace(" ", "").replace("-", "").replace("_", "")
-    if key in _SOURCE_TYPE_MAP:
-        return _SOURCE_TYPE_MAP[key]
-    # If it looks like an unknown brand (no slashes, not a URL), treat as unknown company_careers
-    if raw and len(raw) < 40 and "/" not in raw:
-        return ("company_careers", raw.lower())
-    return ("unknown", None)
+    return normalize_source_type(raw)
 
 
 # City/region slug → canonical display name.

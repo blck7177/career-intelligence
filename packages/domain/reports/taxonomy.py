@@ -16,7 +16,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TAXONOMY_PATH = (
-    Path(__file__).resolve().parents[4] / "configs" / "workstream_taxonomy.yaml"
+    Path(__file__).resolve().parents[3] / "configs" / "workstream_taxonomy.yaml"
 )
 
 

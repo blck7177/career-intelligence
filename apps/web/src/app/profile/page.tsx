@@ -429,7 +429,7 @@ export default function ProfilePage() {
 
         <Field
           label="Education"
-          hint="e.g. MS Financial Engineering, Columbia University"
+          hint="e.g. BS Computer Science, Stanford University"
           value={fields.education_summary}
           onChange={handleChange("education_summary")}
           rows={2}
@@ -445,7 +445,7 @@ export default function ProfilePage() {
 
         <Field
           label="Technical Skills"
-          hint="Comma-separated — e.g. Python, R, VaR, stress testing, scenario analysis"
+          hint="Comma-separated — e.g. Python, SQL, forecasting, experimentation, API integration"
           value={fields.technical_skills}
           onChange={handleChange("technical_skills")}
           rows={2}
@@ -461,7 +461,7 @@ export default function ProfilePage() {
 
         <Field
           label="Tools"
-          hint="Comma-separated — e.g. Python, R, SQL, PowerBI, Bloomberg"
+          hint="Comma-separated — e.g. Jira, Salesforce, Figma, Tableau, GitHub, Excel"
           value={fields.tools}
           onChange={handleChange("tools")}
           rows={2}

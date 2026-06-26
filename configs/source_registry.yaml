@@ -1,0 +1,100 @@
+# Agent-supplied source_type alias → canonical (source_type, source_provider).
+# Keys are normalized: lower-case, no spaces, hyphens, or underscores.
+# Used by search_run worker when persisting agent-discovered job records.
+#
+# source_type categories: ats | job_board | company_careers | unknown
+# Human-owned config — extend for new ATS platforms, boards, or company career sites.
+
+aliases:
+  # ATS platforms
+  greenhouse:
+    source_type: ats
+    source_provider: greenhouse
+  lever:
+    source_type: ats
+    source_provider: lever
+  workday:
+    source_type: ats
+    source_provider: workday
+  taleo:
+    source_type: ats
+    source_provider: taleo
+  icims:
+    source_type: ats
+    source_provider: icims
+  smartrecruiters:
+    source_type: ats
+    source_provider: smartrecruiters
+  eightfold:
+    source_type: ats
+    source_provider: eightfold
+  oraclecloud:
+    source_type: ats
+    source_provider: oracle_cloud
+  successfactors:
+    source_type: ats
+    source_provider: successfactors
+  brassring:
+    source_type: ats
+    source_provider: brassring
+  ashby:
+    source_type: ats
+    source_provider: ashby
+
+  # Job boards
+  linkedin:
+    source_type: job_board
+    source_provider: linkedin
+  indeed:
+    source_type: job_board
+    source_provider: indeed
+  glassdoor:
+    source_type: job_board
+    source_provider: glassdoor
+  builtin:
+    source_type: job_board
+    source_provider: builtin
+  dice:
+    source_type: job_board
+    source_provider: dice
+
+  # Company career sites — brand aliases map to company_careers provider
+  jpmorgan:
+    source_type: company_careers
+    source_provider: jpmorgan
+  jpmorganchase:
+    source_type: company_careers
+    source_provider: jpmorgan
+  citi:
+    source_type: company_careers
+    source_provider: citi
+  citigroup:
+    source_type: company_careers
+    source_provider: citi
+  morganstanley:
+    source_type: company_careers
+    source_provider: morgan_stanley
+  goldmansachs:
+    source_type: company_careers
+    source_provider: goldman_sachs
+  barclays:
+    source_type: company_careers
+    source_provider: barclays
+  ubs:
+    source_type: company_careers
+    source_provider: ubs
+  deutsche:
+    source_type: company_careers
+    source_provider: deutsche_bank
+  google:
+    source_type: company_careers
+    source_provider: google
+  microsoft:
+    source_type: company_careers
+    source_provider: microsoft
+  amazon:
+    source_type: company_careers
+    source_provider: amazon
+  meta:
+    source_type: company_careers
+    source_provider: meta
