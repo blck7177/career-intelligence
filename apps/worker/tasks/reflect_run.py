@@ -18,9 +18,9 @@ Full flow (per architecture.md Agent Execution Flow):
   10. Pass → write artifacts to DB, mark task succeeded
   11. Fail → mark task needs_review, no artifact writes
 
-Note: strategy_patch.json is written as an artifact and stored — the worker
-does NOT apply strategy patches directly. Application is a separate human-reviewed
-step. (See protocols/AGENT_IO_CONTRACT.md)
+Note: strategy_patch.json is written as an artifact. After validator pass the worker
+best-effort applies the patch via apply_strategy_patch() into search_strategy_states.
+Invalid patches are rejected without failing the reflect run.
 """
 
 from __future__ import annotations
@@ -35,8 +35,14 @@ from pydantic import ValidationError
 from packages.contracts.agents.invocation import AgentBudget
 from packages.contracts.agents.manifests import ReflectionManifest
 from packages.contracts.api.runs import RunReflectionInput
+from packages.contracts.strategy.reflection import ReflectionTaskPayload
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
+from packages.domain.strategy_state import (
+    StrategyPatchError,
+    apply_strategy_patch,
+    validate_strategy_patch,
+)
 from packages.infrastructure.agent_runtime.openclaw import create_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
@@ -44,6 +50,7 @@ from packages.infrastructure.db.repositories import (
     AgentValidationResultRepository,
     ArtifactRepository,
     RunRepository,
+    SearchStrategyStateRepository,
     TaskEventRepository,
     TaskRepository,
 )
@@ -105,12 +112,19 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
     )
 
     # ------------------------------------------------------------------
-    # Step 3: Build input.json and write to artifact volume
+    # Step 3: Build enriched input.json and write to artifact volume
     # ------------------------------------------------------------------
+    with get_session() as session:
+        reflection_payload = _build_reflection_payload(
+            session,
+            workspace_id=workspace_id,
+            inp=inp,
+        )
+
     task_input = build_task_input(
         spec=spec,
         task_type=env.task_type,
-        payload=input_snapshot,
+        payload=reflection_payload.model_dump(mode="json"),
         budget=budget,
     )
 
@@ -290,6 +304,15 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
                 },
             )
 
+        _best_effort_apply_strategy_patch(
+            session,
+            env=env,
+            manifest=manifest,
+            workspace_id=workspace_id,
+            reflected_run_id=reflected_run_id,
+            event_repo=event_repo,
+        )
+
         task_repo.mark_succeeded(env.task_id)
         event_repo.append(
             task_id=env.task_id,
@@ -336,3 +359,101 @@ def _mark_needs_review(
             event_type="task_needs_review",
             message=reason,
         )
+
+
+def _build_reflection_payload(session, *, workspace_id: str, inp: RunReflectionInput) -> ReflectionTaskPayload:
+    """Enrich reflect agent input with artifact paths and current strategy state."""
+    artifact_repo = ArtifactRepository(session)
+    run_repo = RunRepository(session)
+    strategy_repo = SearchStrategyStateRepository(session)
+
+    reflected_run_id = inp.run_id
+    artifacts = artifact_repo.list_for_run(reflected_run_id)
+    paths = {a.artifact_type: a.storage_uri for a in artifacts}
+
+    reflected_summary: dict = {}
+    try:
+        reflected_run = run_repo.get_or_raise(reflected_run_id)
+        reflected_summary = reflected_run.result_summary_json or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "reflect_run: could not load reflected run summary for %s: %s",
+            reflected_run_id,
+            exc,
+        )
+
+    current_state = strategy_repo.get_for_workspace(workspace_id)
+
+    return ReflectionTaskPayload(
+        reflected_run_id=reflected_run_id,
+        max_tool_calls=inp.max_tool_calls,
+        timeout_seconds=inp.timeout_seconds,
+        coverage_report_path=paths.get("coverage_report"),
+        search_ledger_path=paths.get("search_ledger"),
+        candidate_pool_path=paths.get("candidate_pool"),
+        reflected_run_summary=reflected_summary,
+        current_strategy_state=current_state,
+    )
+
+
+def _best_effort_apply_strategy_patch(
+    session,
+    *,
+    env: TaskEnvelope,
+    manifest: ReflectionManifest,
+    workspace_id: str,
+    reflected_run_id: str,
+    event_repo: TaskEventRepository,
+) -> None:
+    """Validate and apply strategy_patch.json; never fail the reflect run."""
+    patch_path_str = manifest.artifact_paths.get("strategy_patch")
+    if not patch_path_str:
+        logger.info("reflect_run: no strategy_patch artifact — skipping apply")
+        return
+
+    patch_path = Path(patch_path_str)
+    if not patch_path.exists():
+        logger.warning("reflect_run: strategy_patch missing at %s — skipping apply", patch_path)
+        event_repo.append(
+            task_id=env.task_id,
+            run_id=env.run_id,
+            event_type="strategy_patch_rejected",
+            message="strategy_patch file not found on disk",
+        )
+        return
+
+    try:
+        raw = json.loads(patch_path.read_text(encoding="utf-8"))
+        patch = validate_strategy_patch(raw)
+    except (json.JSONDecodeError, StrategyPatchError) as exc:
+        logger.warning("reflect_run: strategy patch rejected: %s", exc)
+        event_repo.append(
+            task_id=env.task_id,
+            run_id=env.run_id,
+            event_type="strategy_patch_rejected",
+            message=str(exc)[:500],
+        )
+        return
+
+    strategy_repo = SearchStrategyStateRepository(session)
+    current = strategy_repo.get_for_workspace(workspace_id)
+    new_state = apply_strategy_patch(
+        current,
+        patch,
+        workspace_id=workspace_id,
+        reflection_run_id=env.run_id,
+        reflection_task_id=env.task_id,
+    )
+    strategy_repo.upsert(new_state)
+    event_repo.append(
+        task_id=env.task_id,
+        run_id=env.run_id,
+        event_type="strategy_patch_applied",
+        message=f"Strategy patch applied for reflected_run={reflected_run_id}",
+        payload_json=new_state.model_dump(mode="json"),
+    )
+    logger.info(
+        "reflect_run: strategy patch applied workspace=%s reflected_run=%s",
+        workspace_id,
+        reflected_run_id,
+    )

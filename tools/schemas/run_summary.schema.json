@@ -26,12 +26,12 @@
     "jobs_saved": { "type": "integer", "minimum": 0 },
     "jobs_failed": { "type": "integer", "minimum": 0 },
     "jobs_skipped": { "type": "integer", "minimum": 0 },
-    "top_workstreams": {
+    "top_role_categories": {
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "workstream": { "type": "string" },
+          "role_category": { "type": "string" },
           "count": { "type": "integer" }
         }
       }

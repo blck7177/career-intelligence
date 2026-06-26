@@ -13,7 +13,7 @@
     "date_found",
     "fetch_status",
     "raw_jd_path",
-    "primary_workstream",
+    "primary_role_category",
     "classification_confidence",
     "classification_evidence",
     "validation_status",
@@ -47,12 +47,12 @@
     "preferred_skills": { "type": "array", "items": { "type": "string" } },
     "tools_mentioned": { "type": "array", "items": { "type": "string" } },
     "seniority_inferred": { "type": "string" },
-    "primary_workstream": {
+    "primary_role_category": {
       "type": "string",
       "minLength": 1,
-      "description": "Internal key for role category; product label: role category. Exact label from configs/workstream_taxonomy.yaml, or 'unknown'."
+      "description": "Internal key for role category; product label: role category. Exact label from configs/role_category_taxonomy.yaml, or 'unknown'."
     },
-    "secondary_workstreams": { "type": "array", "items": { "type": "string" } },
+    "secondary_role_categories": { "type": "array", "items": { "type": "string" } },
     "classification_confidence": {
       "type": "string",
       "enum": ["high", "medium", "low"]

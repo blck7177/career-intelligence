@@ -55,7 +55,7 @@ def _build_user_prompt(
 ## Role Overview
 Title: {job_record.get('title', 'Unknown')}
 Company: {job_record.get('company', 'Unknown')}
-Role category: {job_record.get('primary_workstream', 'Unknown')}
+Role category: {job_record.get('primary_role_category', 'Unknown')}
 Location: {job_record.get('location', 'Unknown')}
 
 ## Job Intelligence Report (structured analysis)

@@ -51,10 +51,10 @@ function JobReportContent({ report }: { report: JobReportResponse }) {
           <Badge className="bg-blue-100 text-blue-700 text-[10px]">with research</Badge>
         )}
       </div>
-      {(s.primary_workstream as string | undefined) && (
+      {(s.primary_role_category as string | undefined) && (
         <div>
           <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
-          <p>{s.primary_workstream as string}</p>
+          <p>{s.primary_role_category as string}</p>
         </div>
       )}
       {(s.business_context as string | undefined) && (

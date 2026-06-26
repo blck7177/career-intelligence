@@ -17,7 +17,7 @@ Usage:
     report_md, structured_report, prompt_version = analyze_role(
         jd_text=...,
         job_record=...,       # dict (title, company, location, etc.)
-        taxonomy=...,         # list of workstream dicts from workstream_taxonomy.yaml
+        taxonomy=...,         # list of role category dicts from role_category_taxonomy.yaml
         llm_client=...,
     )
 """
@@ -369,13 +369,13 @@ Rules:
 3. If the report is ambiguous on a field, consult the raw JD excerpt only to resolve ambiguity — do not re-reason.
 4. For evidence fields: copy exact phrases or sentences from the report or JD. Do not paraphrase.
 5. For confidence fields: "high" = strongly supported by multiple evidence points; "medium" = inferred from limited signals; "low" = uncertain.
-6. For primary_workstream (role category): use ONLY the exact label string from the taxonomy list provided. Do not invent new labels. Use "unknown" if no label fits.
+6. For primary_role_category (role category): use ONLY the exact label string from the taxonomy list provided. Do not invent new labels. Use "unknown" if no label fits.
 7. For underlying_skill_demands: include the most important capabilities only (up to 8). Quality over quantity.
 8. Output valid JSON only. No markdown code fences, no commentary outside the JSON object.
 """
 
 _LAYER2_USER_TEMPLATE = """\
-=== ROLE CATEGORY TAXONOMY LABELS (use exact strings for primary_workstream / secondary_workstreams fields) ===
+=== ROLE CATEGORY TAXONOMY LABELS (use exact strings for primary_role_category / secondary_role_categories fields) ===
 {taxonomy_labels}
 
 === LAYER 1 JOB INTELLIGENCE REPORT ===
@@ -418,10 +418,10 @@ _LAYER2_USER_TEMPLATE = """\
       "confidence": "high | medium | low"
     }}
   ],
-  "primary_workstream": "exact label from taxonomy, or unknown",
-  "secondary_workstreams": ["exact label from taxonomy"],
-  "workstream_evidence": ["phrase or sentence from report supporting workstream classification"],
-  "workstream_confidence": "high | medium | low",
+  "primary_role_category": "exact label from taxonomy, or unknown",
+  "secondary_role_categories": ["exact label from taxonomy"],
+  "role_category_evidence": ["phrase or sentence from report supporting role category classification"],
+  "role_category_confidence": "high | medium | low",
   "uncertainty_notes": [
     {{
       "issue": "what is unclear in the JD or report",
@@ -450,7 +450,7 @@ def analyze_role(
     Args:
         jd_text:        Raw job description text.
         job_record:     Dict (title, company, location, source_url, etc.).
-        taxonomy:       List of workstream dicts from workstream_taxonomy.yaml.
+        taxonomy:       List of role category dicts from role_category_taxonomy.yaml.
         llm_client:     LLM client instance.
         research_notes: Optional pre-research markdown (company background, team context).
                         When provided, included in the Layer 1 prompt under a clearly

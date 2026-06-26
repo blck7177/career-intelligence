@@ -72,10 +72,10 @@ def seeded_db(db_session: Session) -> dict:
         research_bundle_hash="none",
         status="active",
         structured_json={
-            "primary_workstream": "market_risk",
+            "primary_role_category": "market_risk",
             "business_context": {"summary": "Risk management role"},
         },
-        summary_json={"primary_workstream": "market_risk"},
+        summary_json={"primary_role_category": "market_risk"},
     )
     db_session.add(job_report)
     db_session.flush()

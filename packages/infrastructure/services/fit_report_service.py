@@ -168,7 +168,7 @@ def create_fit_report(
             "company": job_orm.company,
             "location": job_orm.location or "",
             "source_url": job_orm.source_url,
-            "primary_workstream": structured_job_report.get("primary_workstream", ""),
+            "primary_role_category": structured_job_report.get("primary_role_category", ""),
         }
 
     # 8. Generate fit report

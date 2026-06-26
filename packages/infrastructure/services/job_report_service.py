@@ -200,7 +200,7 @@ def create_job_report(
         structured_artifact_id=structured_artifact.id,
         structured_json=structured.model_dump(),
         summary_json={
-            "primary_workstream": structured.primary_workstream,
+            "primary_role_category": structured.primary_role_category,
             "analyst_notes": structured.analyst_notes[:200] if structured.analyst_notes else "",
         },
     )

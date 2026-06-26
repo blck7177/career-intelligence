@@ -41,10 +41,10 @@
           "type": ["integer", "null"],
           "description": "Upper bound on years of experience; null means unconstrained."
         },
-        "workstreams": {
+        "role_categories": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Required role category labels (legacy internal key: workstreams)."
+          "description": "Required role category labels."
         },
         "exclusions": {
           "type": "array",

@@ -66,13 +66,13 @@ def _job_read(job, report=None) -> JobRead:
         data["latest_job_report_id"] = report.id
     if report and report.structured_json:
         s = report.structured_json
-        data["primary_workstream"] = s.get("primary_workstream")
-        data["workstream_confidence"] = s.get("workstream_confidence")
+        data["primary_role_category"] = s.get("primary_role_category")
+        data["role_category_confidence"] = s.get("role_category_confidence")
         pf = s.get("position_function") or {}
         if isinstance(pf, dict) and pf.get("confidence"):
-            # Prefer function confidence as fallback when workstream confidence absent
-            if not data["workstream_confidence"]:
-                data["workstream_confidence"] = pf.get("confidence")
+            # Prefer function confidence as fallback when role category confidence absent
+            if not data["role_category_confidence"]:
+                data["role_category_confidence"] = pf.get("confidence")
         data["seniority_inferred"] = _infer_seniority_from_title(job.title)
     return JobRead.model_validate(data)
 
@@ -82,7 +82,7 @@ def list_jobs(
     status: Optional[str] = Query(None, description="Filter by job status: discovered|reportable|invalid|stale"),
     include_report_summary: bool = Query(
         False,
-        description="Join latest active job report for workstream/seniority/confidence fields",
+        description="Join latest active job report for role category/seniority/confidence fields",
     ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),

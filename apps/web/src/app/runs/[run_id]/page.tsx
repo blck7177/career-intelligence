@@ -98,7 +98,7 @@ function SeverityChip({ severity }: { severity: string }) {
 function JobReportSection({ report }: { report: JobReportResponse }) {
   const s = report.structured_json as Record<string, unknown>;
 
-  const primaryWorkstream = s.primary_workstream as string | undefined;
+  const primaryRoleCategory = s.primary_role_category as string | undefined;
 
   const bc = s.business_context as
     | { summary?: string; problem_solved?: string; confidence?: string }
@@ -132,10 +132,10 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-xs text-zinc-700">
-        {primaryWorkstream && (
+        {primaryRoleCategory && (
           <div>
             <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
-            <p>{primaryWorkstream}</p>
+            <p>{primaryRoleCategory}</p>
           </div>
         )}
 

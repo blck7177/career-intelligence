@@ -24,6 +24,7 @@ from packages.infrastructure.db.models import (
     Job,
     JobReport,
     Run,
+    SearchStrategyStateRow,
     Task,
     TaskEvent,
     User,
@@ -31,6 +32,8 @@ from packages.infrastructure.db.models import (
     Workspace,
     WorkspaceMember,
 )
+from packages.contracts.strategy.state import SearchStrategyState
+from packages.domain.strategy_state import state_from_db_row, state_to_db_json
 
 
 # ---------------------------------------------------------------------------
@@ -932,3 +935,56 @@ class ProfileRepository:
 
         self._s.flush()
         return profile
+
+
+# ---------------------------------------------------------------------------
+# SearchStrategyState
+# ---------------------------------------------------------------------------
+
+
+class SearchStrategyStateRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_workspace(self, workspace_id: str) -> Optional[SearchStrategyState]:
+        row = (
+            self._s.query(SearchStrategyStateRow)
+            .filter(SearchStrategyStateRow.workspace_id == workspace_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return state_from_db_row(
+            workspace_id=row.workspace_id,
+            profile_id=row.profile_id,
+            state_json=row.state_json or {},
+            last_reflection_run_id=row.last_reflection_run_id,
+            last_reflection_task_id=row.last_reflection_task_id,
+            updated_at=row.updated_at,
+        )
+
+    def upsert(self, state: SearchStrategyState) -> SearchStrategyState:
+        row = (
+            self._s.query(SearchStrategyStateRow)
+            .filter(SearchStrategyStateRow.workspace_id == state.workspace_id)
+            .first()
+        )
+        if row is None:
+            row = SearchStrategyStateRow(workspace_id=state.workspace_id)
+            self._s.add(row)
+
+        row.profile_id = state.profile_id
+        row.state_json = state_to_db_json(state)
+        row.last_reflection_run_id = state.last_reflection_run_id
+        row.last_reflection_task_id = state.last_reflection_task_id
+        row.updated_at = state.updated_at or datetime.now(timezone.utc)
+
+        self._s.flush()
+        return state_from_db_row(
+            workspace_id=row.workspace_id,
+            profile_id=row.profile_id,
+            state_json=row.state_json or {},
+            last_reflection_run_id=row.last_reflection_run_id,
+            last_reflection_task_id=row.last_reflection_task_id,
+            updated_at=row.updated_at,
+        )

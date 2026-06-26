@@ -10,10 +10,10 @@ interface ProfileOption {
 
 interface JobFiltersProps {
   profiles: ProfileOption[];
-  workstreams: string[];
+  roleCategories: string[];
 }
 
-export function JobFilters({ profiles, workstreams }: JobFiltersProps) {
+export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -31,7 +31,7 @@ export function JobFilters({ profiles, workstreams }: JobFiltersProps) {
   );
 
   const profileId = sp.get("profile_id") ?? "";
-  const workstream = sp.get("workstream") ?? "";
+  const roleCategory = sp.get("role_category") ?? "";
   const seniority = sp.get("seniority") ?? "";
   const confidence = sp.get("confidence") ?? "";
 
@@ -61,18 +61,18 @@ export function JobFilters({ profiles, workstreams }: JobFiltersProps) {
         </div>
       )}
 
-      {workstreams.length > 0 && (
+      {roleCategories.length > 0 && (
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-zinc-500 whitespace-nowrap">Role category:</span>
           <select
-            value={workstream}
-            onChange={(e) => update("workstream", e.target.value || null)}
+            value={roleCategory}
+            onChange={(e) => update("role_category", e.target.value || null)}
             className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[180px]"
           >
             <option value="">All</option>
-            {workstreams.map((ws) => (
-              <option key={ws} value={ws}>
-                {ws.split(" / ")[0]}
+            {roleCategories.map((category) => (
+              <option key={category} value={category}>
+                {category.split(" / ")[0]}
               </option>
             ))}
           </select>
@@ -109,7 +109,7 @@ export function JobFilters({ profiles, workstreams }: JobFiltersProps) {
         </select>
       </div>
 
-      {(profileId || workstream || seniority || confidence) && (
+      {(profileId || roleCategory || seniority || confidence) && (
         <button
           type="button"
           onClick={() => router.push("/jobs")}

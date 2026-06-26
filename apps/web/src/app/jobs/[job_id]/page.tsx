@@ -48,7 +48,7 @@ function SeverityChip({ severity }: { severity: string }) {
 function JobIntelligenceReport({ report }: { report: JobReportResponse }) {
   const s = report.structured_json as Record<string, unknown>;
 
-  const primaryWorkstream = s.primary_workstream as string | undefined;
+  const primaryRoleCategory = s.primary_role_category as string | undefined;
   const bc = s.business_context as
     | { summary?: string; problem_solved?: string; confidence?: string }
     | undefined;
@@ -76,12 +76,12 @@ function JobIntelligenceReport({ report }: { report: JobReportResponse }) {
         <Badge className="bg-emerald-100 text-emerald-700 text-[10px]">{report.status}</Badge>
       </div>
 
-      {primaryWorkstream && (
+      {primaryRoleCategory && (
         <div>
           <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-1">
             Role category
           </p>
-          <p className="text-sm font-medium text-zinc-800">{primaryWorkstream}</p>
+          <p className="text-sm font-medium text-zinc-800">{primaryRoleCategory}</p>
         </div>
       )}
 

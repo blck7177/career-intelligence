@@ -44,6 +44,7 @@ from packages.domain.agent_jobs.discovery_planner import (
     budget_for_depth,
 )
 from packages.domain.agent_jobs.planner import build_invocation_spec
+from packages.domain.strategy_state import materialize_discovery_hints
 from packages.infrastructure.agent_runtime.openclaw import create_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
@@ -54,6 +55,7 @@ from packages.infrastructure.db.repositories import (
     JobRepository,
     ProfileRepository,
     RunRepository,
+    SearchStrategyStateRepository,
     TaskEventRepository,
     TaskRepository,
 )
@@ -213,14 +215,32 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 3: Build DiscoveryTaskSpec and write to input.json
     # ------------------------------------------------------------------
+    with get_session() as session:
+        strategy_state = SearchStrategyStateRepository(session).get_for_workspace(workspace_id)
+
+    source_registry_snapshot = None
+    previous_run_diagnostics = None
+    if strategy_state is not None:
+        source_registry_snapshot, previous_run_diagnostics = materialize_discovery_hints(
+            strategy_state
+        )
+        logger.info(
+            "search_run: loaded strategy state for workspace=%s "
+            "(known_boards=%d, coverage_gaps=%d, recommended=%d)",
+            workspace_id,
+            len(source_registry_snapshot.known_boards),
+            len(previous_run_diagnostics.coverage_gaps),
+            len(previous_run_diagnostics.recommended_next_searches),
+        )
+
     task_spec = build_discovery_task_spec(
         discovery_intent=discovery_intent,
         search_depth=frontend_input.search_depth,
         artifacts_dir=_ARTIFACTS_DIR,
         run_id=env.run_id,
         task_id=env.task_id,
-        # MVP: catalog_context, source_registry_snapshot, previous_run_diagnostics
-        # are all None. Future: planner queries DB to populate these.
+        source_registry_snapshot=source_registry_snapshot,
+        previous_run_diagnostics=previous_run_diagnostics,
     )
 
     # Wrap into AgentTaskInput using DiscoveryTaskSpec as the payload

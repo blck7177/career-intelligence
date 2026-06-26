@@ -17,7 +17,7 @@ type StatusFilter = "all" | "discovered" | "reportable" | "stale" | "invalid";
 interface PageProps {
   searchParams: Promise<{
     profile_id?: string;
-    workstream?: string;
+    role_category?: string;
     seniority?: string;
     confidence?: string;
     status?: string;
@@ -65,15 +65,15 @@ function ConfidenceBadge({ c }: { c: string }) {
   return <Badge className="bg-rose-100 text-rose-800 border-0 text-[10px]">Low</Badge>;
 }
 
-function shortWs(ws: string) {
+function shortRoleCategory(ws: string) {
   return ws.split(" / ")[0];
 }
 
-function uniqueWorkstreams(jobs: JobRead[]): string[] {
+function uniqueRoleCategories(jobs: JobRead[]): string[] {
   const set = new Set<string>();
   for (const j of jobs) {
-    if (j.primary_workstream && j.primary_workstream !== "unknown") {
-      set.add(j.primary_workstream);
+    if (j.primary_role_category && j.primary_role_category !== "unknown") {
+      set.add(j.primary_role_category);
     }
   }
   return [...set].sort();
@@ -120,15 +120,15 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   let jobs = jobList.items;
 
-  if (params.workstream) {
-    jobs = jobs.filter((j) => j.primary_workstream === params.workstream);
+  if (params.role_category) {
+    jobs = jobs.filter((j) => j.primary_role_category === params.role_category);
   }
   if (params.seniority) {
     const term = params.seniority.toLowerCase();
     jobs = jobs.filter((j) => j.seniority_inferred?.toLowerCase().includes(term));
   }
   if (params.confidence) {
-    jobs = jobs.filter((j) => j.workstream_confidence === params.confidence);
+    jobs = jobs.filter((j) => j.role_category_confidence === params.confidence);
   }
   if (params.q) {
     const q = params.q.toLowerCase();
@@ -163,14 +163,14 @@ export default async function JobsPage({ searchParams }: PageProps) {
     jobs = [...jobs].sort((a, b) => a.company.localeCompare(b.company));
   }
 
-  const workstreams = uniqueWorkstreams(jobList.items);
+  const roleCategories = uniqueRoleCategories(jobList.items);
   const profileOptions = profile
     ? [{ id: profile.id, label: profile.summary?.slice(0, 40) ?? "Your Profile" }]
     : [];
 
   const activeFilters = [
     params.profile_id,
-    params.workstream,
+    params.role_category,
     params.seniority,
     params.confidence,
     params.q,
@@ -218,7 +218,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
       </div>
 
       <Suspense fallback={null}>
-        <JobFilters profiles={profileOptions} workstreams={workstreams} />
+        <JobFilters profiles={profileOptions} roleCategories={roleCategories} />
       </Suspense>
 
       {!params.profile_id && profile && (
@@ -258,8 +258,8 @@ export default async function JobsPage({ searchParams }: PageProps) {
                         <p className="text-sm font-semibold text-zinc-900 leading-snug truncate">
                           {job.title}
                         </p>
-                        {job.workstream_confidence && (
-                          <ConfidenceBadge c={job.workstream_confidence} />
+                        {job.role_category_confidence && (
+                          <ConfidenceBadge c={job.role_category_confidence} />
                         )}
                       </div>
                       <Badge className={jobStatusBg(job.status) + " text-[10px] shrink-0"}>
@@ -280,11 +280,11 @@ export default async function JobsPage({ searchParams }: PageProps) {
                       )}
                     </div>
 
-                    {(job.primary_workstream || job.seniority_inferred) && (
+                    {(job.primary_role_category || job.seniority_inferred) && (
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {job.primary_workstream && job.primary_workstream !== "unknown" && (
+                        {job.primary_role_category && job.primary_role_category !== "unknown" && (
                           <Badge variant="secondary" className="text-[10px]">
-                            {shortWs(job.primary_workstream)}
+                            {shortRoleCategory(job.primary_role_category)}
                           </Badge>
                         )}
                         {job.seniority_inferred && (

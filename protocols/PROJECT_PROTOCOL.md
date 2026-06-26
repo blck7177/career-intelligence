@@ -33,8 +33,8 @@ Search 是开放式探索，不是 deterministic pipeline。OpenClaw 使用 web 
 - 禁止：登录平台、爬取非公开内容
 
 ### Step 3: Workstream Classification
-- 对照 protocols/WORKSTREAM_TAXONOMY.md 和 configs/workstream_taxonomy.yaml
-- 确定 primary_workstream 和 secondary_workstreams
+- 对照 protocols/ROLE_CATEGORY_TAXONOMY.md 和 configs/role_category_taxonomy.yaml
+- 确定 primary_role_category 和 secondary_role_categories
 - 必须记录 classification_confidence 和 classification_evidence
 - 不确定时，记录 uncertainty_notes，不强制归类
 

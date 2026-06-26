@@ -527,3 +527,24 @@ class CandidateProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class SearchStrategyStateRow(Base):
+    """Workspace-level cross-run search strategy (one row per workspace, MVP)."""
+
+    __tablename__ = "search_strategy_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    last_reflection_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    last_reflection_task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

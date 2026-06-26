@@ -70,10 +70,10 @@ class JobReportStructured(BaseModel):
     position_function: PositionFunction = Field(default_factory=PositionFunction)
     daily_workflow: DailyWorkflow = Field(default_factory=DailyWorkflow)
     underlying_skill_demands: list[UnderlyingSkillDemand] = Field(default_factory=list)
-    primary_workstream: str = "unknown"
-    secondary_workstreams: list[str] = Field(default_factory=list)
-    workstream_evidence: list[str] = Field(default_factory=list)
-    workstream_confidence: Literal["high", "medium", "low"] = "low"
+    primary_role_category: str = "unknown"
+    secondary_role_categories: list[str] = Field(default_factory=list)
+    role_category_evidence: list[str] = Field(default_factory=list)
+    role_category_confidence: Literal["high", "medium", "low"] = "low"
     uncertainty_notes: list[UncertaintyNote] = Field(default_factory=list)
     analyst_notes: str = ""
 

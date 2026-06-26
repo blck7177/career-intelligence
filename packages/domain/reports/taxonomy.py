@@ -1,10 +1,10 @@
 """
-TaxonomyLoader — loads role category taxonomy from configs/workstream_taxonomy.yaml.
+TaxonomyLoader — loads role category taxonomy from configs/role_category_taxonomy.yaml.
 
 Pure function (reads a config file). No DB, no LLM.
 The taxonomy is used by role_analyzer to:
   - Provide labels to Layer 1 (role archetype section)
-  - Constrain Layer 2 primary_workstream to exact taxonomy labels (product label: role category)
+  - Constrain Layer 2 primary_role_category to exact taxonomy labels
 """
 from __future__ import annotations
 
@@ -16,15 +16,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TAXONOMY_PATH = (
-    Path(__file__).resolve().parents[3] / "configs" / "workstream_taxonomy.yaml"
+    Path(__file__).resolve().parents[3] / "configs" / "role_category_taxonomy.yaml"
 )
 
 
 def load_taxonomy(taxonomy_path: Path | None = None) -> list[dict[str, Any]]:
     """
-    Load workstream taxonomy from YAML.
+    Load role category taxonomy from YAML.
 
-    Returns list of workstream dicts with at minimum a 'label' key.
+    Returns list of category dicts with at minimum a 'label' key.
     Returns empty list (graceful degrade) if file not found or parse fails.
     """
     try:
@@ -41,9 +41,11 @@ def load_taxonomy(taxonomy_path: Path | None = None) -> list[dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        workstreams = data.get("workstreams", []) if isinstance(data, dict) else []
-        logger.debug("Loaded %d workstreams from %s", len(workstreams), path)
-        return workstreams
+        if not isinstance(data, dict):
+            return []
+        categories = data.get("role_categories") or data.get("workstreams") or []
+        logger.debug("Loaded %d role categories from %s", len(categories), path)
+        return categories
     except Exception as exc:
         logger.warning("Failed to load taxonomy from %s: %s", path, exc)
         return []

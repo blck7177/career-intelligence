@@ -1,8 +1,8 @@
 # Machine-readable role category taxonomy (product label: role category).
-# primary_workstream field values must be exact labels from this file.
-# Human-readable guide: protocols/WORKSTREAM_TAXONOMY.md
+# primary_role_category field values must be exact labels from this file.
+# Human-readable guide: protocols/ROLE_CATEGORY_TAXONOMY.md
 
-workstreams:
+role_categories:
   # --- Cross-industry (general) ---
   - id: software_engineering
     label: "Software Engineering / Platform"

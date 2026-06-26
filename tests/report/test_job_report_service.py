@@ -24,7 +24,7 @@ SAMPLE_JD = "We need a quantitative analyst with VaR modelling experience."
 
 def _make_structured_report() -> JobReportStructured:
     return JobReportStructured(
-        primary_workstream="market_risk",
+        primary_role_category="market_risk",
         analyst_notes="Strong quant role.",
     )
 

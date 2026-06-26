@@ -1,10 +1,10 @@
 # Role Category Taxonomy
 
-产品面称为 **role category**（角色类别）。内部 JSON/DB 字段仍使用 `primary_workstream`、`secondary_workstreams` 等 legacy key。
+产品面与存储字段统一使用 **role category**（`primary_role_category` 等）。
 
-机器可读枚举（id、label、keywords）见 `configs/workstream_taxonomy.yaml`。本文件补充 agent 分类时需要的判断指南。
+机器可读枚举（id、label、keywords）见 `configs/role_category_taxonomy.yaml`。本文件补充 agent 分类时需要的判断指南。
 
-`primary_workstream` 字段值必须是 yaml 中 label 的**精确字符串**；无法匹配时用 `unknown`。
+`primary_role_category` 字段值必须是 yaml 中 label 的**精确字符串**；无法匹配时用 `unknown`。
 
 ---
 

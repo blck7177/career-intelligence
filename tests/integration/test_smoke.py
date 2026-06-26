@@ -302,7 +302,12 @@ class TestReflectionManifestSmoke:
         report_path.write_text("# Reflection\n\nAnalysis here.")
         patch_path = tmp_path / "strategy_patch.json"
         patch_path.write_text(
-            json.dumps({"run_id": "run_abc", "patches": []})
+            json.dumps(
+                {
+                    "effective_sources": ["https://boards.greenhouse.io/acme"],
+                    "recommended_next_searches": ["Retry with broader titles"],
+                }
+            )
         )
 
         spec = AgentInvocationSpec(

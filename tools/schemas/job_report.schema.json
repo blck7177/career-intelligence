@@ -16,7 +16,7 @@
     "position_function",
     "daily_workflow",
     "underlying_skill_demands",
-    "primary_workstream",
+    "primary_role_category",
     "analyst_notes"
   ],
   "additionalProperties": true,
@@ -199,25 +199,25 @@
       "description": "Translation of JD phrases into actual demand stack. Up to 8 most important demands."
     },
 
-    "primary_workstream": {
+    "primary_role_category": {
       "type": "string",
       "minLength": 1,
-      "description": "Internal key for role category; product label: role category. Exact label from configs/workstream_taxonomy.yaml, or 'unknown'."
+      "description": "Internal key for role category; product label: role category. Exact label from configs/role_category_taxonomy.yaml, or 'unknown'."
     },
-    "secondary_workstreams": {
+    "secondary_role_categories": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Secondary role category labels (internal workstream keys)."
+      "description": "Secondary role category labels."
     },
-    "workstream_evidence": {
+    "role_category_evidence": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "Evidence supporting role category classification (internal workstream keys)."
+      "description": "Evidence supporting role category classification."
     },
-    "workstream_confidence": {
+    "role_category_confidence": {
       "type": "string",
       "enum": ["high", "medium", "low"],
-      "description": "Confidence in role category classification (internal workstream key)."
+      "description": "Confidence in role category classification."
     },
 
     "uncertainty_notes": {
