@@ -4,6 +4,7 @@ import { RunDetail } from "./RunDetail";
 
 interface Props {
   runs: RecentRun[];
+  filterQueryString: string;
 }
 
 function fmtCost(n: number): string {
@@ -28,7 +29,7 @@ function badgeClass(status: string): string {
   return `badge badge-${status}`;
 }
 
-export function RecentRuns({ runs }: Props) {
+export function RecentRuns({ runs, filterQueryString }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -54,7 +55,12 @@ export function RecentRuns({ runs }: Props) {
                 onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
               >
                 <td className="run-type">{r.run_type}</td>
-                <td><span className={badgeClass(r.status)}>{r.status}</span></td>
+                <td>
+                  <span className={badgeClass(r.status)}>{r.status}</span>
+                  {r.error_code && (
+                    <span className="error-code-hint">{r.error_code}</span>
+                  )}
+                </td>
                 <td className="num">{r.llm_calls || "-"}</td>
                 <td className="num">{r.total_tokens ? r.total_tokens.toLocaleString() : "-"}</td>
                 <td className={`num ${r.estimated_cost_usd > 0 ? "cost" : "cost-zero"}`}>
@@ -62,7 +68,13 @@ export function RecentRuns({ runs }: Props) {
                 </td>
                 <td className="time-ago">{timeAgo(r.created_at)}</td>
               </tr>
-              {expandedId === r.id && <RunDetail key={`detail-${r.id}`} runId={r.id} />}
+              {expandedId === r.id && (
+                <RunDetail
+                  key={`detail-${r.id}`}
+                  runId={r.id}
+                  filterQueryString={filterQueryString}
+                />
+              )}
             </>
           ))}
           {runs.length === 0 && (

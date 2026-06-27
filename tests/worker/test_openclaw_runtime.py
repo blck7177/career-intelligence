@@ -48,6 +48,114 @@ def test_invoke_rejects_embedded_transport(monkeypatch, tmp_path):
     assert summary["transport"] == "embedded"
 
 
+def test_invoke_extracts_usage_from_agent_meta(monkeypatch, tmp_path):
+    """Primary path: usage comes from agentMeta in stdout payload."""
+    payload = {
+        "result": {
+            "meta": {
+                "transport": "gateway",
+                "agentMeta": {
+                    "model": "claude-sonnet-4-6",
+                    "usage": {
+                        "input_tokens": 1200,
+                        "output_tokens": 350,
+                        "cache_read_tokens": 100,
+                    },
+                },
+            }
+        }
+    }
+
+    def fake_run(cmd, capture_output, text, timeout, env):
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0,
+            stdout=json.dumps(payload), stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runtime = OpenClawGatewayRuntime(openclaw_bin="openclaw")
+    result = runtime.invoke(_make_spec(tmp_path))
+
+    assert result.usage is not None
+    assert result.usage.model == "claude-sonnet-4-6"
+    assert result.usage.input_tokens == 1200
+    assert result.usage.output_tokens == 350
+    assert result.usage.cache_read_tokens == 100
+
+
+def test_invoke_falls_back_to_session_file_usage(monkeypatch, tmp_path):
+    """Fallback: agentMeta has no usage, recover from session JSONL."""
+    session_file = tmp_path / "session.jsonl"
+    session_file.write_text(
+        "\n".join([
+            json.dumps({
+                "type": "message",
+                "message": {
+                    "model": "claude-sonnet-4-6",
+                    "usage": {"input_tokens": 800, "output_tokens": 200},
+                },
+            }),
+            json.dumps({
+                "type": "message",
+                "message": {
+                    "model": "claude-sonnet-4-6",
+                    "usage": {"input_tokens": 500, "output_tokens": 150},
+                },
+            }),
+        ])
+        + "\n"
+    )
+
+    payload = {
+        "result": {
+            "meta": {
+                "transport": "gateway",
+                "agentMeta": {"sessionFile": str(session_file)},
+            }
+        }
+    }
+
+    def fake_run(cmd, capture_output, text, timeout, env):
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0,
+            stdout=json.dumps(payload), stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runtime = OpenClawGatewayRuntime(openclaw_bin="openclaw")
+    result = runtime.invoke(_make_spec(tmp_path))
+
+    assert result.usage is not None
+    assert result.usage.model == "claude-sonnet-4-6"
+    assert result.usage.input_tokens == 1300  # 800 + 500
+    assert result.usage.output_tokens == 350   # 200 + 150
+    assert result.usage.llm_calls == 2
+
+
+def test_invoke_no_usage_when_both_sources_empty(monkeypatch, tmp_path):
+    """Neither agentMeta nor session file has usage → result.usage is None."""
+    payload = {
+        "result": {
+            "meta": {"transport": "gateway"},
+        }
+    }
+
+    def fake_run(cmd, capture_output, text, timeout, env):
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0,
+            stdout=json.dumps(payload), stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    runtime = OpenClawGatewayRuntime(openclaw_bin="openclaw")
+    result = runtime.invoke(_make_spec(tmp_path))
+
+    assert result.usage is None
+
+
 def test_invoke_extracts_tool_calls_from_session_file(monkeypatch, tmp_path):
     session_file = tmp_path / "session.jsonl"
     session_file.write_text(

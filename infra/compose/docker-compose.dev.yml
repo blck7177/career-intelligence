@@ -189,6 +189,25 @@ services:
       api:
         condition: service_healthy
 
+  backup:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backup.Dockerfile
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: career
+      PGPASSWORD: career
+      PGDATABASE: career_openclaw
+      BACKUP_INTERVAL_SECONDS: "21600"
+      BACKUP_RETENTION_DAYS: "7"
+    volumes:
+      - ../../backups:/backups
+      - agent_artifacts:/app/data/agent_artifacts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Celery Flower — worker/task monitoring dashboard (dev only)
   # Access at http://localhost:5555
   flower:

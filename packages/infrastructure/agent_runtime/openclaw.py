@@ -604,14 +604,21 @@ def _normalize_tokens(usage: dict) -> tuple[int, int, int, int, int]:
     return int(inp), int(out), int(cache_r), int(cache_w), int(reasoning)
 
 
-def _count_session_llm_calls(session_file: str | None) -> int:
-    """Count assistant messages with usage in session JSONL (= number of LLM calls)."""
+def _aggregate_session_usage(
+    session_file: str | None,
+) -> tuple[int, int, int, int, int, int, str]:
+    """Sum per-message usage from session JSONL.
+
+    Returns (input, output, cache_read, cache_write, reasoning, llm_calls, model).
+    """
     if not session_file:
-        return 0
+        return 0, 0, 0, 0, 0, 0, ""
     path = Path(session_file)
     if not path.exists():
-        return 0
-    count = 0
+        return 0, 0, 0, 0, 0, 0, ""
+
+    total_inp = total_out = total_cr = total_cw = total_r = llm_calls = 0
+    model = ""
     try:
         for line in path.read_text().splitlines():
             line = line.strip()
@@ -621,45 +628,79 @@ def _count_session_llm_calls(session_file: str | None) -> int:
                 obj = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(obj, dict) and obj.get("type") == "message":
-                msg = obj.get("message", {})
-                if isinstance(msg, dict) and msg.get("usage"):
-                    count += 1
+            if not isinstance(obj, dict) or obj.get("type") != "message":
+                continue
+            msg = obj.get("message", {})
+            if not isinstance(msg, dict):
+                continue
+            usage = msg.get("usage")
+            if not isinstance(usage, dict):
+                continue
+            llm_calls += 1
+            inp, out, cr, cw, r = _normalize_tokens(usage)
+            total_inp += inp
+            total_out += out
+            total_cr += cr
+            total_cw += cw
+            total_r += r
+            if not model:
+                model = str(msg.get("model", ""))
     except OSError:
         pass
-    return count
+    return total_inp, total_out, total_cr, total_cw, total_r, llm_calls, model
 
 
 def _extract_agent_usage(
     payload: object | None,
     session_file: str | None,
 ) -> AgentUsageSummary | None:
-    """Extract LLM usage from stdout JSON → result.meta.agentMeta."""
-    if not isinstance(payload, dict):
-        return None
+    """Extract LLM usage from stdout JSON → result.meta.agentMeta, falling
+    back to per-message aggregation from the session JSONL file."""
 
+    # --- primary path: agentMeta.usage from stdout payload ---
     agent_meta = None
-    result = payload.get("result")
-    if isinstance(result, dict):
-        meta = result.get("meta")
-        if isinstance(meta, dict):
-            agent_meta = meta.get("agentMeta")
+    if isinstance(payload, dict):
+        result = payload.get("result")
+        if isinstance(result, dict):
+            meta = result.get("meta")
+            if isinstance(meta, dict):
+                agent_meta = meta.get("agentMeta")
 
-    if not isinstance(agent_meta, dict):
-        return None
+    if isinstance(agent_meta, dict):
+        usage = agent_meta.get("usage")
+        if isinstance(usage, dict):
+            model = str(agent_meta.get("model", ""))
+            inp, out, cache_r, cache_w, reasoning = _normalize_tokens(usage)
+            if inp > 0 or out > 0:
+                _, _, _, _, _, llm_calls, _ = _aggregate_session_usage(session_file)
+                return AgentUsageSummary(
+                    model=model,
+                    input_tokens=inp,
+                    output_tokens=out,
+                    cache_read_tokens=cache_r,
+                    cache_write_tokens=cache_w,
+                    reasoning_tokens=reasoning,
+                    session_file=session_file,
+                    llm_calls=llm_calls,
+                )
 
-    usage = agent_meta.get("usage")
-    if not isinstance(usage, dict):
-        return None
-
-    model = str(agent_meta.get("model", ""))
-    inp, out, cache_r, cache_w, reasoning = _normalize_tokens(usage)
-
+    # --- fallback: aggregate from session JSONL ---
+    inp, out, cache_r, cache_w, reasoning, llm_calls, model = (
+        _aggregate_session_usage(session_file)
+    )
     if inp == 0 and out == 0:
+        logger.warning(
+            "Agent usage unavailable: agentMeta missing and session file "
+            "has no token data (session_file=%s)",
+            session_file,
+        )
         return None
 
-    llm_calls = _count_session_llm_calls(session_file)
-
+    logger.info(
+        "Agent usage recovered from session file (agentMeta unavailable): "
+        "input=%d output=%d calls=%d session_file=%s",
+        inp, out, llm_calls, session_file,
+    )
     return AgentUsageSummary(
         model=model,
         input_tokens=inp,

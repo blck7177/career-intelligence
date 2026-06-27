@@ -35,6 +35,9 @@ apps/web/src/api/generated/
 # Docker
 .docker/
 
+# Backups
+backups/
+
 # Editor
 .DS_Store
 .idea/
