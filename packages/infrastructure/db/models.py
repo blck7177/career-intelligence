@@ -27,6 +27,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -556,6 +557,41 @@ class CandidateProfile(Base):
     years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
     search_defaults: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class CompanySource(Base):
+    """ATS board auto-discovered from agent runs, used for API sync."""
+
+    __tablename__ = "company_sources"
+    __table_args__ = (
+        UniqueConstraint("ats_provider", "board_token", name="uq_company_sources_provider_token"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=True
+    )
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ats_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    board_token: Mapped[str] = mapped_column(String(255), nullable=False)
+    board_api_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    board_careers_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="discovered")
+    discovered_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    last_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    job_count_last_sync: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

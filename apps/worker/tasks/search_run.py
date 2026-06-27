@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -237,6 +238,16 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             len(previous_run_diagnostics.coverage_gaps),
             len(previous_run_diagnostics.recommended_next_searches),
         )
+
+    # ------------------------------------------------------------------
+    # Step 3a: Board Sync — pull jobs from verified ATS boards via API
+    # ------------------------------------------------------------------
+    try:
+        board_sync_count = _sync_active_boards(workspace_id, env.run_id, env.task_id)
+        if board_sync_count:
+            logger.info("search_run: board sync added %d new jobs", board_sync_count)
+    except Exception:
+        logger.warning("search_run: board sync failed (non-blocking)", exc_info=True)
 
     catalog_context = _build_catalog_context(workspace_id)
     last_run_errors = _extract_last_run_errors(workspace_id)
@@ -499,6 +510,16 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     ingest_stats = _persist_discovered_jobs(manifest, env.run_id, env.task_id)
     job_ids = ingest_stats["job_ids"]
+
+    # ------------------------------------------------------------------
+    # Step 10c: Register newly discovered ATS sources
+    # ------------------------------------------------------------------
+    try:
+        registered = _register_discovered_sources(job_ids, env.run_id)
+        if registered:
+            logger.info("search_run: registered %d new ATS sources", registered)
+    except Exception:
+        logger.warning("search_run: source registration failed (non-blocking)", exc_info=True)
 
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
@@ -1161,3 +1182,185 @@ def _mark_needs_review(
             event_type="task_needs_review",
             message=reason,
         )
+
+
+# ---------------------------------------------------------------------------
+# ATS Board Sync — pre-discovery phase
+# ---------------------------------------------------------------------------
+
+
+def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
+    """Sync jobs from verified/active ATS boards before agent discovery.
+
+    Returns number of new jobs ingested. Non-blocking: failures are logged
+    but do not affect the discovery run.
+    """
+    import httpx
+    from packages.domain.agent_jobs.ats_providers import (
+        ATS_PROVIDERS,
+        parse_board_response,
+    )
+    from packages.infrastructure.db.repositories import CompanySourceRepository
+
+    with get_session() as session:
+        raw_sources = CompanySourceRepository(session).list_syncable()
+        sources = [
+            {
+                "id": s.id,
+                "company_name": s.company_name,
+                "ats_provider": s.ats_provider,
+                "board_api_url": s.board_api_url,
+                "status": s.status,
+            }
+            for s in raw_sources
+        ]
+
+    if not sources:
+        return 0
+
+    logger.info("board_sync: found %d syncable boards", len(sources))
+    total_new = 0
+
+    for src in sources:
+        if src["ats_provider"] not in ATS_PROVIDERS:
+            continue
+        api_url = src["board_api_url"]
+        if not api_url:
+            continue
+
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(api_url)
+                resp.raise_for_status()
+            board_jobs = parse_board_response(src["ats_provider"], resp.json())
+        except Exception as exc:
+            logger.warning(
+                "board_sync: failed to fetch %s (%s): %s",
+                src["company_name"], api_url, exc,
+            )
+            continue
+
+        new_count = 0
+        with get_session() as session:
+            job_repo = JobRepository(session)
+            for bj in board_jobs:
+                if job_repo.get_by_canonical_url(bj.url):
+                    continue
+                company = bj.company or src["company_name"]
+                job_repo.create(
+                    canonical_url=bj.url,
+                    source_url=bj.url,
+                    source_type="ats",
+                    source_provider=src["ats_provider"],
+                    title=bj.title,
+                    company=company,
+                    location=bj.location,
+                    status="discovered",
+                    discovered_run_id=run_id,
+                    discovered_task_id=task_id,
+                )
+                new_count += 1
+            session.commit()
+
+            now = datetime.now(timezone.utc)
+            cs_repo = CompanySourceRepository(session)
+            cs_repo.update_sync_result(
+                src["id"],
+                job_count=len(board_jobs),
+                sync_at=now,
+                status="active" if board_jobs else src["status"],
+            )
+            session.commit()
+
+        total_new += new_count
+        logger.info(
+            "board_sync: %s (%s) — %d jobs from API, %d new",
+            src["company_name"], src["ats_provider"], len(board_jobs), new_count,
+        )
+
+    return total_new
+
+
+# ---------------------------------------------------------------------------
+# Post-discovery ATS source registration
+# ---------------------------------------------------------------------------
+
+
+def _register_discovered_sources(
+    job_ids: list[str],
+    run_id: str,
+) -> int:
+    """Extract ATS board info from newly discovered jobs and register in
+    company_sources table. Probes the ATS API to verify the board.
+
+    Returns number of newly registered sources. Non-blocking.
+    """
+    import httpx
+    from packages.domain.agent_jobs.ats_providers import (
+        build_api_url,
+        build_careers_url,
+        extract_board_info,
+    )
+    from packages.infrastructure.db.repositories import CompanySourceRepository
+
+    if not job_ids:
+        return 0
+
+    with get_session() as session:
+        job_repo = JobRepository(session)
+        cs_repo = CompanySourceRepository(session)
+
+        seen_boards: set[tuple[str, str]] = set()
+        registered = 0
+
+        for job_id in job_ids:
+            job = job_repo.get(job_id)
+            if not job or job.source_provider not in ("greenhouse", "lever", "ashby"):
+                continue
+
+            info = extract_board_info(job.canonical_url)
+            if not info:
+                continue
+            provider, token = info
+
+            if (provider, token) in seen_boards:
+                continue
+            seen_boards.add((provider, token))
+
+            if cs_repo.get_by_board(provider, token):
+                continue
+
+            api_url = build_api_url(provider, token)
+            careers_url = build_careers_url(provider, token)
+            status = "discovered"
+            verified_at = None
+
+            if api_url:
+                try:
+                    with httpx.Client(timeout=10.0) as client:
+                        resp = client.get(api_url)
+                    if resp.status_code == 200:
+                        status = "verified"
+                        verified_at = datetime.now(timezone.utc)
+                except Exception:
+                    pass
+
+            cs_repo.create(
+                company_name=job.company,
+                ats_provider=provider,
+                board_token=token,
+                board_api_url=api_url,
+                board_careers_url=careers_url,
+                status=status,
+                discovered_run_id=run_id,
+                last_verified_at=verified_at,
+            )
+            registered += 1
+            logger.info(
+                "source_register: registered %s/%s (company=%s, status=%s)",
+                provider, token, job.company, status,
+            )
+
+        session.commit()
+
+    return registered

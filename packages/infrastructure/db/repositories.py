@@ -20,6 +20,7 @@ from packages.infrastructure.db.models import (
     AgentValidationResult,
     Artifact,
     CandidateProfile,
+    CompanySource,
     FitReport,
     Job,
     JobReport,
@@ -1085,6 +1086,84 @@ class SearchStrategyStateRepository:
             last_reflection_task_id=row.last_reflection_task_id,
             updated_at=row.updated_at,
         )
+
+
+# ---------------------------------------------------------------------------
+# Company Sources (ATS board registry)
+# ---------------------------------------------------------------------------
+
+
+class CompanySourceRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_by_board(self, provider: str, token: str) -> Optional[CompanySource]:
+        return (
+            self._s.query(CompanySource)
+            .filter(CompanySource.ats_provider == provider, CompanySource.board_token == token)
+            .first()
+        )
+
+    def list_syncable(self) -> list[CompanySource]:
+        return (
+            self._s.query(CompanySource)
+            .filter(CompanySource.status.in_(("verified", "active")))
+            .all()
+        )
+
+    def create(
+        self,
+        *,
+        company_name: str,
+        ats_provider: str,
+        board_token: str,
+        board_api_url: str | None = None,
+        board_careers_url: str | None = None,
+        status: str = "discovered",
+        discovered_run_id: str | None = None,
+        workspace_id: str | None = None,
+        last_verified_at: datetime | None = None,
+        metadata_json: dict | None = None,
+    ) -> CompanySource:
+        row = CompanySource(
+            workspace_id=workspace_id,
+            company_name=company_name,
+            ats_provider=ats_provider,
+            board_token=board_token,
+            board_api_url=board_api_url,
+            board_careers_url=board_careers_url,
+            status=status,
+            discovered_run_id=discovered_run_id,
+            last_verified_at=last_verified_at,
+            metadata_json=metadata_json,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def update_sync_result(
+        self,
+        source_id: str,
+        *,
+        job_count: int,
+        sync_at: datetime,
+        status: str | None = None,
+    ) -> None:
+        row = self._s.query(CompanySource).get(source_id)
+        if row is None:
+            return
+        row.last_sync_at = sync_at
+        row.job_count_last_sync = job_count
+        if status:
+            row.status = status
+        self._s.flush()
+
+    def set_status(self, source_id: str, status: str) -> None:
+        row = self._s.query(CompanySource).get(source_id)
+        if row is None:
+            return
+        row.status = status
+        self._s.flush()
 
 
 # ---------------------------------------------------------------------------

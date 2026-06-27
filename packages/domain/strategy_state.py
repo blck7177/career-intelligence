@@ -285,10 +285,26 @@ def apply_strategy_patch(
 def materialize_discovery_hints(
     state: SearchStrategyState,
 ) -> tuple[SourceRegistrySnapshot, PreviousRunDiagnostics]:
-    """Map canonical strategy state into DiscoveryTaskSpec hint fields."""
+    """Map canonical strategy state into DiscoveryTaskSpec hint fields.
+
+    Combines heuristic board detection from effective_sources with
+    structurally registered boards from company_sources table.
+    """
     id_to_label, _ = _build_taxonomy_maps()
 
     known_boards = [s for s in state.effective_sources if is_board_source(s)]
+
+    # Supplement with verified/active boards from company_sources DB table.
+    try:
+        from packages.infrastructure.db.session import get_session
+        from packages.infrastructure.db.repositories import CompanySourceRepository
+
+        with get_session() as session:
+            for src in CompanySourceRepository(session).list_syncable():
+                if src.board_careers_url and src.board_careers_url not in known_boards:
+                    known_boards.append(src.board_careers_url)
+    except Exception:
+        pass
 
     extra_learnings = list(state.key_learnings)
     for pattern in state.avoid_query_patterns:
