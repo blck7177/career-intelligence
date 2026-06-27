@@ -29,6 +29,7 @@ from packages.domain.agent_jobs.routing import ExecutionMode
 from packages.infrastructure.db.repositories import RunRepository, TaskEventRepository, TaskRepository
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.observability.logging import set_correlation_id
+from packages.infrastructure.redis.locks import WorkspaceLock
 
 logger = logging.getLogger(__name__)
 
@@ -65,51 +66,70 @@ def execute_task(self, *, envelope: dict) -> dict:
         env.attempt,
     )
 
-    with get_session() as session:
-        task_repo = TaskRepository(session)
-        run_repo = RunRepository(session)
-        event_repo = TaskEventRepository(session)
+    lock = WorkspaceLock()
+    lock_owner = f"task:{env.task_id}"
 
-        task_repo.mark_running(env.task_id)
-        run_repo.set_status(env.run_id, "running")
-        event_repo.append(
-            task_id=env.task_id,
-            run_id=env.run_id,
-            event_type="task_claimed",
-            message=f"Worker claimed task (attempt {env.attempt})",
-        )
+    with lock.held(env.workspace_id, env.task_type, owner=lock_owner) as acquired:
+        if not acquired:
+            logger.warning(
+                "Lock conflict: workspace=%s task_type=%s already running, failing task %s",
+                env.workspace_id, env.task_type, env.task_id,
+            )
+            with get_session() as session:
+                TaskRepository(session).mark_failed(
+                    env.task_id,
+                    error_code="WORKSPACE_LOCK_CONFLICT",
+                    error_message=f"Another {env.task_type} task is already running for this workspace.",
+                )
+                RunRepository(session).set_status(env.run_id, "failed")
+                TaskEventRepository(session).append(
+                    task_id=env.task_id,
+                    run_id=env.run_id,
+                    event_type="task_skipped",
+                    message=f"Lock conflict: {env.task_type} already running for workspace",
+                )
+            return {"status": "failed", "task_id": env.task_id, "error": "workspace_lock_conflict"}
 
-    mode = dispatch(env)
-
-    try:
-        if mode == ExecutionMode.OPENCLAW:
-            result = _run_openclaw_task(env)
-        else:
-            result = _run_deterministic_task(env)
-    except Exception as exc:
-        # Mark task and run as failed, then return without retrying.
-        # Retrying after an explicit failure would create zombie runs where
-        # the DB already shows "failed" but Celery re-executes the task.
-        # Handlers are responsible for calling _mark_failed for expected
-        # error cases; this catch handles unhandled/unexpected exceptions.
-        logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
         with get_session() as session:
             task_repo = TaskRepository(session)
             run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
-            task_repo.mark_failed(
-                env.task_id,
-                error_code="TASK_EXCEPTION",
-                error_message=str(exc)[:500],
-            )
-            run_repo.set_status(env.run_id, "failed")
+
+            task_repo.mark_running(env.task_id)
+            run_repo.set_status(env.run_id, "running")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
-                event_type="task_failed",
-                message=str(exc)[:500],
+                event_type="task_claimed",
+                message=f"Worker claimed task (attempt {env.attempt})",
             )
-        return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
+
+        mode = dispatch(env)
+
+        try:
+            if mode == ExecutionMode.OPENCLAW:
+                result = _run_openclaw_task(env)
+            else:
+                result = _run_deterministic_task(env)
+        except Exception as exc:
+            logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
+            with get_session() as session:
+                task_repo = TaskRepository(session)
+                run_repo = RunRepository(session)
+                event_repo = TaskEventRepository(session)
+                task_repo.mark_failed(
+                    env.task_id,
+                    error_code="TASK_EXCEPTION",
+                    error_message=str(exc)[:500],
+                )
+                run_repo.set_status(env.run_id, "failed")
+                event_repo.append(
+                    task_id=env.task_id,
+                    run_id=env.run_id,
+                    event_type="task_failed",
+                    message=str(exc)[:500],
+                )
+            return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
 
     return result
 

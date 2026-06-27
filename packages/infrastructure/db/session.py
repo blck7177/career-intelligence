@@ -24,11 +24,14 @@ _DATABASE_URL = os.environ.get(
     "postgresql://career:career@localhost:5432/career_openclaw",
 )
 
+_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "3"))
+_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "5"))
+
 engine = create_engine(
     _DATABASE_URL,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
+    pool_size=_POOL_SIZE,
+    max_overflow=_MAX_OVERFLOW,
     echo=False,
 )
 
