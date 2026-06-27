@@ -132,6 +132,9 @@ def main(task_spec: str, output: str) -> None:
         manifest["patches_proposed"] = patches_proposed
 
     # Sync workspace-local artifacts to their declared artifact-volume paths.
+    # The agent writes search_ledger.jsonl and coverage_report.md to the workspace
+    # using relative paths, but the manifest declares absolute artifact-volume paths.
+    # We copy them here so ProvenanceValidator finds the files where it expects them.
     _sync_workspace_artifacts(spec.get("artifact_paths", {}))
 
     manifest_output_path.parent.mkdir(parents=True, exist_ok=True)
