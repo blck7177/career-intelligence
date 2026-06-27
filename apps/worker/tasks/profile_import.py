@@ -35,8 +35,22 @@ logger = logging.getLogger(__name__)
 _MAX_RESUME_LENGTH = 50_000
 
 _SYSTEM_PROMPT = """\
-You are converting a resume into a structured candidate profile for job search \
-and fit analysis.
+You are converting a resume into two outputs: a faithful resume reconstruction \
+and a synthesized candidate profile for job search.
+
+## clean_resume (faithful reconstruction)
+
+- clean_resume.markdown: reconstruct the full resume as clean markdown, \
+preserving original section order, dates, locations, and bullet points verbatim. \
+Do not summarize or compress.
+- clean_resume.experiences: list of dicts, each with keys like employer, title, \
+location, start_date, end_date, bullets. Preserve raw strings from the resume.
+- clean_resume.education: list of dicts, each with keys like institution, degree, \
+graduation_date, coursework.
+- clean_resume.skills: list of dicts, each with keys like category, items. \
+Group by original resume categories if present.
+
+## Profile fields (synthesized for job search)
 
 Rules:
 - Extract only facts present in the resume. Do not invent employers, degrees, \
@@ -61,6 +75,10 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
     Entry point for profile_import tasks.
     Called by execute_task when task_type == "profile_import".
     """
+    from packages.infrastructure.llm.usage_writer import set_llm_context
+    set_llm_context(run_id=env.run_id, task_id=env.task_id,
+                    workspace_id=env.workspace_id, call_site="profile_import")
+
     logger.info("profile_import: starting task_id=%s run_id=%s", env.task_id, env.run_id)
 
     with get_session() as session:
@@ -102,7 +120,7 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
             system_prompt=_SYSTEM_PROMPT,
             user_prompt=f"<resume_text>\n{resume_text}\n</resume_text>",
             response_schema=ProfileImportDraft,
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.2,
         )
     except LLMCallError as exc:
@@ -110,8 +128,14 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
         _mark_failed(env, error_code="GENERATION_FAILED", message=str(exc)[:500])
         return {"status": "failed", "task_id": env.task_id}
 
+    source_resume = {
+        "source_type": inp.source_type,
+        "raw_text": resume_text,
+        "char_count": len(resume_text),
+    }
+    clean_resume = draft.clean_resume.model_dump()
     parse_notes = draft.parse_notes.model_dump()
-    profile_fields = draft.model_dump(exclude={"parse_notes"})
+    profile_fields = draft.model_dump(exclude={"parse_notes", "clean_resume"})
 
     with get_session() as session:
         run_repo = RunRepository(session)
@@ -121,6 +145,8 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
         run_repo.complete(env.run_id, status="succeeded", result_summary={
             "validation_status": "passed",
             "import_type": "profile_import",
+            "source_resume": source_resume,
+            "clean_resume": clean_resume,
             "profile_draft": profile_fields,
             "parse_notes": parse_notes,
         })
