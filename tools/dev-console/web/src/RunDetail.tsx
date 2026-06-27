@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RunError, UsageEvent } from "./types";
+import { authFetch } from "./auth";
 
 interface Props {
   runId: string;
@@ -31,8 +32,8 @@ export function RunDetail({ runId, filterQueryString }: Props) {
     setLoading(true);
     const qs = filterQueryString ? `?${filterQueryString}` : "";
     Promise.all([
-      fetch(`/api/dashboard/runs/${runId}/usage${qs}`).then((r) => r.json()),
-      fetch(`/api/dashboard/runs/${runId}/errors`).then((r) => r.json()),
+      authFetch(`/api/dashboard/runs/${runId}/usage${qs}`).then((r) => r.json()),
+      authFetch(`/api/dashboard/runs/${runId}/errors`).then((r) => r.json()),
     ])
       .then(([usageData, errorData]) => {
         setEvents(usageData);

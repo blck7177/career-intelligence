@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CostSummaryRow, RecentRun, TimeRange, Workspace } from "./types";
+import { authFetch } from "./auth";
 import { CostOverview } from "./CostOverview";
 import { RecentRuns } from "./RecentRuns";
 import { WorkspaceFilter } from "./WorkspaceFilter";
@@ -15,13 +16,17 @@ export function App() {
   const [costRows, setCostRows] = useState<CostSummaryRow[]>([]);
   const [runs, setRuns] = useState<RecentRun[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authed, setAuthed] = useState(true);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
 
   useEffect(() => {
-    fetch("/api/dashboard/workspaces")
-      .then((r) => r.json())
+    authFetch("/api/dashboard/workspaces")
+      .then((r) => {
+        if (r.status === 401) { setAuthed(false); return []; }
+        return r.json();
+      })
       .then(setWorkspaces)
       .catch(() => {});
   }, []);
@@ -39,8 +44,8 @@ export function App() {
     const suffix = filterQs ? `?${filterQs}` : "";
     const runsSuffix = filterQs ? `?limit=50&${filterQs}` : "?limit=50";
     Promise.all([
-      fetch(`/api/dashboard/cost-summary${suffix}`).then((r) => r.json()),
-      fetch(`/api/dashboard/recent-runs${runsSuffix}`).then((r) => r.json()),
+      authFetch(`/api/dashboard/cost-summary${suffix}`).then((r) => r.json()),
+      authFetch(`/api/dashboard/recent-runs${runsSuffix}`).then((r) => r.json()),
     ])
       .then(([cost, recent]) => {
         setCostRows(cost);
@@ -51,6 +56,15 @@ export function App() {
   }, [filterQs]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  if (!authed) {
+    return (
+      <div className="auth-wall">
+        <h2>Unauthorized</h2>
+        <p>Append <code>?token=YOUR_TOKEN</code> to the URL to access the console.</p>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -1,21 +1,26 @@
 """
-Career Intelligence Dev Console — local-only LLM cost monitoring dashboard.
+Career Intelligence Dev Console — LLM cost monitoring dashboard.
 
 Read-only: queries Postgres directly, does not modify any data.
-No authentication: local development use only.
+
+Security:
+  - Set CONSOLE_TOKEN to require Bearer token or ?token= authentication.
+  - When CONSOLE_TOKEN is unset, all requests are allowed (local dev mode).
+  - Set CONSOLE_CORS_ORIGINS (comma-separated) to restrict allowed origins.
 """
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, text
 
@@ -61,14 +66,44 @@ def _resolve_database_url() -> str:
 _DATABASE_URL = _resolve_database_url()
 _engine = create_engine(_DATABASE_URL, pool_pre_ping=True, pool_size=2)
 
+_CONSOLE_TOKEN = os.environ.get("CONSOLE_TOKEN", "")
+_CORS_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("CONSOLE_CORS_ORIGINS", "").split(",")
+    if o.strip()
+]
+
 app = FastAPI(title="Career Intelligence Dev Console", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_CORS_ORIGINS or ["*"],
+    allow_methods=["GET"],
+    allow_headers=["Authorization"],
 )
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    if not _CONSOLE_TOKEN:
+        return await call_next(request)
+
+    # Static assets and the SPA shell don't need auth — the frontend JS
+    # reads the token from the URL and shows an auth-wall if needed.
+    if request.url.path.startswith("/assets") or not request.url.path.startswith("/api"):
+        return await call_next(request)
+
+    token = None
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    if not token:
+        token = request.query_params.get("token")
+
+    if not token or not hmac.compare_digest(token, _CONSOLE_TOKEN):
+        return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+    return await call_next(request)
 
 
 def _build_filters(
