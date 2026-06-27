@@ -13,7 +13,7 @@
     "date_found",
     "fetch_status",
     "raw_jd_path",
-    "primary_workstream",
+    "primary_role_category",
     "classification_confidence",
     "classification_evidence",
     "validation_status",
@@ -46,10 +46,13 @@
     "required_skills": { "type": "array", "items": { "type": "string" } },
     "preferred_skills": { "type": "array", "items": { "type": "string" } },
     "tools_mentioned": { "type": "array", "items": { "type": "string" } },
-    "finance_domains": { "type": "array", "items": { "type": "string" } },
     "seniority_inferred": { "type": "string" },
-    "primary_workstream": { "type": "string", "minLength": 1 },
-    "secondary_workstreams": { "type": "array", "items": { "type": "string" } },
+    "primary_role_category": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Internal key for role category; product label: role category. Exact label from configs/role_category_taxonomy.yaml, or 'unknown'."
+    },
+    "secondary_role_categories": { "type": "array", "items": { "type": "string" } },
     "classification_confidence": {
       "type": "string",
       "enum": ["high", "medium", "low"]

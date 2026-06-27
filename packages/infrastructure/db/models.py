@@ -2,6 +2,7 @@
 SQLAlchemy ORM models.
 
 Tables:
+  Auth:   users, workspace_members
   Core:   workspaces, runs, tasks, task_events, artifacts
   Agent:  agent_invocations, agent_tool_events, agent_validation_results
 
@@ -15,9 +16,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -36,6 +39,88 @@ def _uuid() -> str:
 
 class Base(DeclarativeBase):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Auth tables
+# ---------------------------------------------------------------------------
+
+
+class User(Base):
+    """Platform user — provider-agnostic identity anchor.
+
+    Auth provider details (e.g. Clerk user id) live in UserIdentity,
+    not here. This table is the source of truth for all business data.
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    identities: Mapped[list["UserIdentity"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    workspace_memberships: Mapped[list["WorkspaceMember"]] = relationship(
+        back_populates="user"
+    )
+
+
+class UserIdentity(Base):
+    """External auth provider identity linked to a local User.
+
+    One row per (user, provider) pair. Allows a user to authenticate
+    via multiple providers (Clerk, GitHub, Google, enterprise SSO) or
+    migrate between providers without touching business tables.
+
+    provider examples: "clerk", "github", "google", "password"
+    provider_user_id: the external id (e.g. Clerk JWT sub claim).
+    """
+
+    __tablename__ = "user_identities"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="identities")
+
+
+class WorkspaceMember(Base):
+    """Membership record linking a user to a workspace with a role."""
+
+    __tablename__ = "workspace_members"
+
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), primary_key=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="owner")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship(back_populates="workspace_memberships")
+    workspace: Mapped["Workspace"] = relationship(back_populates="members")
 
 
 # ---------------------------------------------------------------------------
@@ -61,6 +146,7 @@ class Workspace(Base):
     )
 
     runs: Mapped[list["Run"]] = relationship(back_populates="workspace")
+    members: Mapped[list["WorkspaceMember"]] = relationship(back_populates="workspace")
 
 
 class Run(Base):
@@ -185,7 +271,7 @@ class Artifact(Base):
     )
     artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
-    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -251,6 +337,14 @@ class AgentToolEvent(Base):
     One tool call made by the agent during an invocation.
     Written by agent tool wrappers (career_*.py) via the platform,
     NOT by OpenClaw directly.
+
+    Signed-ledger fields (added in migration c3d4e5f6a7b8):
+      event_id        — platform "tevt_<uuid4>" from ToolLedgerEvent
+      sequence        — 1-based within invocation
+      prev_event_hash — sha256 of previous event in chain
+      event_hash      — sha256 of canonical event JSON
+      signature       — HMAC-SHA256 of event_hash
+      raw_event_json  — full ToolLedgerEvent dict for audit/replay
     """
 
     __tablename__ = "agent_tool_events"
@@ -261,9 +355,16 @@ class AgentToolEvent(Base):
     )
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     action: Mapped[str] = mapped_column(String(100), nullable=False)
-    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    output_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    output_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="ok")
+    # Signed-ledger fields
+    event_id: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True)
+    sequence: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    prev_event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_event_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -293,3 +394,157 @@ class AgentValidationResult(Base):
     )
 
     invocation: Mapped["AgentInvocation"] = relationship(back_populates="validation_results")
+
+
+# ---------------------------------------------------------------------------
+# Job tables
+# ---------------------------------------------------------------------------
+
+
+class Job(Base):
+    """Canonical job record. Populated from discovery candidate_pool after validator gate."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True)
+    source_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_provider: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    company: Mapped[str] = mapped_column(String(255), nullable=False)
+    location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    jd_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    jd_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    raw_payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    status: Mapped[str] = mapped_column(
+        Enum("discovered", "reportable", "invalid", "stale", name="job_status"),
+        nullable=False,
+        default="discovered",
+    )
+    discovered_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    discovered_task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class JobReport(Base):
+    """Global (user-independent) Job Intelligence Report for a specific job."""
+
+    __tablename__ = "job_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
+    jd_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    analysis_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1.0")
+    used_research: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    research_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    research_bundle_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
+    status: Mapped[str] = mapped_column(
+        Enum("active", "superseded", "failed", name="job_report_status"),
+        nullable=False,
+        default="active",
+    )
+    narrative_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    structured_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    structured_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    summary_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FitReport(Base):
+    """Workspace-private Candidate Fit Report for a job/profile pair."""
+
+    __tablename__ = "fit_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), nullable=False)
+    job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
+    job_report_id: Mapped[str] = mapped_column(String(36), ForeignKey("job_reports.id"), nullable=False)
+    candidate_profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    profile_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    overall_match_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(
+        Enum("active", "superseded", "failed", name="fit_report_status"),
+        nullable=False,
+        default="active",
+    )
+    structured_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    narrative_artifact_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    structured_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    summary_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CandidateProfile(Base):
+    """Workspace-private career profile — single source of truth for both Discovery and FitReport.
+
+    One profile per workspace (MVP). Discovery reads narrative fields via ProfileSnapshot adapter.
+    FitReport reads skills/domain/project fields directly from this table.
+    """
+
+    __tablename__ = "candidate_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+    )
+    # Narrative (Discovery + FitReport LLM both read summary)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    education_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Skills & subject areas
+    technical_skills: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    subject_areas: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    tools: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Projects (FitReport evidence)
+    representative_projects: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Quantitative
+    years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class SearchStrategyStateRow(Base):
+    """Workspace-level cross-run search strategy (one row per workspace, MVP)."""
+
+    __tablename__ = "search_strategy_states"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    last_reflection_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    last_reflection_task_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )

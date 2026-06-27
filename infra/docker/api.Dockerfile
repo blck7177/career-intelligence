@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -e ".[anthropic,openai]"
 
 COPY apps/ apps/
 COPY packages/ packages/
+COPY configs/ configs/
 COPY scripts/ scripts/
 COPY alembic.ini .
 

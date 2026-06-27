@@ -32,6 +32,15 @@ _DEFAULT_MODEL = "gpt-4o-mini"
 _DEFAULT_MAX_TOKENS = 4096
 _DEFAULT_TEMPERATURE = 0.3
 
+# Models that require max_completion_tokens instead of max_tokens, and
+# that do not accept a temperature parameter.
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+
+
+def _is_reasoning_model(model: str) -> bool:
+    """Return True for models that use max_completion_tokens and no temperature."""
+    return any(model.startswith(p) for p in _REASONING_MODEL_PREFIXES)
+
 
 class LLMCallError(Exception):
     """Raised when the LLM API call fails or returns an unusable response."""
@@ -120,12 +129,16 @@ class LLMClient:
         )
 
         try:
-            response = client.chat.completions.create(
-                model=_model,
-                messages=api_messages,  # type: ignore[arg-type]
-                max_tokens=_max_tokens,
-                temperature=_temperature,
-            )
+            kwargs: dict = {
+                "model": _model,
+                "messages": api_messages,
+            }
+            if _is_reasoning_model(_model):
+                kwargs["max_completion_tokens"] = _max_tokens
+            else:
+                kwargs["max_tokens"] = _max_tokens
+                kwargs["temperature"] = _temperature
+            response = client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
         except Exception as exc:
             raise LLMCallError(f"OpenAI API call failed: {exc}") from exc
 
@@ -213,13 +226,17 @@ class LLMClient:
         )
 
         try:
-            response = client.beta.chat.completions.parse(
-                model=_model,
-                messages=api_messages,  # type: ignore[arg-type]
-                response_format=response_schema,
-                max_tokens=_max_tokens,
-                temperature=_temperature,
-            )
+            parse_kwargs: dict = {
+                "model": _model,
+                "messages": api_messages,
+                "response_format": response_schema,
+            }
+            if _is_reasoning_model(_model):
+                parse_kwargs["max_completion_tokens"] = _max_tokens
+            else:
+                parse_kwargs["max_tokens"] = _max_tokens
+                parse_kwargs["temperature"] = _temperature
+            response = client.beta.chat.completions.parse(**parse_kwargs)  # type: ignore[arg-type]
         except Exception as exc:
             raise LLMCallError(
                 f"OpenAI structured output call failed: {exc}"

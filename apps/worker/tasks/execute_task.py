@@ -20,12 +20,13 @@ from apps.worker.celery_app import celery_app
 from apps.worker.router import dispatch
 from apps.worker.tasks.fit_report import handle_fit_report
 from apps.worker.tasks.job_report import handle_job_report
+from apps.worker.tasks.profile_import import handle_profile_import
 from apps.worker.tasks.reflect_run import handle_reflect_run
 from apps.worker.tasks.research_run import handle_research_run
 from apps.worker.tasks.search_run import handle_search_run
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.routing import ExecutionMode
-from packages.infrastructure.db.repositories import TaskEventRepository, TaskRepository
+from packages.infrastructure.db.repositories import RunRepository, TaskEventRepository, TaskRepository
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.observability.logging import set_correlation_id
 
@@ -42,10 +43,11 @@ _OPENCLAW_HANDLERS = {
 _DETERMINISTIC_HANDLERS = {
     "job_report": handle_job_report,
     "fit_report": handle_fit_report,
+    "profile_import": handle_profile_import,
 }
 
 
-@celery_app.task(name="apps.worker.tasks.execute_task", bind=True, max_retries=2)
+@celery_app.task(name="apps.worker.tasks.execute_task", bind=True, max_retries=0)
 def execute_task(self, *, envelope: dict) -> dict:
     """
     Universal task executor.
@@ -65,9 +67,11 @@ def execute_task(self, *, envelope: dict) -> dict:
 
     with get_session() as session:
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
 
         task_repo.mark_running(env.task_id)
+        run_repo.set_status(env.run_id, "running")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
@@ -83,22 +87,29 @@ def execute_task(self, *, envelope: dict) -> dict:
         else:
             result = _run_deterministic_task(env)
     except Exception as exc:
+        # Mark task and run as failed, then return without retrying.
+        # Retrying after an explicit failure would create zombie runs where
+        # the DB already shows "failed" but Celery re-executes the task.
+        # Handlers are responsible for calling _mark_failed for expected
+        # error cases; this catch handles unhandled/unexpected exceptions.
         logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="TASK_EXCEPTION",
                 error_message=str(exc)[:500],
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
                 event_type="task_failed",
                 message=str(exc)[:500],
             )
-        raise self.retry(exc=exc, countdown=60)
+        return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
 
     return result
 
@@ -115,12 +126,14 @@ def _run_openclaw_task(env: TaskEnvelope) -> dict:
         )
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="UNKNOWN_OPENCLAW_TASK_TYPE",
                 error_message=f"No OPENCLAW handler for task_type={env.task_type!r}",
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
@@ -143,12 +156,14 @@ def _run_deterministic_task(env: TaskEnvelope) -> dict:
         )
         with get_session() as session:
             task_repo = TaskRepository(session)
+            run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
             task_repo.mark_failed(
                 env.task_id,
                 error_code="UNKNOWN_TASK_TYPE",
                 error_message=f"No handler for task_type={env.task_type!r}",
             )
+            run_repo.set_status(env.run_id, "failed")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,

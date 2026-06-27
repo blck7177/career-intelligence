@@ -55,7 +55,7 @@ query family、source 策略、目标公司、术语、relevance 标准、探索
 2. 尝试了哪些 move / source？
 3. 找到几个真实岗位候选？board sync / web search 各贡献多少？
 4. 哪些 move 没效果？failure mode？
-5. 还缺哪些 workstream / company group / source type？
+5. 还缺哪些 role category / company group / source type？
 6. 下一步：继续、扩展、还是换方向？为什么？
 7. 接下来具体做什么？
 

@@ -13,6 +13,7 @@ They verify that:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from datetime import datetime, timezone
@@ -43,6 +44,7 @@ def make_spec(
     invocation_id: str = "ainv_smoke",
     run_id: str = "run_smoke",
     task_id: str = "task_smoke",
+    output_manifest_path: str = "/tmp/smoke_output_manifest.json",
 ) -> AgentInvocationSpec:
     return AgentInvocationSpec(
         invocation_id=invocation_id,
@@ -55,7 +57,7 @@ def make_spec(
             "career-search-agent", "ws_smoke", run_id, task_id, 1
         ),
         input_spec_path="/tmp/smoke_input.json",
-        output_manifest_path="/tmp/smoke_output_manifest.json",
+        output_manifest_path=output_manifest_path,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -128,7 +130,10 @@ class TestSessionKey:
 
 
 class TestDiscoveryManifestSmoke:
-    def test_valid_manifest_passes_gate(self, tmp_path):
+    def test_valid_manifest_passes_gate(self, tmp_path, monkeypatch):
+        signing_key = "smoke_test_signing_key_32bytes_xx"
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", signing_key)
+
         pool_path = tmp_path / "candidate_pool.jsonl"
         pool_path.write_text(
             json.dumps(
@@ -146,7 +151,35 @@ class TestDiscoveryManifestSmoke:
         coverage_path = tmp_path / "coverage_report.md"
         coverage_path.write_text("# Coverage\n\nSearched 3 queries across 2 boards.\n")
 
-        spec = make_spec("agent.job_discovery", invocation_id="ainv_smoke")
+        # ToolLedgerValidator derives ledger path as output_manifest_path.parent / "tool_events.jsonl"
+        # so we point the spec's output_manifest_path into tmp_path.
+        tool_events_path = tmp_path / "tool_events.jsonl"
+        pool_bytes = pool_path.read_bytes()
+        pool_hash = "sha256:" + hashlib.sha256(pool_bytes).hexdigest()
+        pool_count = sum(1 for line in pool_bytes.decode().splitlines() if line.strip())
+
+        from packages.infrastructure.tool_ledger import append_signed_event
+        append_signed_event(
+            tool_events_path,
+            {
+                "invocation_id": "ainv_smoke",
+                "run_id": "run_smoke",
+                "task_id": "task_smoke",
+                "tool_name": "career_log_candidates",
+                "event_type": "candidate_log",
+                "status": "ok",
+                "candidate_count": pool_count,
+                "output_path": str(pool_path),
+                "output_hash": pool_hash,
+            },
+            signing_key,
+        )
+
+        spec = make_spec(
+            "agent.job_discovery",
+            invocation_id="ainv_smoke",
+            output_manifest_path=str(tmp_path / "output_manifest.json"),
+        )
         manifest = DiscoveryManifest(
             invocation_id="ainv_smoke",
             status="completed",
@@ -269,7 +302,12 @@ class TestReflectionManifestSmoke:
         report_path.write_text("# Reflection\n\nAnalysis here.")
         patch_path = tmp_path / "strategy_patch.json"
         patch_path.write_text(
-            json.dumps({"run_id": "run_abc", "patches": []})
+            json.dumps(
+                {
+                    "effective_sources": ["https://boards.greenhouse.io/acme"],
+                    "recommended_next_searches": ["Retry with broader titles"],
+                }
+            )
         )
 
         spec = AgentInvocationSpec(

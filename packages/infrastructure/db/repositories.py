@@ -19,11 +19,73 @@ from packages.infrastructure.db.models import (
     AgentToolEvent,
     AgentValidationResult,
     Artifact,
+    CandidateProfile,
+    FitReport,
+    Job,
+    JobReport,
     Run,
+    SearchStrategyStateRow,
     Task,
     TaskEvent,
+    User,
+    UserIdentity,
     Workspace,
+    WorkspaceMember,
 )
+from packages.contracts.strategy.state import SearchStrategyState
+from packages.domain.strategy_state import state_from_db_row, state_to_db_json
+
+
+# ---------------------------------------------------------------------------
+# User
+# ---------------------------------------------------------------------------
+
+
+class UserRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_by_provider(self, provider: str, provider_user_id: str) -> Optional[User]:
+        """Look up a local User by external provider identity."""
+        from sqlalchemy import select
+        stmt = (
+            select(User)
+            .join(UserIdentity, UserIdentity.user_id == User.id)
+            .where(
+                UserIdentity.provider == provider,
+                UserIdentity.provider_user_id == provider_user_id,
+            )
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def create(self, *, email: str) -> User:
+        user = User(email=email)
+        self._s.add(user)
+        self._s.flush()
+        return user
+
+
+class UserIdentityRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        provider_user_id: str,
+        email: Optional[str] = None,
+    ) -> UserIdentity:
+        identity = UserIdentity(
+            user_id=user_id,
+            provider=provider,
+            provider_user_id=provider_user_id,
+            email=email,
+        )
+        self._s.add(identity)
+        self._s.flush()
+        return identity
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +113,24 @@ class WorkspaceRepository:
         self._s.add(ws)
         self._s.flush()
         return ws
+
+    def get_for_user(self, user_id: str) -> Optional[Workspace]:
+        """Return the first workspace the user is a member of."""
+        from sqlalchemy import select
+        stmt = (
+            select(Workspace)
+            .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+            .where(WorkspaceMember.user_id == user_id)
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def add_member(self, *, workspace_id: str, user_id: str, role: str = "owner") -> WorkspaceMember:
+        """Add a user as a workspace member."""
+        member = WorkspaceMember(workspace_id=workspace_id, user_id=user_id, role=role)
+        self._s.add(member)
+        self._s.flush()
+        return member
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +176,20 @@ class RunRepository:
         self._s.flush()
         return run
 
+    def set_result_summary(self, run_id: str, result_summary: dict) -> Run:
+        run = self.get_or_raise(run_id)
+        run.result_summary_json = result_summary
+        self._s.flush()
+        return run
+
+    def complete(self, run_id: str, *, status: str, result_summary: dict) -> Run:
+        """Set status and result_summary_json atomically in one flush."""
+        run = self.get_or_raise(run_id)
+        run.status = status
+        run.result_summary_json = result_summary
+        self._s.flush()
+        return run
+
     def list_for_workspace(self, workspace_id: str, limit: int = 50) -> list[Run]:
         return (
             self._s.query(Run)
@@ -104,6 +198,13 @@ class RunRepository:
             .limit(limit)
             .all()
         )
+
+    def list_all(self, limit: int = 100, status: str | None = None) -> list[Run]:
+        """Return runs across all workspaces (admin use only)."""
+        q = self._s.query(Run)
+        if status:
+            q = q.filter(Run.status == status)
+        return q.order_by(Run.created_at.desc()).limit(limit).all()
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +365,9 @@ class ArtifactRepository:
         self._s.flush()
         return artifact
 
+    def get(self, artifact_id: str) -> Optional[Artifact]:
+        return self._s.get(Artifact, artifact_id)
+
     def list_for_run(self, run_id: str) -> list[Artifact]:
         return (
             self._s.query(Artifact)
@@ -293,8 +397,9 @@ class AgentInvocationRepository:
         skill_contract_version: str,
         input_spec_uri: str,
         output_manifest_uri: str,
+        id: str | None = None,
     ) -> AgentInvocation:
-        inv = AgentInvocation(
+        kwargs: dict = dict(
             run_id=run_id,
             task_id=task_id,
             workspace_id=workspace_id,
@@ -305,6 +410,9 @@ class AgentInvocationRepository:
             input_spec_uri=input_spec_uri,
             output_manifest_uri=output_manifest_uri,
         )
+        if id is not None:
+            kwargs["id"] = id
+        inv = AgentInvocation(**kwargs)
         self._s.add(inv)
         self._s.flush()
         return inv
@@ -368,6 +476,13 @@ class AgentToolEventRepository:
         input_hash: str | None = None,
         output_hash: str | None = None,
         status: str = "ok",
+        # Signed-ledger fields (optional for backward compatibility)
+        event_id: str | None = None,
+        sequence: int | None = None,
+        prev_event_hash: str | None = None,
+        event_hash: str | None = None,
+        signature: str | None = None,
+        raw_event_json: dict | None = None,
     ) -> AgentToolEvent:
         event = AgentToolEvent(
             invocation_id=invocation_id,
@@ -376,6 +491,12 @@ class AgentToolEventRepository:
             input_hash=input_hash,
             output_hash=output_hash,
             status=status,
+            event_id=event_id,
+            sequence=sequence,
+            prev_event_hash=prev_event_hash,
+            event_hash=event_hash,
+            signature=signature,
+            raw_event_json=raw_event_json,
         )
         self._s.add(event)
         self._s.flush()
@@ -417,4 +538,453 @@ class AgentValidationResultRepository:
             .filter(AgentValidationResult.invocation_id == invocation_id)
             .order_by(AgentValidationResult.created_at)
             .all()
+        )
+
+
+# ---------------------------------------------------------------------------
+# Job
+# ---------------------------------------------------------------------------
+
+
+class JobRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, job_id: str) -> Optional[Job]:
+        return self._s.get(Job, job_id)
+
+    def get_or_raise(self, job_id: str) -> Job:
+        job = self.get(job_id)
+        if job is None:
+            raise ValueError(f"Job not found: {job_id}")
+        return job
+
+    def get_reportable(self, job_id: str) -> Job:
+        """Return job only if status is 'reportable'. Raises ValueError otherwise."""
+        job = self.get_or_raise(job_id)
+        if job.status != "reportable":
+            raise ValueError(
+                f"Job {job_id} is not reportable (status={job.status!r}). "
+                "Only jobs with status='reportable' can have reports generated."
+            )
+        return job
+
+    def get_by_canonical_url(self, canonical_url: str) -> Optional[Job]:
+        from sqlalchemy import select
+        stmt = select(Job).where(Job.canonical_url == canonical_url)
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list(
+        self,
+        *,
+        run_ids: Optional[list[str]] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[Job], int]:
+        """List jobs, optionally filtered by run_ids and/or status."""
+        from sqlalchemy import select, func
+        stmt = select(Job)
+        if run_ids is not None:
+            stmt = stmt.where(Job.discovered_run_id.in_(run_ids))
+        if status:
+            stmt = stmt.where(Job.status == status)
+        stmt = stmt.order_by(Job.created_at.desc())
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = self._s.execute(count_stmt).scalar_one()
+        items = list(self._s.execute(stmt.offset(offset).limit(limit)).scalars().all())
+        return items, total
+
+    def create(
+        self,
+        *,
+        canonical_url: str,
+        source_url: str,
+        source_type: str,
+        source_provider: Optional[str] = None,
+        title: str,
+        company: str,
+        jd_text: Optional[str] = None,
+        jd_hash: Optional[str] = None,
+        location: Optional[str] = None,
+        raw_payload_json: Optional[dict] = None,
+        status: str = "discovered",
+        discovered_run_id: Optional[str] = None,
+        discovered_task_id: Optional[str] = None,
+    ) -> Job:
+        job = Job(
+            canonical_url=canonical_url,
+            source_url=source_url,
+            source_type=source_type,
+            source_provider=source_provider,
+            title=title,
+            company=company,
+            jd_text=jd_text,
+            jd_hash=jd_hash,
+            location=location,
+            raw_payload_json=raw_payload_json,
+            status=status,
+            discovered_run_id=discovered_run_id,
+            discovered_task_id=discovered_task_id,
+        )
+        self._s.add(job)
+        self._s.flush()
+        return job
+
+    def set_status(self, job_id: str, status: str) -> None:
+        job = self.get_or_raise(job_id)
+        job.status = status
+        self._s.flush()
+
+    def update_jd(self, job_id: str, jd_text: str, jd_hash: str) -> None:
+        """Backfill jd_text and jd_hash after a research run completes."""
+        job = self.get_or_raise(job_id)
+        job.jd_text = jd_text
+        job.jd_hash = jd_hash
+        self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# JobReport
+# ---------------------------------------------------------------------------
+
+
+class JobReportRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, report_id: str) -> Optional[JobReport]:
+        return self._s.get(JobReport, report_id)
+
+    def get_active(
+        self,
+        job_id: str,
+        jd_hash: str,
+        prompt_version: str,
+        research_bundle_hash: str,
+    ) -> Optional[JobReport]:
+        """Return an active cached report matching exact cache key, or None."""
+        from sqlalchemy import select
+        stmt = (
+            select(JobReport)
+            .where(
+                JobReport.job_id == job_id,
+                JobReport.jd_hash == jd_hash,
+                JobReport.prompt_version == prompt_version,
+                JobReport.research_bundle_hash == research_bundle_hash,
+                JobReport.status == "active",
+            )
+            .order_by(JobReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def get_latest_active(self, job_id: str) -> Optional[JobReport]:
+        """Return the most recent active report for a job, regardless of cache key."""
+        from sqlalchemy import select
+        stmt = (
+            select(JobReport)
+            .where(JobReport.job_id == job_id, JobReport.status == "active")
+            .order_by(JobReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def supersede_prior(self, job_id: str) -> None:
+        """Mark all existing active reports for this job as superseded."""
+        from sqlalchemy import update
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(JobReport)
+            .where(JobReport.job_id == job_id, JobReport.status == "active")
+            .values(status="superseded", superseded_at=now, updated_at=now)
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+    def create(
+        self,
+        *,
+        job_id: str,
+        jd_hash: str,
+        prompt_version: str,
+        analysis_version: str = "1.0",
+        used_research: bool = False,
+        research_artifact_id: Optional[str] = None,
+        research_bundle_hash: str = "none",
+        narrative_artifact_id: Optional[str] = None,
+        structured_artifact_id: Optional[str] = None,
+        structured_json: Optional[dict] = None,
+        summary_json: Optional[dict] = None,
+        status: str = "active",
+    ) -> JobReport:
+        row = JobReport(
+            job_id=job_id,
+            jd_hash=jd_hash,
+            prompt_version=prompt_version,
+            analysis_version=analysis_version,
+            used_research=used_research,
+            research_artifact_id=research_artifact_id,
+            research_bundle_hash=research_bundle_hash,
+            narrative_artifact_id=narrative_artifact_id,
+            structured_artifact_id=structured_artifact_id,
+            structured_json=structured_json,
+            summary_json=summary_json,
+            status=status,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def get_latest_active_map(self, job_ids: list[str]) -> dict[str, JobReport]:
+        """Return the latest active job report per job_id."""
+        if not job_ids:
+            return {}
+        from sqlalchemy import func, select
+
+        subq = (
+            select(
+                JobReport.job_id,
+                func.max(JobReport.created_at).label("max_created"),
+            )
+            .where(JobReport.job_id.in_(job_ids), JobReport.status == "active")
+            .group_by(JobReport.job_id)
+            .subquery()
+        )
+        stmt = select(JobReport).join(
+            subq,
+            (JobReport.job_id == subq.c.job_id)
+            & (JobReport.created_at == subq.c.max_created),
+        )
+        rows = self._s.execute(stmt).scalars().all()
+        return {row.job_id: row for row in rows}
+
+
+# ---------------------------------------------------------------------------
+# FitReport
+# ---------------------------------------------------------------------------
+
+
+class FitReportRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get(self, report_id: str) -> Optional[FitReport]:
+        return self._s.get(FitReport, report_id)
+
+    def list_summaries_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        profile_id: Optional[str] = None,
+        status: str = "active",
+        limit: int = 500,
+    ) -> list[FitReport]:
+        """List fit reports for inbox overlay; latest per job_id first."""
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.status == status,
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc()).limit(limit)
+        rows = list(self._s.execute(stmt).scalars().all())
+        seen: set[str] = set()
+        deduped: list[FitReport] = []
+        for row in rows:
+            if row.job_id in seen:
+                continue
+            seen.add(row.job_id)
+            deduped.append(row)
+        return deduped
+
+    def get_active(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        job_report_id: str,
+        candidate_profile_id: Optional[str],
+        profile_hash: str,
+        prompt_version: str,
+    ) -> Optional[FitReport]:
+        """Return active cached fit report matching exact cache key, or None."""
+        from sqlalchemy import select
+        stmt = (
+            select(FitReport)
+            .where(
+                FitReport.workspace_id == workspace_id,
+                FitReport.job_id == job_id,
+                FitReport.job_report_id == job_report_id,
+                FitReport.candidate_profile_id == candidate_profile_id,
+                FitReport.profile_hash == profile_hash,
+                FitReport.prompt_version == prompt_version,
+                FitReport.status == "active",
+            )
+            .order_by(FitReport.created_at.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def supersede_prior(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        candidate_profile_id: Optional[str],
+        profile_hash: str,
+    ) -> None:
+        from sqlalchemy import update
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(FitReport)
+            .where(
+                FitReport.workspace_id == workspace_id,
+                FitReport.job_id == job_id,
+                FitReport.profile_hash == profile_hash,
+                FitReport.status == "active",
+            )
+            .values(status="superseded", superseded_at=now, updated_at=now)
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        job_report_id: str,
+        candidate_profile_id: Optional[str] = None,
+        profile_hash: str,
+        prompt_version: str,
+        overall_match_score: int = 0,
+        structured_artifact_id: Optional[str] = None,
+        narrative_artifact_id: Optional[str] = None,
+        structured_json: Optional[dict] = None,
+        summary_json: Optional[dict] = None,
+        status: str = "active",
+    ) -> FitReport:
+        row = FitReport(
+            workspace_id=workspace_id,
+            job_id=job_id,
+            job_report_id=job_report_id,
+            candidate_profile_id=candidate_profile_id,
+            profile_hash=profile_hash,
+            prompt_version=prompt_version,
+            overall_match_score=overall_match_score,
+            structured_artifact_id=structured_artifact_id,
+            narrative_artifact_id=narrative_artifact_id,
+            structured_json=structured_json,
+            summary_json=summary_json,
+            status=status,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+
+# ---------------------------------------------------------------------------
+# CandidateProfile
+# ---------------------------------------------------------------------------
+
+
+class ProfileRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_workspace(self, workspace_id: str) -> Optional[CandidateProfile]:
+        """Return the workspace's profile, or None if not yet created."""
+        return (
+            self._s.query(CandidateProfile)
+            .filter(CandidateProfile.workspace_id == workspace_id)
+            .first()
+        )
+
+    def upsert(
+        self,
+        workspace_id: str,
+        *,
+        summary: Optional[str] = None,
+        experience_summary: Optional[str] = None,
+        education_summary: Optional[str] = None,
+        technical_skills: Optional[list] = None,
+        subject_areas: Optional[list] = None,
+        tools: Optional[list] = None,
+        representative_projects: Optional[list] = None,
+        years_experience: Optional[int] = None,
+        profile_hash: str = "empty",
+    ) -> CandidateProfile:
+        """Create or update the profile for a workspace."""
+        profile = self.get_for_workspace(workspace_id)
+        if profile is None:
+            profile = CandidateProfile(workspace_id=workspace_id)
+            self._s.add(profile)
+
+        profile.summary = summary
+        profile.experience_summary = experience_summary
+        profile.education_summary = education_summary
+        profile.technical_skills = technical_skills
+        profile.subject_areas = subject_areas
+        profile.tools = tools
+        profile.representative_projects = representative_projects
+        profile.years_experience = years_experience
+        profile.profile_hash = profile_hash
+
+        self._s.flush()
+        return profile
+
+
+# ---------------------------------------------------------------------------
+# SearchStrategyState
+# ---------------------------------------------------------------------------
+
+
+class SearchStrategyStateRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_workspace(self, workspace_id: str) -> Optional[SearchStrategyState]:
+        row = (
+            self._s.query(SearchStrategyStateRow)
+            .filter(SearchStrategyStateRow.workspace_id == workspace_id)
+            .first()
+        )
+        if row is None:
+            return None
+        return state_from_db_row(
+            workspace_id=row.workspace_id,
+            profile_id=row.profile_id,
+            state_json=row.state_json or {},
+            last_reflection_run_id=row.last_reflection_run_id,
+            last_reflection_task_id=row.last_reflection_task_id,
+            updated_at=row.updated_at,
+        )
+
+    def upsert(self, state: SearchStrategyState) -> SearchStrategyState:
+        row = (
+            self._s.query(SearchStrategyStateRow)
+            .filter(SearchStrategyStateRow.workspace_id == state.workspace_id)
+            .first()
+        )
+        if row is None:
+            row = SearchStrategyStateRow(workspace_id=state.workspace_id)
+            self._s.add(row)
+
+        row.profile_id = state.profile_id
+        row.state_json = state_to_db_json(state)
+        row.last_reflection_run_id = state.last_reflection_run_id
+        row.last_reflection_task_id = state.last_reflection_task_id
+        row.updated_at = state.updated_at or datetime.now(timezone.utc)
+
+        self._s.flush()
+        return state_from_db_row(
+            workspace_id=row.workspace_id,
+            profile_id=row.profile_id,
+            state_json=row.state_json or {},
+            last_reflection_run_id=row.last_reflection_run_id,
+            last_reflection_task_id=row.last_reflection_task_id,
+            updated_at=row.updated_at,
         )

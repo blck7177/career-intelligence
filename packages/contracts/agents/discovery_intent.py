@@ -35,8 +35,8 @@ class ProfileSnapshot(BaseModel):
     All fields are optional. An empty profile is valid — agents should
     treat it as "no profile context available" and proceed on intent alone.
 
-    MVP: profiles are not yet persisted in DB. ProfileSnapshot.empty()
-    is always used until workspace_profiles table exists.
+    Persisted in candidate_profiles table (one per workspace).
+    Loaded by the worker via ProfileRepository.get_for_workspace().
     """
 
     profile_id: Optional[str] = None
@@ -49,10 +49,10 @@ class ProfileSnapshot(BaseModel):
     technical_skills: list[str] = Field(default_factory=list)
     # e.g. ["Python", "R", "VaR", "stress testing", "scenario analysis"]
 
-    domain_areas: list[str] = Field(default_factory=list)
-    # e.g. ["market risk", "model risk", "credit risk", "PPNR"]
+    subject_areas: list[str] = Field(default_factory=list)
+    # e.g. ["product management", "market risk", "clinical trials"]
 
-    years_of_experience: Optional[int] = None
+    years_experience: Optional[int] = None
 
     education_summary: Optional[str] = None
     # e.g. "MS Financial Engineering, Columbia University"
@@ -70,7 +70,7 @@ class ProfileSnapshot(BaseModel):
                 self.summary,
                 self.experience_summary,
                 self.technical_skills,
-                self.domain_areas,
+                self.subject_areas,
             ]
         )
 
@@ -133,7 +133,7 @@ class CapabilitySignal(BaseModel):
     # e.g. ["exposure management", "portfolio risk analytics"]
 
     signal_type: Literal["domain", "technical", "business"]
-    # domain   = financial domain knowledge (e.g. VaR, credit risk)
+    # domain   = subject/domain knowledge (e.g. VaR, credit risk, product management)
     # technical = tools, methods, quantitative skills
     # business = process, governance, stakeholder, communication skills
 
@@ -184,7 +184,8 @@ class DiscoveryIntent(BaseModel):
 
     soft_preferences: list[str] = Field(default_factory=list)
     # e.g. ["prefer H1B-transfer friendly", "prefer buy-side over sell-side"]
-    # Must come from the user's words, not profile inference.
+    # Sources: raw_user_request (LLM-extracted) + frontend soft_preferences (platform-merged).
+    # Must NOT come from profile capability inference.
 
     # --- Profile context ---
     profile_role: Literal["none", "supporting", "primary"]
@@ -249,13 +250,41 @@ class PreviousRunDiagnostics(BaseModel):
 
 
 class OutputPaths(BaseModel):
-    """Paths on the agent_artifacts volume that the agent must write."""
+    """
+    Platform-owned artifact paths for a discovery run.
+
+    All paths are derived deterministically from (artifacts_dir, run_id, task_id)
+    by build_output_paths(). That function is the single authoritative source —
+    no other code may construct these paths.
+
+    Two categories of artifacts:
+
+      Agent-reported (declared by the agent in manifest.artifact_paths):
+        candidate_pool_path, search_ledger_path, trace_events_path,
+        coverage_report_path, output_manifest_path
+
+      Platform-managed (written by platform wrappers; never in manifest.artifact_paths):
+        tool_events_path  — HMAC-signed ledger written by career_log_candidates
+                            and career_write_manifest; validators read this
+                            from OutputPaths, not from the agent manifest.
+
+    Rules:
+      - Agents must not construct, rewrite, or claim these paths.
+      - Validators must derive platform-managed paths from OutputPaths, not
+        from manifest.artifact_paths (which is agent-reported, not authoritative).
+      - Adding a new platform-managed file requires exactly four steps:
+          1. Add a field here.
+          2. Construct it in build_output_paths().
+          3. Pass it through task_spec.output_paths into input.json.
+          4. Read it in the validator from OutputPaths — not from the manifest.
+    """
 
     candidate_pool_path: str
     search_ledger_path: str
     trace_events_path: str
     coverage_report_path: str
     output_manifest_path: str
+    tool_events_path: str  # platform-written signed ledger (not agent-written)
 
 
 class DiscoveryTaskSpec(BaseModel):

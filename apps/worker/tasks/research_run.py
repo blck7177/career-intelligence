@@ -21,13 +21,17 @@ Full flow (per architecture.md Agent Execution Flow):
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from packages.contracts.agents.invocation import AgentBudget, AgentTaskInput
 from packages.contracts.agents.manifests import AgentOutputManifest, ResearchManifest
+from packages.contracts.api.runs import JobResearchInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
 from packages.infrastructure.agent_runtime.openclaw import create_runtime
@@ -36,6 +40,7 @@ from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
+    JobRepository,
     RunRepository,
     TaskEventRepository,
     TaskRepository,
@@ -62,13 +67,28 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         input_snapshot = run.input_snapshot_json or {}
         workspace_id = env.workspace_id
 
+    try:
+        inp = JobResearchInput.model_validate(input_snapshot)
+    except ValidationError as exc:
+        logger.error("research_run: invalid input_snapshot: %s", exc)
+        _mark_needs_review(
+            env,
+            invocation_id="",
+            reason=f"Invalid job_research input_snapshot: {exc}",
+            error_code="INVALID_INPUT",
+        )
+        return {"status": "needs_review", "task_id": env.task_id}
+
     # ------------------------------------------------------------------
     # Step 2: Build AgentInvocationSpec
     # ------------------------------------------------------------------
     budget = AgentBudget(
-        max_tool_calls=input_snapshot.get("max_tool_calls", 20),
-        timeout_seconds=input_snapshot.get("timeout_seconds", 600),
+        max_tool_calls=inp.max_tool_calls,
+        timeout_seconds=inp.timeout_seconds,
     )
+
+    import uuid as _uuid
+    unified_invocation_id = str(_uuid.uuid4())
 
     spec = build_invocation_spec(
         run_id=env.run_id,
@@ -79,20 +99,34 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         artifacts_base_dir=_ARTIFACTS_DIR,
         payload=input_snapshot,
         budget=budget,
+        invocation_id=unified_invocation_id,
     )
 
     # ------------------------------------------------------------------
     # Step 3: Build input.json and write to artifact volume
     # ------------------------------------------------------------------
+    run_dir = Path(_ARTIFACTS_DIR) / env.run_id / env.task_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Inject platform-canonical output paths so the research agent knows where
+    # to write research_notes.md, research_sources.json, and fetch_ledger.jsonl.
+    # The client cannot know these paths at run-creation time (task_id is
+    # assigned by the worker), so the worker injects them here.
+    enriched_payload = {
+        **input_snapshot,
+        "expected_output_paths": {
+            "research_notes": str(run_dir / "research_notes.md"),
+            "research_sources": str(run_dir / "research_sources.json"),
+            "fetch_ledger": str(run_dir / "research_fetch_ledger.jsonl"),
+        },
+    }
+
     task_input = build_task_input(
         spec=spec,
         task_type=env.task_type,
-        payload=input_snapshot,
+        payload=enriched_payload,
         budget=budget,
     )
-
-    run_dir = Path(_ARTIFACTS_DIR) / env.run_id / env.task_id
-    run_dir.mkdir(parents=True, exist_ok=True)
 
     input_json_path = Path(spec.input_spec_path)
     input_json_path.write_text(task_input.model_dump_json(indent=2))
@@ -114,6 +148,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             skill_contract_version=spec.skill_contract_version,
             input_spec_uri=str(input_json_path),
             output_manifest_uri=spec.output_manifest_path,
+            id=unified_invocation_id,
         )
         invocation_id = invocation.id
 
@@ -213,6 +248,12 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         )
         return {"status": "needs_review", "task_id": env.task_id}
 
+    # Strip platform-supplementary artifacts that may be declared but not
+    # created (e.g. fetch_ledger if the agent used native web_fetch instead
+    # of career_fetch_source.py wrapper). The validator will fail on missing
+    # declared artifacts, so we remove optional ones that don't exist.
+    _strip_missing_optional_artifacts(manifest, optional_keys={"fetch_ledger"})
+
     gate = ValidatorGate()
     validation_results = gate.run(manifest, spec)
 
@@ -253,6 +294,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
+        job_repo = JobRepository(session)
 
         for artifact_type, path_str in manifest.artifact_paths.items():
             artifact_repo.create(
@@ -260,32 +302,96 @@ def handle_research_run(env: TaskEnvelope) -> dict:
                 task_id=env.task_id,
                 artifact_type=artifact_type,
                 storage_uri=path_str,
+                content_hash=_compute_file_sha256(path_str),
                 metadata_json={"invocation_id": invocation_id, "job_id": job_id},
             )
 
+        # Backfill JD text into the jobs table and promote to reportable.
+        # The research agent fetches the JD from source_url and writes it
+        # to the manifest so the worker can persist it here without doing IO.
+        if manifest.jd_text:
+            jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()[:16]
+            job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
+            job_repo.set_status(job_id, "reportable")
+            logger.info(
+                "research_run: backfilled jd_text for job_id=%s (hash=%s), status→reportable",
+                job_id,
+                jd_hash,
+            )
+        else:
+            logger.warning(
+                "research_run: manifest.jd_text missing for job_id=%s; "
+                "job stays in 'discovered' status, report generation will use JD-only fallback",
+                job_id,
+            )
+
         task_repo.mark_succeeded(env.task_id)
+        run_repo = RunRepository(session)
+        run_repo.complete(
+            env.run_id,
+            status="succeeded",
+            result_summary={
+                "job_id": job_id,
+                "citations_count": manifest.citations_count,
+                "jd_backfilled": bool(manifest.jd_text),
+            },
+        )
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
             event_type="task_succeeded",
             message=(
                 f"Research complete: job_id={job_id}, "
-                f"citations={manifest.citations_count}"
+                f"citations={manifest.citations_count}, "
+                f"jd_backfilled={bool(manifest.jd_text)}"
             ),
         )
 
     logger.info(
-        "research_run: task_id=%s succeeded, job_id=%s citations=%d",
+        "research_run: task_id=%s succeeded, job_id=%s citations=%d jd_backfilled=%s",
         env.task_id,
         job_id,
         manifest.citations_count,
+        bool(manifest.jd_text),
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "job_id": job_id,
         "citations_count": manifest.citations_count,
+        "jd_backfilled": bool(manifest.jd_text),
     }
+
+
+def _strip_missing_optional_artifacts(
+    manifest: ResearchManifest,
+    optional_keys: set[str],
+) -> None:
+    """
+    Remove declared artifact_paths entries that are optional and whose files
+    don't exist on disk.  The ProvenanceValidator fails hard on any declared
+    artifact that is missing, so we drop optional keys here to avoid blocking
+    research tasks on supplementary artifacts.
+    """
+    for key in list(optional_keys):
+        if key in manifest.artifact_paths:
+            path = Path(manifest.artifact_paths[key])
+            if not path.exists():
+                logger.warning(
+                    "research_run: optional artifact %r not found at %s — removing from manifest",
+                    key,
+                    path,
+                )
+                del manifest.artifact_paths[key]
+
+
+def _compute_file_sha256(path_str: str) -> str | None:
+    """Return sha256:<hex> for the file at path_str, or None if unreadable."""
+    try:
+        digest = hashlib.sha256(Path(path_str).read_bytes()).hexdigest()
+        return f"sha256:{digest}"
+    except OSError:
+        return None
 
 
 def _mark_needs_review(
@@ -297,11 +403,17 @@ def _mark_needs_review(
 ) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
+        run_repo = RunRepository(session)
         event_repo = TaskEventRepository(session)
         task_repo.mark_needs_review(
             env.task_id,
             error_code=error_code,
             error_message=reason[:500],
+        )
+        run_repo.complete(
+            env.run_id,
+            status="needs_review",
+            result_summary={"error_code": error_code, "invocation_id": invocation_id},
         )
         event_repo.append(
             task_id=env.task_id,

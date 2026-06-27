@@ -30,7 +30,7 @@ BUDGET_BY_DEPTH: dict[str, AgentBudget] = {
         max_tool_calls=15,
         max_candidates=20,
         max_new_sources=5,
-        timeout_seconds=300,
+        timeout_seconds=600,
     ),
     "standard": AgentBudget(
         max_tool_calls=30,
@@ -78,6 +78,7 @@ def build_output_paths(
         trace_events_path=str(base / "trace_events.jsonl"),
         coverage_report_path=str(base / "coverage_report.md"),
         output_manifest_path=str(base / "output_manifest.json"),
+        tool_events_path=str(base / "tool_events.jsonl"),
     )
 
 

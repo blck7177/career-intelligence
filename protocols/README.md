@@ -11,7 +11,7 @@ Protocols define stable project rules. They override skill convenience instructi
 | `OUTPUT_CONTRACT.md` | Before changing field names in job records or reports |
 | `PROJECT_PROTOCOL.md` | General project operating rules |
 | `SEARCH_STRATEGY_PROTOCOL.md` | Before modifying discovery strategy logic |
-| `WORKSTREAM_TAXONOMY.md` | Before changing job classification logic |
+| `ROLE_CATEGORY_TAXONOMY.md` | Before changing job classification logic |
 | `workflow_protocol.md` | Before changing task execution or run lifecycle |
 | `review_protocol.md` | Before any change requiring human review |
 

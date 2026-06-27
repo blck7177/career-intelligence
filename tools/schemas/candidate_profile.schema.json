@@ -2,80 +2,68 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "candidate_profile.schema.json",
   "title": "CandidateProfile",
-  "description": "Workspace-private candidate profile for fit analysis. Created manually — no resume upload required. profile_version is injected at creation time so that cache keys derived from profile_hash naturally invalidate when the schema interpretation changes.",
+  "description": "Workspace-private candidate profile. Single source of truth for both Discovery and FitReport pipelines. One profile per workspace (MVP). Discovery reads narrative fields via ProfileSnapshot adapter; FitReport reads all fields directly from candidate_profiles table.",
   "type": "object",
   "required": [
-    "candidate_profile_id",
+    "id",
     "workspace_id",
-    "created_at",
-    "profile_version",
-    "years_experience",
-    "current_background",
-    "domain_experience",
-    "technical_skills",
-    "analytical_methods",
-    "finance_domains",
-    "tools",
-    "representative_projects"
+    "profile_hash"
   ],
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
-    "candidate_profile_id": { "type": "string" },
+    "id": { "type": "string" },
     "workspace_id": { "type": "string" },
-    "created_at": { "type": "string", "format": "date-time" },
-    "profile_version": {
+    "profile_hash": {
       "type": "string",
-      "description": "FIT_PROFILE_VERSION at creation time. Injected by profile_service.create_manual_profile(). Because profile_hash = md5(full profile JSON), bumping this version changes the hash and automatically invalidates cached Fit Reports."
+      "description": "MD5 of the profile content fields. Used for FitReport cache invalidation."
     },
-    "display_name": {
-      "type": "string",
-      "description": "Optional label for this profile version, e.g. 'Senior Associate 2026'."
+
+    "summary": {
+      "type": ["string", "null"],
+      "description": "1-3 sentence professional positioning. Used as 'Background' context in FitReport LLM prompt and as the primary narrative signal for Discovery intent translation."
     },
+    "experience_summary": {
+      "type": ["string", "null"],
+      "description": "Broader career narrative: firms, roles, key responsibilities. Enriches Discovery search direction."
+    },
+    "education_summary": {
+      "type": ["string", "null"],
+      "description": "Highest degree and institution. e.g. 'MS Financial Engineering, Columbia University'."
+    },
+
     "years_experience": {
-      "type": "integer",
+      "type": ["integer", "null"],
       "minimum": 0,
       "description": "Total years of relevant professional experience."
     },
-    "current_background": {
-      "type": "string",
-      "description": "2-3 sentence summary of current role and primary focus area."
-    },
-    "domain_experience": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Finance/risk domains with hands-on experience. e.g. ['Market Risk', 'Valuation Control', 'Credit Analytics']"
-    },
+
     "technical_skills": {
-      "type": "array",
+      "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Programming languages, data tools, risk systems. e.g. ['Python', 'SQL', 'Bloomberg', 'Murex']"
+      "description": "Programming languages, quantitative methods, and data tools. UI label: 'Technical skills / methods'. e.g. ['Python', 'SQL', 'forecasting', 'experimentation', 'API integration']"
     },
-    "analytical_methods": {
-      "type": "array",
+    "subject_areas": {
+      "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Quantitative methods and frameworks. e.g. ['VaR', 'Greeks', 'Scenario Analysis', 'Model Validation']"
-    },
-    "finance_domains": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Asset classes or product types. e.g. ['Equities', 'Fixed Income', 'Derivatives', 'Structured Products']"
+      "description": "Functional, industry, or thematic areas of experience. e.g. ['product management', 'market risk', 'clinical trials', 'fixed income']"
     },
     "tools": {
-      "type": "array",
+      "type": ["array", "null"],
       "items": { "type": "string" },
-      "description": "Software tools and platforms. e.g. ['Excel', 'Tableau', 'JIRA', 'Git']"
+      "description": "Software platforms and vendor tools. e.g. ['Jira', 'Salesforce', 'Figma', 'Tableau', 'GitHub', 'Excel']"
     },
+
     "representative_projects": {
-      "type": "array",
-      "description": "Most important work evidence. Each item should be concrete enough for LLM evidence-based matching. Structured rather than free text so match_service can cite specific projects in strong_matches.",
+      "type": ["array", "null"],
+      "description": "Primary evidence for FitReport strong_matches and gap analysis. Each entry is cited by the LLM when writing evidence-based match assessments.",
       "items": {
         "type": "object",
-        "required": ["description", "skills_used"],
-        "additionalProperties": true,
+        "required": ["title", "description", "skills_used"],
+        "additionalProperties": false,
         "properties": {
           "title": {
             "type": "string",
-            "description": "Short label for this project. Optional."
+            "description": "Short label. e.g. 'VaR Model Rebuild'"
           },
           "description": {
             "type": "string",
@@ -88,24 +76,10 @@
           },
           "quantified_impact": {
             "type": "string",
-            "description": "Optional metric or outcome. e.g. 'Reduced daily reconciliation time by 40%.' Best to include when available."
+            "description": "Optional metric or outcome. e.g. 'Reduced model run time by 40%.'"
           }
         }
       }
-    },
-    "target_workstreams": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Workstream IDs from workstream_taxonomy.yaml the candidate is targeting. UI/filter use."
-    },
-    "target_roles": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Role titles or role-type keywords the candidate is open to. UI/filter use."
-    },
-    "constraints": {
-      "type": "string",
-      "description": "Location, seniority, compensation, or other preferences. UI/filter use only — not fed to LLM analysis."
     }
   }
 }

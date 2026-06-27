@@ -1,19 +1,22 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Nav } from "@/components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Career OpenClaw",
-  description: "Job intelligence platform",
+  title: "Career Agent",
+  description: "Your personal career intelligence agent",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
-        <Nav />
-        <main className="max-w-5xl mx-auto px-4 py-8">{children}</main>
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en" className="h-full">
+        <body className="flex h-full overflow-hidden">
+          <Nav />
+          <main className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</main>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

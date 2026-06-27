@@ -8,9 +8,11 @@ OpenClaw session keys, skill paths, and agent internals are NOT included.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
+
+from packages.contracts.api.discovery import JobDiscoveryFrontendInput
 
 
 # ---------------------------------------------------------------------------
@@ -21,12 +23,160 @@ RunStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "ne
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "needs_review"]
 
 
-class RunCreate(BaseModel):
-    """Request body for POST /api/runs."""
+class FailedValidatorSummary(BaseModel):
+    """One validator's failure detail within a needs_review result_summary."""
 
-    run_type: str = Field(..., examples=["job_discovery"])
-    workspace_id: str
-    input_snapshot: dict = Field(default_factory=dict)
+    name: str
+    errors: list[dict] = Field(default_factory=list)
+
+
+class RunResultSummary(BaseModel):
+    """
+    Structured diagnostic payload written by the worker at run completion.
+
+    Populated for both terminal statuses:
+      - validation_status="passed"  → run succeeded; candidate_count / job_ids present
+      - validation_status="failed"  → run needs_review; phase / failed_validators present
+
+    All fields except validation_status are Optional because the exact set depends
+    on which execution phase produced the summary.
+    """
+
+    validation_status: Optional[Literal["passed", "failed"]] = None
+    phase: Optional[str] = None
+    error_code: Optional[str] = None
+    invocation_id: Optional[str] = None
+    candidate_count: Optional[int] = None
+    sources_tried: Optional[int] = None
+    # succeeded path
+    job_ids: Optional[list[str]] = None
+    artifact_ids: Optional[list[str]] = None
+    # needs_review path
+    failed_validators: Optional[list[FailedValidatorSummary]] = None
+    artifact_paths: Optional[dict[str, str]] = None
+    # profile_import path
+    import_type: Optional[str] = None
+    profile_draft: Optional[dict] = None
+    parse_notes: Optional[dict] = None
+
+
+# ---------------------------------------------------------------------------
+# Per-run-type input schemas
+# ---------------------------------------------------------------------------
+
+
+class JobReportInput(BaseModel):
+    """Input for run_type=job_report."""
+
+    job_id: str
+    use_research: bool = True
+    force_refresh: bool = False
+    research_artifact_id: Optional[str] = None
+
+
+class FitReportInput(BaseModel):
+    """Input for run_type=fit_report."""
+
+    job_id: str
+    job_report_id: Optional[str] = None
+    force_refresh: bool = False
+
+
+class ProfileImportInput(BaseModel):
+    """Input for run_type=profile_import."""
+
+    resume_text: str = Field(..., min_length=1, max_length=50_000)
+    source_type: Literal["paste"] = "paste"
+
+
+class JobResearchInput(BaseModel):
+    """Input for run_type=job_research."""
+
+    job_id: str
+    max_tool_calls: int = Field(default=20, ge=1, le=100)
+    timeout_seconds: int = Field(default=600, ge=60, le=3600)
+    model_config = ConfigDict(extra="allow")
+
+
+class RunReflectionInput(BaseModel):
+    """Input for run_type=run_reflection."""
+
+    run_id: str
+    max_tool_calls: int = Field(default=10, ge=1, le=100)
+    timeout_seconds: int = Field(default=300, ge=60, le=3600)
+    model_config = ConfigDict(extra="allow")
+
+
+# ---------------------------------------------------------------------------
+# RunCreate — discriminated union on run_type
+# ---------------------------------------------------------------------------
+
+
+class JobDiscoveryRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_discovery."""
+
+    run_type: Literal["job_discovery"]
+    input_snapshot: JobDiscoveryFrontendInput
+
+
+class JobReportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_report."""
+
+    run_type: Literal["job_report"]
+    input_snapshot: JobReportInput
+
+
+class FitReportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=fit_report."""
+
+    run_type: Literal["fit_report"]
+    input_snapshot: FitReportInput
+
+
+class ProfileImportRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=profile_import."""
+
+    run_type: Literal["profile_import"]
+    input_snapshot: ProfileImportInput
+
+
+class JobResearchRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=job_research."""
+
+    run_type: Literal["job_research"]
+    input_snapshot: JobResearchInput
+
+
+class RunReflectionRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=run_reflection."""
+
+    run_type: Literal["run_reflection"]
+    input_snapshot: RunReflectionInput
+
+
+_RunCreateUnion = Annotated[
+    Union[
+        JobDiscoveryRunCreate,
+        JobReportRunCreate,
+        FitReportRunCreate,
+        ProfileImportRunCreate,
+        JobResearchRunCreate,
+        RunReflectionRunCreate,
+    ],
+    Field(discriminator="run_type"),
+]
+
+
+class RunCreate(RootModel[_RunCreateUnion]):
+    """Request body for POST /api/app/runs — discriminated by run_type."""
+
+    @property
+    def run_type(self) -> str:
+        return self.root.run_type
+
+    @property
+    def input_snapshot(self) -> BaseModel:
+        return self.root.input_snapshot
 
 
 class RunRead(BaseModel):
@@ -40,10 +190,11 @@ class RunRead(BaseModel):
     schema_version: str = "v1"
     error_code: Optional[str] = None
     error_message: Optional[str] = None
+    result_summary: Optional[RunResultSummary] = Field(None, alias="result_summary_json")
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
 
 
 class RunList(BaseModel):

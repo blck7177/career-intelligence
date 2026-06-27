@@ -1,38 +1,38 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
-  --muted: #f4f4f5;
-  --muted-foreground: #71717a;
-  --border: #e4e4e7;
+  --background: oklch(97.5% 0.007 285);
+  --foreground: oklch(18% 0.015 275);
+  --muted: oklch(95% 0.007 285);
+  --muted-foreground: oklch(50% 0.01 275);
+  --border: oklch(91.5% 0.01 280);
   --card: #ffffff;
-  --card-foreground: #0a0a0a;
-  --primary: #18181b;
-  --primary-foreground: #fafafa;
-  --secondary: #f4f4f5;
-  --secondary-foreground: #18181b;
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
+  --card-foreground: oklch(18% 0.015 275);
+  --primary: oklch(52% 0.2 285);
+  --primary-foreground: #ffffff;
+  --secondary: oklch(95.5% 0.033 285);
+  --secondary-foreground: oklch(42% 0.2 285);
+  --accent: oklch(95.5% 0.034 285);
+  --accent-foreground: oklch(44% 0.18 285);
   --radius: 0.5rem;
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-    --border: #27272a;
-    --card: #09090b;
-    --card-foreground: #fafafa;
-    --primary: #fafafa;
-    --primary-foreground: #18181b;
-    --secondary: #27272a;
-    --secondary-foreground: #fafafa;
-    --accent: #27272a;
-    --accent-foreground: #fafafa;
-  }
+  --sidebar-bg: #ffffff;
+  --sidebar-fg: oklch(50% 0.01 275);
+  --sidebar-border: oklch(91.5% 0.01 280);
+  --sidebar-item-hover: oklch(97% 0.007 285);
+  --sidebar-item-active-bg: oklch(95.5% 0.033 285);
+  --sidebar-item-active-fg: oklch(42% 0.2 285);
+
+  --match-strong-bg: oklch(95.5% 0.034 155);
+  --match-strong-fg: oklch(38% 0.12 155);
+  --match-strong-border: oklch(85% 0.04 155);
+  --match-good-bg: oklch(95.5% 0.034 285);
+  --match-good-fg: oklch(44% 0.18 285);
+  --match-good-border: oklch(85% 0.04 285);
+  --match-partial-bg: oklch(96% 0.004 275);
+  --match-partial-fg: oklch(54% 0.01 275);
+  --match-partial-border: oklch(88% 0.008 275);
 }
 
 * {
@@ -44,6 +44,11 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  font-size: 14px;
 }
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(87% 0.01 280); border-radius: 3px; }

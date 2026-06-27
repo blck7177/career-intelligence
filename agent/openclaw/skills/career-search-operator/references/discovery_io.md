@@ -58,7 +58,7 @@ Service owns canonical database.
 | `target_role_families` | 要搜索的 role 方向列表 | 每条含 `name`, `rationale`, `source`, `confidence` |
 | `excluded_role_families` | 明确排除的 role 方向 | 搜索中完全不触碰这些方向 |
 | `hard_constraints` | 强制约束 | **必须遵守**，见下方约束规则 |
-| `soft_preferences` | 优先偏好 | 可在排序和过滤时参考，低 yield 时可放宽 |
+| `soft_preferences` | 优先偏好（来自本次 run input + 用户自然语言，非 profile 推断） | 可在排序和过滤时参考，低 yield 时可放宽 |
 | `expansion_scope` | `narrow` / `standard` / `wide` | 控制你可以扩展多远，见下方规则 |
 | `profile_role` | `none` / `supporting` / `primary` | 了解 profile 在这轮的权重 |
 | `capability_signals` | Profile 能力聚类（无 profile 时为空） | 作为扩展搜索的参考信号 |
@@ -145,7 +145,8 @@ command: python tools/wrappers/agent_tools/career_search_status.py \
 |---|---|---|
 | `candidate_pool_path` | `candidate_pool.jsonl` | `career_log_candidates` wrapper 自动写入 |
 | `search_ledger_path` | `search_ledger.jsonl` | 你手动写（可选，记录每次搜索行动） |
-| `trace_events_path` | `trace_events.jsonl` | wrapper 自动追加（`career_log_candidates`、`career_fetch_source` 每次调用后各写一行） |
+| `trace_events_path` | `trace_events.jsonl` | wrapper 自动追加（backward compat，diagnostic only） |
+| `tool_events_path` | `tool_events.jsonl` | wrapper 自动写入 HMAC 签名 ledger（**ValidatorGate 必需**） |
 | `coverage_report_path` | `coverage_report.md` | **你手动写（必须）** |
 | `output_manifest_path` | `output_manifest.json` | `career_write_manifest` wrapper 写入 |
 
@@ -212,7 +213,11 @@ Manifest 必须包含：
 {
   "run_id": "<来自 input.json>",
   "task_id": "<来自 input.json>",
+  "invocation_id": "<来自 input.json 顶层>",
   "artifacts_dir": "/app/data/agent_artifacts",
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path 来自 input.json>"
+  },
   "candidates": [
     {
       "url": "https://boards.greenhouse.io/acme/jobs/12345",
@@ -240,7 +245,9 @@ Manifest 必须包含：
 }
 ```
 
-返回：`url`、`text`（最多 50k chars）、`final_url`、`content_length`
+返回：`url`、`text`（最多 50k chars，已 strip HTML）、`final_url`、`content_length`、`jd_text_path`（artifact cache 路径，可选）、`jd_hash`
+
+`career_fetch_source` 成功时会自动写入 `{artifacts_dir}/{run_id}/{task_id}/fetched_jds/{url_hash}.txt`，供 worker ingest 复用（避免 double-fetch）。
 
 ### `career_write_manifest`
 
@@ -248,8 +255,14 @@ Manifest 必须包含：
 // task-spec 内容：
 {
   "invocation_id": "<来自 input.json 顶层>",
+  "run_id": "<来自 input.json>",
+  "task_id": "<来自 input.json>",
   "status": "completed",
   "stop_reason": "budget.max_candidates reached",
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path 来自 input.json>",
+    "output_manifest_path": "<payload.output_paths.output_manifest_path 来自 input.json>"
+  },
   "artifact_paths": {
     "candidate_pool": "<payload.output_paths.candidate_pool_path>",
     "search_ledger": "<payload.output_paths.search_ledger_path>",
@@ -262,7 +275,8 @@ Manifest 必须包含：
     "sources_added": ["ashby.io/newco"]
   }
 }
-// output 路径：payload.output_paths.output_manifest_path
+// platform manifest 路径：由 wrapper 从 output_paths.output_manifest_path（或 run_id/task_id）推导；
+// --output 仅写 workspace ack JSON，不要手抄绝对 manifest 路径。
 ```
 
 wrapper 会自动将 `summary.candidate_count`、`summary.sources_tried`、`summary.sources_added` 提升到 manifest 顶层，供 Validator Gate 读取。
@@ -271,10 +285,22 @@ wrapper 会自动将 `summary.candidate_count`、`summary.sources_tried`、`summ
 
 ## 平台在你之后会做的事（你不要碰）
 
-1. **Validator Gate**：检查 manifest schema、artifact 存在性、budget 合规、以及 trace_events 里是否有真实 discovery action（`web_search` / `web_fetch` / `career_fetch_source`）。无真实 action 但 candidate_count > 0 → 直接 `needs_review`。
-2. **Artifact 入库**：validator 通过后，把 `artifact_paths` 里的路径写入 `artifacts` 表。
+1. **Validator Gate**：依次检查：
+   - `SchemaValidator`：manifest schema 合法性、invocation_id 一致
+   - `ProvenanceValidator`：artifact 文件存在且非空
+   - `GatewayTransportValidator`：transport 不是 embedded，没有 fallback
+   - `ToolLedgerValidator`：`tool_events.jsonl` 存在、HMAC 签名有效、hash chain 完整
+   - `DiscoveryEvidenceValidator`：ledger 里有合法 `candidate_log` event，hash 和 count 与 pool 匹配
+   - `DiscoveryCountValidator`：manifest 声明的 `candidate_count` 与 pool 实际行数一致
+   任何一层失败 → task → `needs_review`，不写入 DB。
+2. **Artifact 入库**：validator 全部通过后，把 `artifact_paths` 里的路径写入 `artifacts` 表。
 3. **Run status 更新**：task → `succeeded` 或 `needs_review`，UI 可见。
-4. **Candidate ingest**（未来）：`candidate_pool.jsonl` 里的候选经 dedup / normalize 后写入 `jobs` 表。
+4. **Candidate ingest + JD resolution**：validator 通过后，worker 读取 `candidate_pool.jsonl`，对每个新 URL：
+   - 优先读 `fetched_jds/{url_hash}.txt`（`career_fetch_source` 写入的 cache）
+   - 无 cache 则 worker deterministic fetch
+   - fetch 成功 → `jobs` 表 `status=reportable`，写入 `jd_text` / `jd_hash`
+   - fetch 失败 → `status=discovered`，`raw_payload_json.fetch_error` 记录原因
+   - `result_summary_json` 含 `jobs_ingested` / `jobs_reportable` / `jobs_fetch_failed`
 
 ---
 

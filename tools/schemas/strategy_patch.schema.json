@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "strategy_patch.schema.json",
   "title": "StrategyPatch",
-  "description": "Cross-run learnings produced by the bounded career-reflect-agent after a discovery run. The agent writes this file only; the worker validates it (strategy_state.apply_strategy_patch) and is the sole writer of strategy_state.json. List fields are merged (union, deduped); recommended_next_searches is replaced; coverage_by_workstream is merged per key. Unknown fields are rejected.",
+  "description": "Cross-run learnings produced by the bounded career-reflect-agent after a discovery run. The agent writes this file only; the worker validates it (strategy_state.apply_strategy_patch) and is the sole writer of strategy_state.json. List fields are merged (union, deduped); recommended_next_searches is replaced; coverage_by_role_category (role category coverage) is merged per key. Unknown fields are rejected.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -26,13 +26,13 @@
       "items": { "type": "string" },
       "description": "Query patterns that only returned aggregator / search-result pages."
     },
-    "coverage_by_workstream": {
+    "coverage_by_role_category": {
       "type": "object",
       "additionalProperties": {
         "type": "string",
         "enum": ["sufficient", "weak", "missing", "unknown"]
       },
-      "description": "Per-workstream coverage assessment, keyed by a label from configs/workstream_taxonomy.yaml."
+      "description": "Per-role-category coverage assessment (internal key coverage_by_role_category), keyed by label from configs/role_category_taxonomy.yaml."
     },
     "key_learnings": {
       "type": "array",

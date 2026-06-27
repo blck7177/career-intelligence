@@ -29,14 +29,32 @@
         }
       }
     },
-    "/api/runs": {
+    "/api/app/runs": {
       "post": {
         "tags": [
           "runs"
         ],
         "summary": "Create Run",
-        "description": "Create a run and enqueue its first task via Celery.\nReturns run_id immediately \u2014 frontend polls for status.",
-        "operationId": "create_run_api_runs_post",
+        "description": "Create a run and enqueue its first task via Celery.\nworkspace_id comes from the authenticated user's session \u2014 not from the request body.\nReturns run_id immediately \u2014 frontend polls for status.",
+        "operationId": "create_run_api_app_runs_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -75,15 +93,22 @@
           "runs"
         ],
         "summary": "List Runs",
-        "operationId": "list_runs_api_runs_get",
+        "operationId": "list_runs_api_app_runs_get",
         "parameters": [
           {
-            "name": "workspace_id",
-            "in": "query",
-            "required": true,
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
             "schema": {
-              "type": "string",
-              "title": "Workspace Id"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -111,13 +136,13 @@
         }
       }
     },
-    "/api/runs/{run_id}": {
+    "/api/app/runs/{run_id}": {
       "get": {
         "tags": [
           "runs"
         ],
         "summary": "Get Run",
-        "operationId": "get_run_api_runs__run_id__get",
+        "operationId": "get_run_api_app_runs__run_id__get",
         "parameters": [
           {
             "name": "run_id",
@@ -126,6 +151,22 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -153,13 +194,13 @@
         }
       }
     },
-    "/api/runs/{run_id}/tasks": {
-      "get": {
+    "/api/app/runs/{run_id}/cancel": {
+      "post": {
         "tags": [
           "runs"
         ],
-        "summary": "List Tasks",
-        "operationId": "list_tasks_api_runs__run_id__tasks_get",
+        "summary": "Cancel Run",
+        "operationId": "cancel_run_api_app_runs__run_id__cancel_post",
         "parameters": [
           {
             "name": "run_id",
@@ -168,6 +209,785 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "List Jobs",
+        "description": "List job records discovered in the current workspace.",
+        "operationId": "list_jobs_api_app_jobs_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by job status: discovered|reportable|invalid|stale",
+              "title": "Status"
+            },
+            "description": "Filter by job status: discovered|reportable|invalid|stale"
+          },
+          {
+            "name": "include_report_summary",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Join latest active job report for role category/seniority/confidence fields",
+              "default": false,
+              "title": "Include Report Summary"
+            },
+            "description": "Join latest active job report for role category/seniority/confidence fields"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Get Job",
+        "description": "Fetch a single job record by ID, verified to belong to the current workspace.",
+        "operationId": "get_job_api_app_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "include_report_summary",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Report Summary"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/job-reports/{job_report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Job Report",
+        "description": "Fetch a specific Job Intelligence Report by ID.",
+        "operationId": "get_job_report_api_app_job_reports__job_report_id__get",
+        "parameters": [
+          {
+            "name": "job_report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Report Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/fit-reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Fit Reports",
+        "description": "List fit report summaries for Role Inbox overlay (one latest per job).",
+        "operationId": "list_fit_reports_api_app_fit_reports_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by candidate profile ID",
+              "title": "Profile Id"
+            },
+            "description": "Filter by candidate profile ID"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Fit report status filter",
+              "default": "active",
+              "title": "Status"
+            },
+            "description": "Fit report status filter"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FitReportSummaryList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/fit-reports/{fit_report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Fit Report",
+        "description": "Fetch a specific Candidate Fit Report by ID.\nReturns 403 if the report does not belong to the current workspace.",
+        "operationId": "get_fit_report_api_app_fit_reports__fit_report_id__get",
+        "parameters": [
+          {
+            "name": "fit_report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Fit Report Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FitReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs/{job_id}/job-reports/latest": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Latest Job Report",
+        "description": "Fetch the latest active Job Intelligence Report for a job.",
+        "operationId": "get_latest_job_report_api_app_jobs__job_id__job_reports_latest_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobReportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/runs/{run_id}/report": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Run Report",
+        "description": "Return the report generated by a job_report or fit_report run.\n\nPrimary path: reads run.result_summary_json for the report_id (structured contract).\nLegacy fallback: scans task_succeeded event messages for \"job_report_id=\" / \"fit_report_id=\".",
+        "operationId": "get_run_report_api_app_runs__run_id__report_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/profile": {
+      "get": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "Get Profile",
+        "description": "Return the candidate profile for the current workspace.\nAuto-creates a default profile if none exists yet.",
+        "operationId": "get_profile_api_app_profile_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "profile"
+        ],
+        "summary": "Upsert Profile",
+        "description": "Create or update the candidate profile for the current workspace.",
+        "operationId": "upsert_profile_api_app_profile_put",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Runs",
+        "description": "List runs across all workspaces (admin only).",
+        "operationId": "admin_list_runs_api_admin_runs_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by workspace_id",
+              "title": "Workspace Id"
+            },
+            "description": "Filter by workspace_id"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by run status",
+              "title": "Status"
+            },
+            "description": "Filter by run status"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/runs/{run_id}/tasks": {
+      "get": {
+        "tags": [
+          "admin-runs"
+        ],
+        "summary": "Admin List Tasks",
+        "description": "List tasks for any run (admin only).",
+        "operationId": "admin_list_tasks_api_admin_runs__run_id__tasks_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -181,7 +1001,7 @@
                   "items": {
                     "$ref": "#/components/schemas/TaskRead"
                   },
-                  "title": "Response List Tasks Api Runs  Run Id  Tasks Get"
+                  "title": "Response Admin List Tasks Api Admin Runs  Run Id  Tasks Get"
                 }
               }
             }
@@ -199,13 +1019,14 @@
         }
       }
     },
-    "/api/runs/{run_id}/events": {
+    "/api/admin/runs/{run_id}/events": {
       "get": {
         "tags": [
-          "runs"
+          "admin-runs"
         ],
-        "summary": "List Events",
-        "operationId": "list_events_api_runs__run_id__events_get",
+        "summary": "Admin List Events",
+        "description": "List task events for any run (admin only).",
+        "operationId": "admin_list_events_api_admin_runs__run_id__events_get",
         "parameters": [
           {
             "name": "run_id",
@@ -214,6 +1035,22 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -227,7 +1064,7 @@
                   "items": {
                     "$ref": "#/components/schemas/TaskEventRead"
                   },
-                  "title": "Response List Events Api Runs  Run Id  Events Get"
+                  "title": "Response Admin List Events Api Admin Runs  Run Id  Events Get"
                 }
               }
             }
@@ -245,13 +1082,14 @@
         }
       }
     },
-    "/api/runs/{run_id}/agent-invocations": {
+    "/api/admin/runs/{run_id}/agent-invocations": {
       "get": {
         "tags": [
-          "runs"
+          "admin-runs"
         ],
-        "summary": "List Agent Invocations",
-        "operationId": "list_agent_invocations_api_runs__run_id__agent_invocations_get",
+        "summary": "Admin List Agent Invocations",
+        "description": "List agent invocations for any run (admin only).",
+        "operationId": "admin_list_agent_invocations_api_admin_runs__run_id__agent_invocations_get",
         "parameters": [
           {
             "name": "run_id",
@@ -260,6 +1098,22 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -273,7 +1127,7 @@
                   "items": {
                     "$ref": "#/components/schemas/AgentInvocationRead"
                   },
-                  "title": "Response List Agent Invocations Api Runs  Run Id  Agent Invocations Get"
+                  "title": "Response Admin List Agent Invocations Api Admin Runs  Run Id  Agent Invocations Get"
                 }
               }
             }
@@ -291,13 +1145,14 @@
         }
       }
     },
-    "/api/runs/{run_id}/cancel": {
+    "/api/admin/runs/{run_id}/cancel": {
       "post": {
         "tags": [
-          "runs"
+          "admin-runs"
         ],
-        "summary": "Cancel Run",
-        "operationId": "cancel_run_api_runs__run_id__cancel_post",
+        "summary": "Admin Cancel Run",
+        "description": "Cancel any run regardless of workspace (admin only).",
+        "operationId": "admin_cancel_run_api_admin_runs__run_id__cancel_post",
         "parameters": [
           {
             "name": "run_id",
@@ -306,6 +1161,22 @@
             "schema": {
               "type": "string",
               "title": "Run Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
             }
           }
         ],
@@ -316,6 +1187,114 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin List Users",
+        "description": "List all users (admin only).",
+        "operationId": "admin_list_users_api_admin_users_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserRead"
+                  },
+                  "title": "Response Admin List Users Api Admin Users Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/workspaces": {
+      "get": {
+        "tags": [
+          "admin-users"
+        ],
+        "summary": "Admin List Workspaces",
+        "description": "List all workspaces (admin only).",
+        "operationId": "admin_list_workspaces_api_admin_workspaces_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceRead"
+                  },
+                  "title": "Response Admin List Workspaces Api Admin Workspaces Get"
                 }
               }
             }
@@ -437,6 +1416,332 @@
         ],
         "title": "AgentInvocationRead"
       },
+      "DiscoveryHardConstraints": {
+        "properties": {
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "seniority": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Seniority"
+          },
+          "exclude_role_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclude Role Types"
+          },
+          "must_include_keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Must Include Keywords"
+          },
+          "work_arrangement": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "hybrid",
+                  "remote",
+                  "onsite",
+                  "any"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Work Arrangement"
+          },
+          "visa_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visa Note"
+          },
+          "compensation_range": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compensation Range"
+          }
+        },
+        "type": "object",
+        "title": "DiscoveryHardConstraints",
+        "description": "Explicit constraints the user provided.\n\nAll fields are optional. An absent field means the user did not specify\nthat constraint \u2014 the platform must NOT infer a default value for it."
+      },
+      "FailedValidatorSummary": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FailedValidatorSummary",
+        "description": "One validator's failure detail within a needs_review result_summary."
+      },
+      "FitReportInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "job_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Report Id"
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "FitReportInput",
+        "description": "Input for run_type=fit_report."
+      },
+      "FitReportResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "job_report_id": {
+            "type": "string",
+            "title": "Job Report Id"
+          },
+          "candidate_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Profile Id"
+          },
+          "overall_match_score": {
+            "type": "integer",
+            "title": "Overall Match Score"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "structured_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Structured Json"
+          },
+          "summary_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary Json"
+          },
+          "narrative_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Artifact Id"
+          },
+          "structured_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Artifact Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "job_id",
+          "job_report_id",
+          "overall_match_score",
+          "status",
+          "prompt_version",
+          "structured_json",
+          "summary_json",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FitReportResponse"
+      },
+      "FitReportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "fit_report",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/FitReportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "FitReportRunCreate",
+        "description": "POST /api/app/runs with run_type=fit_report."
+      },
+      "FitReportSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "candidate_profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Profile Id"
+          },
+          "overall_match_score": {
+            "type": "integer",
+            "title": "Overall Match Score"
+          },
+          "recommended_next_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended Next Action"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "overall_match_score",
+          "status",
+          "updated_at"
+        ],
+        "title": "FitReportSummary"
+      },
+      "FitReportSummaryList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FitReportSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "FitReportSummaryList"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -450,32 +1755,808 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "RunCreate": {
+      "JDStructured": {
+        "properties": {
+          "responsibilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Responsibilities",
+            "default": []
+          },
+          "required_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Skills",
+            "default": []
+          },
+          "preferred_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preferred Skills",
+            "default": []
+          },
+          "tools_mentioned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools Mentioned",
+            "default": []
+          },
+          "seniority_inferred": {
+            "type": "string",
+            "title": "Seniority Inferred",
+            "default": "unknown"
+          },
+          "likely_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likely Tasks",
+            "default": []
+          },
+          "likely_stakeholders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likely Stakeholders",
+            "default": []
+          },
+          "inferred_team_context": {
+            "type": "string",
+            "title": "Inferred Team Context",
+            "default": ""
+          },
+          "role_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Category"
+          }
+        },
+        "type": "object",
+        "title": "JDStructured",
+        "description": "Structured fields extracted from JD text during discovery."
+      },
+      "JobDiscoveryFrontendInput": {
+        "properties": {
+          "raw_user_request": {
+            "type": "string",
+            "minLength": 5,
+            "title": "Raw User Request",
+            "description": "User's natural language description of what they are looking for."
+          },
+          "search_mode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "exploratory",
+              "profile_guided"
+            ],
+            "title": "Search Mode"
+          },
+          "hard_constraints": {
+            "$ref": "#/components/schemas/DiscoveryHardConstraints"
+          },
+          "soft_preferences": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Soft Preferences"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "search_depth": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "standard",
+              "deep"
+            ],
+            "title": "Search Depth",
+            "default": "standard"
+          }
+        },
+        "type": "object",
+        "required": [
+          "raw_user_request",
+          "search_mode"
+        ],
+        "title": "JobDiscoveryFrontendInput",
+        "description": "The structured frontend payload for a job_discovery run.\n\nPlaced into RunCreate.input_snapshot by the frontend.\nThe worker parses this before calling the IntentTranslator.\n\nProfile, catalog context, and strategy context are NOT here \u2014\nthey are injected by the worker/planner from platform state."
+      },
+      "JobDiscoveryRunCreate": {
         "properties": {
           "run_type": {
             "type": "string",
-            "title": "Run Type",
-            "examples": [
-              "job_discovery"
-            ]
-          },
-          "workspace_id": {
-            "type": "string",
-            "title": "Workspace Id"
+            "const": "job_discovery",
+            "title": "Run Type"
           },
           "input_snapshot": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Input Snapshot"
+            "$ref": "#/components/schemas/JobDiscoveryFrontendInput"
           }
         },
         "type": "object",
         "required": [
           "run_type",
-          "workspace_id"
+          "input_snapshot"
+        ],
+        "title": "JobDiscoveryRunCreate",
+        "description": "POST /api/app/runs with run_type=job_discovery."
+      },
+      "JobList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/JobRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "JobList"
+      },
+      "JobRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url"
+          },
+          "source_type": {
+            "type": "string",
+            "title": "Source Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "discovered_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Discovered Run Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "latest_job_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Job Report Id"
+          },
+          "primary_role_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Role Category"
+          },
+          "seniority_inferred": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seniority Inferred"
+          },
+          "role_category_confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Category Confidence"
+          },
+          "jd_structured": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JDStructured"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "canonical_url",
+          "source_url",
+          "source_type",
+          "title",
+          "company",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobRead",
+        "description": "A canonical job record returned by the API."
+      },
+      "JobReportInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "use_research": {
+            "type": "boolean",
+            "title": "Use Research",
+            "default": true
+          },
+          "force_refresh": {
+            "type": "boolean",
+            "title": "Force Refresh",
+            "default": false
+          },
+          "research_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Artifact Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "JobReportInput",
+        "description": "Input for run_type=job_report."
+      },
+      "JobReportResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "jd_hash": {
+            "type": "string",
+            "title": "Jd Hash"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "used_research": {
+            "type": "boolean",
+            "title": "Used Research"
+          },
+          "research_bundle_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Bundle Hash"
+          },
+          "structured_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Structured Json"
+          },
+          "summary_json": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary Json"
+          },
+          "narrative_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Artifact Id"
+          },
+          "structured_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Artifact Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "status",
+          "jd_hash",
+          "prompt_version",
+          "used_research",
+          "structured_json",
+          "summary_json",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JobReportResponse"
+      },
+      "JobReportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "job_report",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/JobReportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "JobReportRunCreate",
+        "description": "POST /api/app/runs with run_type=job_report."
+      },
+      "JobResearchInput": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Tool Calls",
+            "default": 20
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 60.0,
+            "title": "Timeout Seconds",
+            "default": 600
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "JobResearchInput",
+        "description": "Input for run_type=job_research."
+      },
+      "JobResearchRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "job_research",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/JobResearchInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "JobResearchRunCreate",
+        "description": "POST /api/app/runs with run_type=job_research."
+      },
+      "ProfileImportInput": {
+        "properties": {
+          "resume_text": {
+            "type": "string",
+            "maxLength": 50000,
+            "minLength": 1,
+            "title": "Resume Text"
+          },
+          "source_type": {
+            "type": "string",
+            "const": "paste",
+            "title": "Source Type",
+            "default": "paste"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume_text"
+        ],
+        "title": "ProfileImportInput",
+        "description": "Input for run_type=profile_import."
+      },
+      "ProfileImportRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "profile_import",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/ProfileImportInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "ProfileImportRunCreate",
+        "description": "POST /api/app/runs with run_type=profile_import."
+      },
+      "ProfileRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "workspace_id": {
+            "type": "string",
+            "title": "Workspace Id"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "experience_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Summary"
+          },
+          "education_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Education Summary"
+          },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Experience"
+          },
+          "technical_skills": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Skills"
+          },
+          "subject_areas": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Areas"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "representative_projects": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Representative Projects"
+          },
+          "profile_hash": {
+            "type": "string",
+            "title": "Profile Hash"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "profile_hash"
+        ],
+        "title": "ProfileRead"
+      },
+      "ProfileUpdate": {
+        "properties": {
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "experience_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience Summary"
+          },
+          "education_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Education Summary"
+          },
+          "years_experience": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Years Experience"
+          },
+          "technical_skills": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Skills"
+          },
+          "subject_areas": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Areas"
+          },
+          "tools": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tools"
+          },
+          "representative_projects": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Representative Projects"
+          }
+        },
+        "type": "object",
+        "title": "ProfileUpdate"
+      },
+      "RunCreate": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/JobDiscoveryRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/JobReportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/FitReportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/ProfileImportRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/JobResearchRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/RunReflectionRunCreate"
+          }
         ],
         "title": "RunCreate",
-        "description": "Request body for POST /api/runs."
+        "description": "Request body for POST /api/app/runs \u2014 discriminated by run_type.",
+        "discriminator": {
+          "propertyName": "run_type",
+          "mapping": {
+            "fit_report": "#/components/schemas/FitReportRunCreate",
+            "job_discovery": "#/components/schemas/JobDiscoveryRunCreate",
+            "job_report": "#/components/schemas/JobReportRunCreate",
+            "job_research": "#/components/schemas/JobResearchRunCreate",
+            "profile_import": "#/components/schemas/ProfileImportRunCreate",
+            "run_reflection": "#/components/schemas/RunReflectionRunCreate"
+          }
+        }
       },
       "RunList": {
         "properties": {
@@ -563,6 +2644,16 @@
             ],
             "title": "Error Message"
           },
+          "result_summary_json": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunResultSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -585,6 +2676,222 @@
         ],
         "title": "RunRead",
         "description": "Response for GET /api/runs/{run_id}."
+      },
+      "RunReflectionInput": {
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "title": "Run Id"
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Tool Calls",
+            "default": 10
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 60.0,
+            "title": "Timeout Seconds",
+            "default": 300
+          }
+        },
+        "additionalProperties": true,
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "title": "RunReflectionInput",
+        "description": "Input for run_type=run_reflection."
+      },
+      "RunReflectionRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "run_reflection",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/RunReflectionInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "RunReflectionRunCreate",
+        "description": "POST /api/app/runs with run_type=run_reflection."
+      },
+      "RunResultSummary": {
+        "properties": {
+          "validation_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Status"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "invocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invocation Id"
+          },
+          "candidate_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Count"
+          },
+          "sources_tried": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sources Tried"
+          },
+          "job_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Ids"
+          },
+          "artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Ids"
+          },
+          "failed_validators": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FailedValidatorSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed Validators"
+          },
+          "artifact_paths": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Paths"
+          },
+          "import_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Type"
+          },
+          "profile_draft": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Draft"
+          },
+          "parse_notes": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parse Notes"
+          }
+        },
+        "type": "object",
+        "title": "RunResultSummary",
+        "description": "Structured diagnostic payload written by the worker at run completion.\n\nPopulated for both terminal statuses:\n  - validation_status=\"passed\"  \u2192 run succeeded; candidate_count / job_ids present\n  - validation_status=\"failed\"  \u2192 run needs_review; phase / failed_validators present\n\nAll fields except validation_status are Optional because the exact set depends\non which execution phase produced the summary."
       },
       "TaskEventRead": {
         "properties": {
@@ -759,6 +3066,35 @@
         "title": "TaskRead",
         "description": "Response for GET /api/runs/{run_id}/tasks."
       },
+      "UserRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "is_admin": {
+            "type": "boolean",
+            "title": "Is Admin"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "is_admin",
+          "created_at"
+        ],
+        "title": "UserRead"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -798,6 +3134,30 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkspaceRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "title": "WorkspaceRead"
       }
     }
   }

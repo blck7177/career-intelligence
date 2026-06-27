@@ -2,30 +2,53 @@
 API DTOs for discovered jobs.
 
 Jobs are written to the database only after Validator Gate passes.
+These DTOs reflect the actual Job ORM model fields.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+
+class JDStructured(BaseModel):
+    """Structured fields extracted from JD text during discovery."""
+
+    responsibilities: list[str] = []
+    required_skills: list[str] = []
+    preferred_skills: list[str] = []
+    tools_mentioned: list[str] = []
+    seniority_inferred: str = "unknown"
+    likely_tasks: list[str] = []
+    likely_stakeholders: list[str] = []
+    inferred_team_context: str = ""
+    role_category: Optional[str] = None
 
 
 class JobRead(BaseModel):
-    """A normalized job record returned by the API."""
+    """A canonical job record returned by the API."""
 
     id: str
-    workspace_id: str
-    run_id: Optional[str] = None
-    source: str
-    title: Optional[str] = None
-    company: Optional[str] = None
+    canonical_url: str
+    source_url: str
+    source_type: str
+    title: str
+    company: str
     location: Optional[str] = None
-    url: Optional[str] = None
-    normalized: dict = Field(default_factory=dict)
+    status: str  # "discovered" | "reportable" | "invalid" | "stale"
+    discovered_run_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    last_seen_at: Optional[datetime] = None
+    # Populated when include_report_summary=true (from latest active job report)
+    latest_job_report_id: Optional[str] = None
+    primary_role_category: Optional[str] = None
+    seniority_inferred: Optional[str] = None
+    role_category_confidence: Optional[str] = None  # high | medium | low
+    # Structured JD extraction (from discovery-time LLM call)
+    jd_structured: Optional[JDStructured] = None
 
     model_config = {"from_attributes": True}
 

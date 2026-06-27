@@ -24,12 +24,14 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 
 ## 流程（概览）
 
-1. **读 task spec**（路径在 prompt 里）→ 拿到 `job_id` / `research_inputs_hash` / `queries` / `context_gaps` / `avoid_queries` / `max_fetches` / `expected_output_paths`。
-2. **执行 bounded 搜索**：按 `queries` 优先级 high → medium → low 跑 `web_search`，对值得确认的结果 `web_fetch`（每公司最多 `max_fetches` 次），跳过 `avoid_queries`。
-3. **每次 `web_fetch` 后继续执行**（gateway 自动记录所有 tool calls；不调用不存在记录）。
-4. **写 `research_notes.md`**（格式见 `research_notes_format.md`，聚焦 `context_gaps`，最多 3 源）。
-5. **写 `research_sources.json`**（结构与逐源核对规则见 `source_verification_gate.md`）。
-6. 两个文件都写到 spec 路径后 **STOP**。
+1. **读 task spec**（路径在 prompt 里）→ 拿到 `job_id` / `research_inputs_hash` / `queries` / `context_gaps` / `avoid_queries` / `max_fetches` / `source_url` / `expected_output_paths`。
+2. **Fetch JD from `source_url`**：用 `web_fetch` 抓取 `source_url`（原始职位页面），提取完整 JD 正文（纯文本，去掉 HTML/nav/footer），写入 manifest 的 `jd_text` 字段。如果 `source_url` 不可访问（404 / 需要登录），将 `jd_text` 留空，继续后续步骤。
+3. **执行 bounded 搜索**：按 `queries` 优先级 high → medium → low 跑 `web_search`，对值得确认的结果 `web_fetch`（每公司最多 `max_fetches` 次），跳过 `avoid_queries`。
+4. **每次 `web_fetch` 后继续执行**（gateway 自动记录所有 tool calls；不调用不存在记录）。
+5. **写 `research_notes.md`**（格式见 `research_notes_format.md`，聚焦 `context_gaps`，最多 3 源）。
+6. **写 `research_sources.json`**（结构与逐源核对规则见 `source_verification_gate.md`）。
+7. **写 `output_manifest.json`**（路径在 spec 的 `output_manifest_path`），必须包含 `jd_text` 字段（即使为 `null`）。
+8. 所有文件写到 spec 路径后 **STOP**。
 
 ## 禁止行为（速查）
 

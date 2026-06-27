@@ -4,64 +4,33 @@ Handler for job_report tasks.
 Execution mode: DETERMINISTIC
 Purpose: Generate a Job Intelligence Report for a given job record.
 
-The report covers:
-  - Role summary and responsibilities
-  - Team and org signals
-  - Compensation signals (if visible)
-  - Culture fit signals
-  - Suggested research angles
+Input (from run.input_snapshot_json):
+  { "job_id": str, "use_research": bool, "force_refresh": bool,
+    "research_artifact_id": str | None }
 
-The report is stored as an artifact and the task is marked succeeded.
+Output:
+  - job_report.md artifact (narrative)
+  - job_report.json artifact (structured)
+  - job_reports DB row
+  - task marked succeeded
 """
-
 from __future__ import annotations
 
-import json
 import logging
-import os
-from pathlib import Path
 
+from pydantic import ValidationError
+
+from packages.contracts.api.runs import JobReportInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.repositories import (
-    ArtifactRepository,
     RunRepository,
     TaskEventRepository,
     TaskRepository,
 )
 from packages.infrastructure.db.session import get_session
-from packages.infrastructure.llm.client import LLMCallError, get_llm_client
+from packages.infrastructure.services.job_report_service import create_job_report
 
 logger = logging.getLogger(__name__)
-
-_ARTIFACTS_DIR = os.environ.get("AGENT_ARTIFACTS_DIR", "/app/data/agent_artifacts")
-
-_SYSTEM_PROMPT = """\
-You are a job intelligence analyst specializing in quantitative finance and market risk roles.
-Given a job record, produce a structured Job Intelligence Report.
-
-Rules:
-- Be analytical and specific; avoid filler language.
-- If a field is not present in the job record, note "Not available" rather than guessing.
-- Use markdown formatting with clear headings.
-- Be concise: the report should fit in 600–800 words.
-"""
-
-_USER_PROMPT_TEMPLATE = """\
-Produce a Job Intelligence Report for the following job:
-
-```json
-{job_json}
-```
-
-Structure the report as:
-## 1. Role Summary
-## 2. Key Responsibilities
-## 3. Required Skills & Qualifications
-## 4. Team & Org Signals
-## 5. Compensation Signals
-## 6. Culture & Environment Signals
-## 7. Research Angles (questions worth investigating before applying)
-"""
 
 
 def handle_job_report(env: TaskEnvelope) -> dict:
@@ -71,84 +40,82 @@ def handle_job_report(env: TaskEnvelope) -> dict:
     """
     logger.info("job_report: starting task_id=%s run_id=%s", env.task_id, env.run_id)
 
-    # ------------------------------------------------------------------
-    # Step 1: Read input snapshot (expects job_id or job_json in payload)
-    # ------------------------------------------------------------------
     with get_session() as session:
         run = RunRepository(session).get_or_raise(env.run_id)
-        input_snapshot = run.input_snapshot_json or {}
-
-    job_data = input_snapshot.get("job", {})
-    if not job_data:
-        _mark_failed(env, error_code="MISSING_JOB_INPUT", message="No job data in input_snapshot")
-        return {"status": "failed", "task_id": env.task_id}
-
-    # ------------------------------------------------------------------
-    # Step 2: Call LLM to generate report
-    # ------------------------------------------------------------------
-    job_json = json.dumps(job_data, indent=2, ensure_ascii=False)
-    user_prompt = _USER_PROMPT_TEMPLATE.format(job_json=job_json)
+        snap = run.input_snapshot_json or {}
 
     try:
-        llm = get_llm_client()
-        report_text = llm.complete_simple(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
-            max_tokens=2048,
-        )
-    except LLMCallError as exc:
-        logger.exception("job_report: LLM call failed: %s", exc)
-        _mark_failed(env, error_code="LLM_CALL_FAILED", message=str(exc)[:500])
+        inp = JobReportInput.model_validate(snap)
+    except ValidationError as exc:
+        logger.error("job_report: invalid input_snapshot: %s", exc)
+        _mark_failed(env, error_code="INVALID_INPUT",
+                     message=f"Invalid job_report input_snapshot: {exc}")
         return {"status": "failed", "task_id": env.task_id}
 
-    # ------------------------------------------------------------------
-    # Step 3: Write report to artifact volume
-    # ------------------------------------------------------------------
-    report_dir = Path(_ARTIFACTS_DIR) / env.run_id / env.task_id
-    report_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with get_session() as session:
+            result = create_job_report(
+                session=session,
+                run_id=env.run_id,
+                task_id=env.task_id,
+                workspace_id=env.workspace_id,
+                job_id=inp.job_id,
+                use_research=inp.use_research,
+                research_artifact_id=inp.research_artifact_id,
+                force_refresh=inp.force_refresh,
+            )
+    except ValueError as exc:
+        logger.warning("job_report: input error: %s", exc)
+        _mark_failed(env, error_code="INVALID_JOB_INPUT", message=str(exc)[:500])
+        return {"status": "failed", "task_id": env.task_id}
+    except RuntimeError as exc:
+        logger.exception("job_report: analysis failed: %s", exc)
+        _mark_failed(env, error_code="ANALYSIS_FAILED", message=str(exc)[:500])
+        return {"status": "failed", "task_id": env.task_id}
 
-    job_id = job_data.get("id", env.task_id)
-    report_path = report_dir / f"job_report_{job_id}.md"
-    report_path.write_text(report_text, encoding="utf-8")
-    logger.info("job_report: report written to %s (%d chars)", report_path, len(report_text))
-
-    # ------------------------------------------------------------------
-    # Step 4: Write artifact record and mark task succeeded
-    # ------------------------------------------------------------------
     with get_session() as session:
-        artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
-
-        artifact_repo.create(
-            run_id=env.run_id,
-            task_id=env.task_id,
-            artifact_type="job_report",
-            storage_uri=str(report_path),
-            metadata_json={"job_id": job_id, "char_count": len(report_text)},
-        )
-
+        run_repo = RunRepository(session)
         task_repo.mark_succeeded(env.task_id)
+        run_repo.set_status(env.run_id, "succeeded")
+        run_repo.set_result_summary(env.run_id, {
+            "validation_status": "passed",
+            "report_type": "job_report",
+            "report_id": result["job_report_id"],
+        })
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
             event_type="task_succeeded",
-            message=f"Job Intelligence Report generated for job_id={job_id}",
+            message=(
+                f"Job Intelligence Report generated: "
+                f"job_report_id={result['job_report_id']} "
+                f"status={result['status']} "
+                f"used_research={result['used_research']}"
+            ),
+            payload_json={
+                "report_type": "job_report",
+                "report_id": result["job_report_id"],
+            },
         )
 
-    logger.info("job_report: task_id=%s succeeded", env.task_id)
-    return {"status": "succeeded", "task_id": env.task_id, "job_id": job_id}
+    logger.info("job_report: task_id=%s succeeded report_id=%s", env.task_id, result["job_report_id"])
+    return {
+        "status": "succeeded",
+        "task_id": env.task_id,
+        "job_report_id": result["job_report_id"],
+        "cache_status": result["status"],
+    }
 
 
 def _mark_failed(env: TaskEnvelope, *, error_code: str, message: str) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
-        task_repo.mark_failed(
-            env.task_id,
-            error_code=error_code,
-            error_message=message,
-        )
+        run_repo = RunRepository(session)
+        task_repo.mark_failed(env.task_id, error_code=error_code, error_message=message)
+        run_repo.set_status(env.run_id, "failed")
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,

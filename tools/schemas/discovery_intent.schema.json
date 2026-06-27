@@ -2,205 +2,132 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "discovery_intent.schema.json",
   "title": "DiscoveryIntent",
-  "description": "Structured search contract produced by the Intent Translator from a candidate profile and user instruction. Consumed by career-search-agent as the authoritative guide for query budget allocation, lane prioritisation, and constraint enforcement. Produced deterministically — the translator does not search the web or invent jobs.",
+  "description": "Structured search intent produced by the Intent Translator. Nested in DiscoveryTaskSpec as payload.discovery_intent inside input.json. Aligned with packages/contracts/agents/discovery_intent.py::DiscoveryIntent. If this schema conflicts with the Pydantic model, the Pydantic model wins.",
   "type": "object",
-  "required": ["intent_kind", "search_lanes", "global_constraints", "translator_notes"],
+  "required": [
+    "translator_version",
+    "raw_user_request",
+    "interpreted_goal",
+    "search_mode",
+    "target_role_families",
+    "excluded_role_families",
+    "hard_constraints",
+    "profile_role",
+    "expansion_scope"
+  ],
   "additionalProperties": false,
   "properties": {
-    "intent_kind": {
+    "translator_version": {
       "type": "string",
-      "enum": ["directed_discovery", "profile_based_exploration", "gap_fill_discovery"],
-      "description": "directed_discovery: user gave concrete targets. profile_based_exploration: user unsure, lanes inferred from profile. gap_fill_discovery: no strong user direction, lanes target weak/missing coverage areas."
+      "description": "Version tag for the translator prompt/logic."
     },
-    "raw_user_instruction": {
+    "raw_user_request": {
       "type": "string",
       "description": "Original user instruction, preserved verbatim for audit."
     },
-    "profile_id": {
+    "interpreted_goal": {
       "type": "string",
-      "description": "candidate_profile_id of the profile used as input. Stored for traceability."
+      "description": "One-sentence summary of what the agent should achieve this run."
     },
-    "global_constraints": {
-      "type": "object",
-      "description": "Constraints that apply to all search lanes. Hard constraints override agent strategy; soft preferences guide budget allocation.",
-      "additionalProperties": false,
-      "required": ["hard_constraints", "soft_preferences", "negative_preferences"],
-      "properties": {
-        "hard_constraints": {
-          "type": "array",
-          "description": "Non-negotiable constraints that the agent must not override. Each entry carries a provenance tag so downstream components can distinguish constraints the user stated explicitly from those inferred from the profile or system strategy. source values: 'user_explicit' — stated in the user instruction or search_params; 'profile_derived' — inferred from the candidate profile (only valid when search_source allows profile); 'system_strategy' — derived from strategy_context (never promoted to a hard user constraint). Examples: {\"value\": \"max_years_experience: 3\", \"source\": \"user_explicit\"}, {\"value\": \"remote_only\", \"source\": \"user_explicit\"}.",
-          "items": {
-            "type": "object",
-            "required": ["value", "source"],
-            "additionalProperties": false,
-            "properties": {
-              "value": {
-                "type": "string",
-                "description": "The constraint as a short human-readable string, e.g. 'max_years_experience: 3', 'location: NYC only', 'exclude: model_validation'."
-              },
-              "source": {
-                "type": "string",
-                "enum": ["user_explicit", "profile_derived", "system_strategy"],
-                "description": "Where this constraint originated. user_explicit: user said it directly. profile_derived: inferred from candidate profile. system_strategy: from strategy_context (must NOT be used as a hard user constraint)."
-              }
-            }
-          }
-        },
-        "soft_preferences": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Preferences that should guide lane priority and query selection but may be relaxed if a lane is consistently low-yield. Examples: 'prefer mid-size firms', 'prefer direct-hire over contract'."
-        },
-        "negative_preferences": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Directions to deprioritise. Not absolute exclusions unless listed in hard_constraints. Examples: 'do not prioritise pure model validation', 'avoid roles requiring 5+ years'."
-        },
-        "location_constraints": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "preferred_locations": {
-              "type": "array",
-              "items": { "type": "string" }
-            },
-            "remote_policy": {
-              "type": "string",
-              "enum": ["no_remote", "allow_hybrid", "allow_if_finance_relevant", "remote_only", "unspecified"]
-            }
-          }
-        },
-        "seniority_constraints": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "target_levels": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "E.g. ['analyst', 'associate', 'junior_associate']"
-            },
-            "exclude_levels": {
-              "type": "array",
-              "items": { "type": "string" },
-              "description": "E.g. ['vp', 'director', 'managing_director']"
-            },
-            "max_years_experience": {
-              "type": "integer",
-              "minimum": 0
-            }
-          }
-        }
-      }
+    "search_mode": {
+      "type": "string",
+      "enum": ["direct", "exploratory", "profile_guided"]
     },
-    "search_lanes": {
+    "target_role_families": {
       "type": "array",
-      "minItems": 1,
-      "description": "Ordered list of search lanes. directed_discovery typically has 1-2; profile_based_exploration has 3-5; gap_fill_discovery has 2-4. Each lane is a testable hypothesis with its own query budget.",
-      "items": {
-        "type": "object",
-        "required": ["lane_id", "hypothesis", "query_seeds", "budget_share"],
-        "additionalProperties": false,
-        "properties": {
-          "lane_id": {
-            "type": "string",
-            "description": "Short identifier for the lane, used in candidate logging and coverage report. E.g. 'exposure_management', 'portfolio_analytics'."
-          },
-          "workstream_id": {
-            "type": "string",
-            "description": "Primary workstream from workstream_taxonomy.yaml this lane maps to. Optional for multi-workstream lanes."
-          },
-          "hypothesis": {
-            "type": "string",
-            "description": "Human-readable reason why this lane is worth searching. Must cite evidence from profile, user signal, or strategy gap — not just job popularity."
-          },
-          "evidence_from_profile": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Specific profile signals that justify this lane. E.g. ['VaR / stress testing experience', 'risk reporting workflow ownership']."
-          },
-          "user_signal": {
-            "type": "string",
-            "description": "Fragment of the user instruction that maps to this lane, if any. Empty string if the lane is entirely profile-inferred."
-          },
-          "strategy_signal": {
-            "type": "string",
-            "description": "Coverage gap or recommended search from strategy_context that this lane addresses, if any."
-          },
-          "query_seeds": {
-            "type": "array",
-            "items": { "type": "string" },
-            "minItems": 1,
-            "description": "Concrete job-market search phrases for the discovery agent to use or expand. Must be general job-search language — no personal names, employer-sensitive detail, or fabricated company names."
-          },
-          "target_company_types": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Company type filters for this lane. E.g. ['bank', 'asset_manager', 'insurance_carrier', 'broker_dealer']."
-          },
-          "exclude_role_keywords": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Keywords that indicate the query has drifted out of scope. Agent should avoid these in query expansions for this lane."
-          },
-          "budget_share": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1,
-            "description": "Fraction of total query budget to allocate to this lane. All lanes must sum to 1.0 (enforced by the translator post-processor)."
-          },
-          "risk_of_false_positive": {
-            "type": "string",
-            "description": "Description of the most likely drift or mismatch risk for this lane. E.g. 'May surface data analyst / BI roles without risk content'."
-          },
-          "success_criteria": {
-            "type": "string",
-            "description": "What constitutes a good result for this lane. E.g. '3+ postings with explicit VaR / exposure language at banks or broker-dealers'."
-          },
-          "inherited_hard_constraints": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Copy of global_constraints.hard_constraints propagated to this lane. Populated by the translator post-processor, not the LLM."
-          }
-        }
-      }
+      "items": { "$ref": "#/definitions/role_family" },
+      "description": "Role directions to search. Non-empty for a non-blocking result."
     },
-    "source_strategy": {
+    "excluded_role_families": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/role_family" },
+      "description": "Role directions to avoid. Exclusions must have source=user_explicit."
+    },
+    "hard_constraints": {
+      "$ref": "#/definitions/hard_constraints"
+    },
+    "soft_preferences": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Per-run preferences from user input; not inferred from profile."
+    },
+    "profile_role": {
+      "type": "string",
+      "enum": ["none", "supporting", "primary"]
+    },
+    "capability_signals": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/capability_signal" }
+    },
+    "expansion_scope": {
+      "type": "string",
+      "enum": ["narrow", "standard", "wide"]
+    },
+    "ambiguity_flags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Unresolved ambiguities preserved for UI and diagnostics."
+    }
+  },
+  "definitions": {
+    "role_family": {
       "type": "object",
-      "description": "Source-level guidance derived from strategy_context. Does not override user targets.",
+      "required": ["name", "rationale", "source"],
       "additionalProperties": false,
       "properties": {
-        "prefer_sources": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Source domains or ATS types confirmed effective in prior runs."
-        },
-        "avoid_sources": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Source domains or ATS types with known access failures (403, bot-block, stale boards)."
-        }
-      }
-    },
-    "translator_notes": {
-      "type": "object",
-      "description": "Audit fields written by the translator to explain non-obvious decisions.",
-      "additionalProperties": false,
-      "required": ["assumptions", "missing_information"],
-      "properties": {
-        "assumptions": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Ambiguous inputs that were interpreted rather than resolved by the user. Record here instead of silently strengthening constraints."
-        },
-        "missing_information": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Profile gaps or instruction ambiguities that limited lane quality. Useful for the UI to prompt the user for more detail."
-        },
-        "translator_version": {
+        "name": { "type": "string" },
+        "rationale": { "type": "string", "minLength": 1 },
+        "source": {
           "type": "string",
-          "description": "Version tag for the translator prompt/logic. Used to invalidate cached intents when the translator is updated."
+          "enum": ["user_explicit", "profile_signal", "inferred_adjacent"]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "default": "high"
         }
+      }
+    },
+    "capability_signal": {
+      "type": "object",
+      "required": ["cluster_name", "description", "adjacent_role_targets", "signal_type"],
+      "additionalProperties": false,
+      "properties": {
+        "cluster_name": { "type": "string" },
+        "description": { "type": "string" },
+        "adjacent_role_targets": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "signal_type": {
+          "type": "string",
+          "enum": ["domain", "technical", "business"]
+        }
+      }
+    },
+    "hard_constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "location": { "type": ["string", "null"] },
+        "seniority": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "exclude_role_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "must_include_keywords": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "work_arrangement": {
+          "type": ["string", "null"],
+          "enum": ["hybrid", "remote", "onsite", "any", null]
+        },
+        "visa_note": { "type": ["string", "null"] },
+        "compensation_range": { "type": ["string", "null"] }
       }
     }
   }

@@ -18,12 +18,11 @@
 - required_skills: list[string]
 - preferred_skills: list[string]
 - tools_mentioned: list[string]
-- finance_domains: list[string]
 - seniority_inferred: string
 
-### 分类字段（workstream classification）
-- primary_workstream: string（必须是 workstream_taxonomy.yaml 中的枚举值）
-- secondary_workstreams: list[string]
+### 分类字段（role category classification）
+- primary_role_category: string（必须是 role_category_taxonomy.yaml 中的枚举值）
+- secondary_role_categories: list[string]
 - classification_confidence: "high" | "medium" | "low"
 - classification_evidence: list[string]（至少一条）
 - uncertainty_notes: string | null
@@ -59,7 +58,7 @@
 - jobs_saved: int
 - jobs_failed: int
 - jobs_skipped: int
-- top_workstreams: list（按频率排序）
+- top_role_categories: list（按频率排序）
 - run_id
 
 ---

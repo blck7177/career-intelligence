@@ -1,0 +1,217 @@
+# Machine-readable role category taxonomy (product label: role category).
+# primary_role_category field values must be exact labels from this file.
+# Human-readable guide: protocols/ROLE_CATEGORY_TAXONOMY.md
+
+role_categories:
+  # --- Cross-industry (general) ---
+  - id: software_engineering
+    label: "Software Engineering / Platform"
+    keywords_pattern:
+      - software engineer
+      - backend
+      - frontend
+      - full stack
+      - platform engineer
+      - infrastructure
+      - DevOps
+      - SRE
+      - API development
+
+  - id: data_science_analytics
+    label: "Data Science / Analytics"
+    keywords_pattern:
+      - data scientist
+      - data analyst
+      - analytics
+      - machine learning
+      - experimentation
+      - forecasting
+      - business intelligence
+      - metrics
+
+  - id: product_management
+    label: "Product Management"
+    keywords_pattern:
+      - product manager
+      - product owner
+      - roadmap
+      - user research
+      - product strategy
+      - go-to-market
+
+  - id: sales_business_development
+    label: "Sales / Business Development"
+    keywords_pattern:
+      - account executive
+      - sales
+      - business development
+      - pipeline
+      - quota
+      - enterprise sales
+      - partnerships
+
+  - id: marketing_growth
+    label: "Marketing / Growth"
+    keywords_pattern:
+      - marketing
+      - growth
+      - demand generation
+      - content marketing
+      - brand
+      - SEO
+      - paid media
+
+  - id: customer_success_support
+    label: "Customer Success / Support"
+    keywords_pattern:
+      - customer success
+      - account management
+      - technical support
+      - customer support
+      - onboarding
+      - retention
+
+  - id: operations_supply_chain
+    label: "Operations / Supply Chain"
+    keywords_pattern:
+      - operations
+      - supply chain
+      - logistics
+      - procurement
+      - process improvement
+      - vendor management
+
+  - id: clinical_healthcare
+    label: "Clinical / Healthcare"
+    keywords_pattern:
+      - clinical
+      - healthcare
+      - patient
+      - medical
+      - nursing
+      - clinical trials
+      - hospital operations
+
+  - id: legal_compliance
+    label: "Legal / Compliance"
+    keywords_pattern:
+      - legal
+      - compliance
+      - regulatory
+      - privacy
+      - contracts
+      - governance
+      - audit
+
+  - id: hr_people_operations
+    label: "HR / People Operations"
+    keywords_pattern:
+      - human resources
+      - talent acquisition
+      - recruiting
+      - people operations
+      - compensation
+      - benefits
+
+  - id: design_creative
+    label: "Design / Creative"
+    keywords_pattern:
+      - UX design
+      - UI design
+      - product design
+      - visual design
+      - creative
+      - content design
+
+  - id: finance_accounting
+    label: "Finance / Accounting"
+    keywords_pattern:
+      - financial analyst
+      - accounting
+      - FP&A
+      - controller
+      - financial reporting
+      - budgeting
+
+  # --- Finance / risk (legacy coverage) ---
+  - id: market_risk_exposure
+    label: "Market Risk / Exposure Monitoring"
+    keywords_pattern:
+      - exposure
+      - VaR
+      - Greeks
+      - sensitivities
+      - limit monitoring
+      - P&L explain
+      - exposure analytics
+      - exposure management
+
+  - id: valuation_control_ipv
+    label: "Valuation Control / IPV"
+    keywords_pattern:
+      - IPV
+      - independent price verification
+      - fair value
+      - P&L reserve
+      - mark validation
+      - FVA
+      - PVA
+      - fair value adjustment
+      - derivative valuation
+
+  - id: product_control_pnl
+    label: "Product Control / P&L Reporting"
+    keywords_pattern:
+      - P&L attribution
+      - daily P&L
+      - trading book finance
+      - front-to-back
+      - month-end close
+
+  - id: structured_credit
+    label: "Structured Credit / Credit Analytics"
+    keywords_pattern:
+      - structured credit
+      - CLO
+      - CDO
+      - ABS
+      - credit portfolio
+      - default risk
+      - spread analysis
+
+  - id: risk_analytics_automation
+    label: "Risk Analytics / Automation / Data"
+    keywords_pattern:
+      - risk data
+      - automation
+      - risk infrastructure
+      - data pipeline
+      - risk reporting automation
+
+  - id: model_risk_validation
+    label: "Model Risk / Model Validation"
+    keywords_pattern:
+      - model validation
+      - MRM
+      - SR 11-7
+      - model approval
+      - FRTB model
+
+  - id: stress_testing
+    label: "Stress Testing / Scenario Analysis"
+    keywords_pattern:
+      - stress testing
+      - CCAR
+      - DFAST
+      - scenario analysis
+      - macro stress
+
+  - id: treasury_alm
+    label: "Treasury / ALM / Liquidity"
+    keywords_pattern:
+      - treasury
+      - ALM
+      - liquidity risk
+      - FTP
+      - IRRBB
+      - interest rate risk banking book

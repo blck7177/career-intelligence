@@ -45,9 +45,23 @@ Worker owns workflow.  Agent owns the bounded research action.  Service owns per
 2. **`analysis_service.create_job_report`**：把你的 notes 作为 `[RESEARCH]` 上下文喂给 LLM 生成 Job Intelligence Report。
 3. 校验 **failed → 降级为 JD-only report**（不崩，非致命）。所以 bundle 不可用不会让任务失败，但你的研究就白做了。
 
+## output_manifest.json 必填字段
+
+除 platform 要求的通用字段（`invocation_id`, `status`, `stop_reason`, `artifact_paths`, `summary`）外，还必须包含：
+
+```json
+{
+  "job_id": "<job_id from input spec>",
+  "citations_count": 2,
+  "jd_text": "<完整 JD 正文，从 source_url fetch 后提取；如无法抓取则为 null>"
+}
+```
+
+Worker 会读取 `jd_text` 写入数据库，促进 job 进入 `reportable` 状态。`jd_text` 为 `null` 不会导致任务失败，但会让 job report 降级为 JD-only fallback。
+
 ## 完成标志（expected_outputs）
 
-`research_notes.md` 与 `research_sources.json` 都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` 记录（gateway 自动观测）。
+`research_notes.md`、`research_sources.json` 和 `output_manifest.json`（含 `jd_text`）都已写到 spec 指定路径，且每条 source 都有对应的真实 `web_fetch` 记录（gateway 自动观测）。
 
 ## 硬性「不做」
 

@@ -1,0 +1,18 @@
+# Exclude frontend node_modules — not needed in any backend/worker image
+apps/web/node_modules
+apps/web/.next
+apps/web/.turbo
+
+# Python virtualenvs and caches
+.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.pytest_cache
+
+# Dev artifacts
+.git
+*.md
+infra/compose/
+infra/nginx/
+dev_note/

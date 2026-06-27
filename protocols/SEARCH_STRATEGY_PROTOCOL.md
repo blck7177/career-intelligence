@@ -105,7 +105,7 @@ exec: ./wrappers/career_log_candidates \
   --location "<location>" \
   --relevance relevant \
   --reason "<reason this posting matches the profile>" \
-  --workstream-hint "<workstream from taxonomy>"
+  --role-category-hint "<role category from taxonomy>"
 ```
 
 批量调用（先 write tool 写文件，再 exec）：
@@ -120,7 +120,7 @@ write agent_work/drafts/candidates_batch.json:
     "location": "<location>",
     "relevance": "relevant",
     "relevance_reason": "<reason this posting matches the profile>",
-    "workstream_hint": "<workstream from taxonomy>"
+    "role_category_hint": "<role category from taxonomy>"
   }
 ]
 
@@ -130,7 +130,7 @@ exec: ./wrappers/career_log_candidates --session-id <id> --candidates-file agent
 
 必填字段：`url`（必须是真实 job posting URL，不能为空）、`title`、`company`
 注意：字段名是 `url`，不是 `source_url`（`source_url` 也被接受，但 `url` 是标准名）
-可选字段：`location`、`relevance`（relevant/maybe，默认 maybe）、`reason`、`workstream-hint`
+可选字段：`location`、`relevance`（relevant/maybe，默认 maybe）、`reason`、`role-category-hint`
 
 ---
 
@@ -168,7 +168,7 @@ exec: ./wrappers/career_log_candidates --session-id <id> --candidates-file agent
    （有哪些 query 没效果？原因是什么？blocked_403 / no_results / fake_urls / search_result_pages_only？）
 
 5. Coverage gap
-   （还缺哪些 workstream / company group / source type 没覆盖？）
+   （还缺哪些 role category / company group / source type 没覆盖？）
 
 6. Strategy change, if any
    （下一步是继续、扩展、还是切换方向？为什么？）
@@ -254,7 +254,7 @@ Session: <session_id>
 # Coverage Report — Session <session_id>
 
 ## Search Coverage
-- Workstreams searched: （列出覆盖的 workstream）
+- Role categories searched: （列出覆盖的 role category）
 - Source types used: （列出 company_career_page / ats_board / aggregator 等）
 - Company groups targeted: （列出尝试过的公司或公司类型）
 - Queries run: N
@@ -266,7 +266,7 @@ Session: <session_id>
 （哪些方向无结果？具体 failure mode 是什么？blocked_403 / no_results / fake_urls / search_result_pages_only）
 
 ## Coverage Gaps
-（还缺哪些 workstream / company group 没有足够候选？）
+（还缺哪些 role category / company group 没有足够候选？）
 
 ## Candidates Summary
 - Total candidates logged: N
@@ -294,6 +294,6 @@ candidate_pool 里的每一条 candidate 在送入 pipeline 前应满足：
 - `url`：真实 job posting URL（非搜索结果页、非公司主页）
 - `title` + `company`：非空
 - `relevance_reason`：说明为什么认为这个岗位相关
-- `workstream_hint`：对 workstream 的初判（可以是 "unknown"，但不能缺失）
+- `role_category_hint`：对 role category 的初判（可以是 "unknown"，但不能缺失）
 
-不需要要求覆盖所有 workstream，也不要求零失败率。candidate_pool 质量可接受即可进入 pipeline。
+不需要要求覆盖所有 role category，也不要求零失败率。candidate_pool 质量可接受即可进入 pipeline。

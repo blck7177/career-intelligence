@@ -110,13 +110,15 @@ curl -X POST http://localhost:8000/api/runs \
 
 Available `run_type` values and the task type they create:
 
-| run_type         | task_type             | worker queue | executor   |
-|------------------|-----------------------|--------------|------------|
-| `job_discovery`  | `agent.job_discovery` | `agent`      | OpenClaw   |
-| `job_research`   | `agent.job_research`  | `agent`      | OpenClaw   |
-| `run_reflection` | `agent.run_reflection`| `agent`      | OpenClaw   |
-| `job_report`     | `job_report`          | `fast`       | Deterministic |
-| `fit_report`     | `fit_report`          | `fast`       | Deterministic |
+| run_type         | task_type             | worker queue | executor   | jobs DB outcome |
+|------------------|-----------------------|--------------|------------|-----------------|
+| `job_discovery`  | `agent.job_discovery` | `agent`      | OpenClaw   | Ingests jobs; fetch OK → `reportable` + JD |
+| `job_research`   | `agent.job_research`  | `agent`      | OpenClaw   | Optional enrichment; JD backfill fallback |
+| `run_reflection` | `agent.run_reflection`| `agent`      | OpenClaw   | Strategy patch only |
+| `job_report`     | `job_report`          | `fast`       | Deterministic | Requires `reportable` job |
+| `fit_report`     | `fit_report`          | `fast`       | Deterministic | Requires active job report |
+
+After `job_discovery` succeeds, check run `result_summary_json` for `jobs_reportable` and `jobs_fetch_failed`. Jobs with fetch failures remain `discovered` until a `job_research` run backfills JD.
 
 ---
 

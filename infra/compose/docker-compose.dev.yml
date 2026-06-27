@@ -27,6 +27,14 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/openclaw.Dockerfile
+    ports:
+      - "127.0.0.1:18790:18789"
+    init: true
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - ../../.env
     environment:
@@ -34,6 +42,10 @@ services:
       # Points to the writable runtime volume. The entrypoint copies the repo
       # source config here on each start so OpenClaw can do atomic saves.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
+      OPENCLAW_WORKSPACE_DIR: /openclaw/workspace
+      # TOOL_LEDGER_SIGNING_KEY comes from env_file (../../.env).
+      # Do NOT override here with ${...} interpolation — shell env may be empty
+      # and would silently override the env_file value with blank string.
     volumes:
       - openclaw_state:/openclaw/state
       # Writable runtime config: entrypoint materializes openclaw.json here.
@@ -43,8 +55,8 @@ services:
       # Repo source — read-only. Skills, agents, and wrappers are loaded from here.
       - ../../agent:/app/agent:ro
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
-      # Seed exec-approvals at the path OpenClaw reads ($OPENCLAW_STATE_DIR/exec-approvals.json)
-      - ../../agent/openclaw/config/exec-approvals.json:/openclaw/state/exec-approvals.json:ro
+      # exec-approvals.json is materialized by the entrypoint on every startup
+      # (cp from /app/agent/openclaw/config → /openclaw/state). No bind mount needed.
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
       interval: 10s
@@ -65,6 +77,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DEV_MODE: "1"
       ENV: development
+      DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-}"
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
     depends_on:
@@ -104,14 +117,22 @@ services:
   # Requires openclaw-gateway to be healthy before starting.
   #
   # This worker is a gateway CLIENT only — it does not run openclaw-gateway itself.
-  # "openclaw agent ..." issued here routes through the gateway daemon via the shared
-  # openclaw_state socket. The gateway container is the sole OpenClaw execution host
-  # (exec sandbox, skills, session state, exec-approvals enforcement).
+  # network_mode: "service:openclaw-gateway" shares the gateway's network namespace
+  # so that "openclaw agent ..." connects via localhost:18789 (loopback, no TLS
+  # requirement). This is the officially documented Docker pattern for openclaw-cli.
+  # The worker retains access to postgres/redis via the gateway's Docker bridge.
   worker-agent:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
+    network_mode: "service:openclaw-gateway"
+    init: true
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
     env_file:
       - ../../.env
     environment:
@@ -119,13 +140,17 @@ services:
       REDIS_URL: redis://redis:6379/0
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
       OPENCLAW_BIN: openclaw
-      # Gateway socket lives in the shared openclaw_state volume.
       OPENCLAW_STATE_DIR: /openclaw/state
       OPENCLAW_GATEWAY_MODE: "client"
+      # Read-only: gives the CLI the agent list so it can route --agent calls
+      # to the gateway. The worker does NOT own or write this config.
+      OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
+      # TOOL_LEDGER_SIGNING_KEY comes from env_file (../../.env). No override here.
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
-      # Shared gateway state: the CLI uses this directory to locate the gateway socket.
       - openclaw_state:/openclaw/state
+      # Read-only: CLI needs to read agent definitions to route gateway calls.
+      - openclaw_config:/openclaw/config:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,11 +163,16 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/web.Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars are baked in at build time by Next.js.
+        # Pass them via build args so the image has the correct Clerk key.
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
     ports:
       - "3000:3000"
+    env_file:
+      - ../../.env
     environment:
       NEXT_PUBLIC_API_URL: http://api:8000
-      NEXT_PUBLIC_WORKSPACE_ID: dev_default
     depends_on:
       api:
         condition: service_healthy
@@ -165,6 +195,8 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
+      args:
+        EXTRA_DEPS: "monitoring"
     command: celery -A apps.worker.celery_app flower --port=5555
     ports:
       - "5555:5555"
