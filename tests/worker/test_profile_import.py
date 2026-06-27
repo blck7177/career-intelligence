@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from packages.contracts.api.profile_import import (
+    CleanResume,
     ImportProject,
     ParseNotes,
     ProfileImportDraft,
@@ -44,6 +45,18 @@ def _make_run(input_snapshot: dict | None = None) -> SimpleNamespace:
 
 def _make_draft() -> ProfileImportDraft:
     return ProfileImportDraft(
+        clean_resume=CleanResume(
+            markdown="# John Doe\n\n## Experience\n\n### Risk Analyst — Big Bank\n2020–2024\n\n- VaR model validation\n- Python automation",
+            experiences=[
+                {"employer": "Big Bank", "title": "Risk Analyst", "start_date": "2020", "end_date": "2024", "bullets": ["VaR model validation", "Python automation"]},
+            ],
+            education=[
+                {"institution": "Columbia University", "degree": "MS Financial Engineering", "graduation_date": "2020"},
+            ],
+            skills=[
+                {"category": "Programming", "items": ["Python", "SQL", "R"]},
+            ],
+        ),
         summary="Risk analytics professional with 4 years experience.",
         experience_summary="Worked at Big Bank doing VaR validation.",
         education_summary="MS Financial Engineering, Columbia University",
@@ -129,8 +142,21 @@ class TestProfileImportHandler:
         )
         assert summary["validation_status"] == "passed"
         assert summary["import_type"] == "profile_import"
+
+        # source_resume: deterministic metadata about the input
+        assert summary["source_resume"]["source_type"] == "paste"
+        assert summary["source_resume"]["raw_text"] == resume
+        assert summary["source_resume"]["char_count"] == len(resume)
+
+        # clean_resume: LLM-reconstructed faithful resume
+        assert "markdown" in summary["clean_resume"]
+        assert len(summary["clean_resume"]["experiences"]) > 0
+
+        # profile_draft: synthesized profile (must NOT contain clean_resume)
         assert "summary" in summary["profile_draft"]
         assert "technical_skills" in summary["profile_draft"]
+        assert "clean_resume" not in summary["profile_draft"]
+
         assert summary["parse_notes"]["assumptions"] == [
             "Inferred 4 years from graduation date"
         ]
@@ -282,10 +308,12 @@ class TestProfileImportDraftSchema:
 
         update_fields = set(ProfileUpdate.model_fields.keys())
         draft_fields = set(ProfileImportDraft.model_fields.keys())
-        # parse_notes is extra in draft
-        expected_missing: set[str] = set()
-        actual_missing = update_fields - draft_fields - {"parse_notes"}
-        assert actual_missing == expected_missing, (
+        # draft-only: fields in draft that don't map to profile update
+        draft_only = {"parse_notes", "clean_resume"}
+        # update-only: user-set fields not extracted from resume
+        update_only = {"label"}
+        actual_missing = update_fields - draft_fields - draft_only - update_only
+        assert actual_missing == set(), (
             f"ProfileImportDraft is missing fields from ProfileUpdate: "
-            f"{actual_missing - expected_missing}"
+            f"{actual_missing}"
         )

@@ -397,6 +397,39 @@ class AgentValidationResult(Base):
 
 
 # ---------------------------------------------------------------------------
+# LLM usage tracking
+# ---------------------------------------------------------------------------
+
+
+class LLMUsageEvent(Base):
+    """Append-only ledger of LLM API calls with token counts and estimated cost.
+
+    One row per LLMClient.complete() or complete_structured() call.
+    Written by the usage_writer callback inside the worker process.
+    """
+
+    __tablename__ = "llm_usage_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("runs.id"), nullable=True, index=True
+    )
+    task_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("tasks.id"), nullable=True, index=True
+    )
+    workspace_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    call_site: Mapped[str] = mapped_column(String(100), nullable=False, default="unknown")
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[Optional[float]] = mapped_column(nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+# ---------------------------------------------------------------------------
 # Job tables
 # ---------------------------------------------------------------------------
 
@@ -506,8 +539,9 @@ class CandidateProfile(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
     )
+    label: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     # Narrative (Discovery + FitReport LLM both read summary)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -521,6 +555,7 @@ class CandidateProfile(Base):
     # Quantitative
     years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
+    search_defaults: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

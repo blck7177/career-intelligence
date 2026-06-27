@@ -137,6 +137,12 @@ def main(task_spec: str, output: str) -> None:
     # We copy them here so ProvenanceValidator finds the files where it expects them.
     _sync_workspace_artifacts(spec.get("artifact_paths", {}))
 
+    # Remove artifact_paths entries where the file does not exist on disk.
+    # Agents sometimes declare all output_paths in artifact_paths even if they
+    # didn't write the optional files (e.g. search_ledger). ProvenanceValidator
+    # checks every declared path, so phantom entries cause needless failures.
+    manifest["artifact_paths"] = _filter_existing_artifacts(manifest["artifact_paths"])
+
     manifest_output_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_output_path.write_text(json.dumps(manifest, indent=2))
 
@@ -199,6 +205,23 @@ def _write_ack_if_safe(output: str, manifest_output_path: Path, ack: dict) -> No
             )
             return
     ack_path.write_text(json.dumps(ack, indent=2))
+
+
+def _filter_existing_artifacts(artifact_paths: dict) -> dict:
+    """Remove entries where the declared file does not exist on disk."""
+    filtered = {}
+    for artifact_type, path_str in artifact_paths.items():
+        if not path_str:
+            continue
+        if Path(path_str).exists():
+            filtered[artifact_type] = path_str
+        else:
+            click.echo(
+                f"INFO: dropping artifact_paths.{artifact_type} — "
+                f"file does not exist: {path_str}",
+                err=True,
+            )
+    return filtered
 
 
 def _sync_workspace_artifacts(artifact_paths: dict) -> None:

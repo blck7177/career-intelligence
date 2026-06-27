@@ -1,99 +1,118 @@
-# Discovery Strategy
+# Discovery Strategy & Moves
 
-## 你拥有目标，不拥有步骤
+## Goal-Driven, Not Step-Driven
 
-你负责**达成发现目标**——在预算内最大化符合用户 intent 的 validated candidate supply——而不是执行固定 query 序列。
+You own the **discovery objective** — maximize validated candidate supply within budget — not a fixed query sequence.
 
-你的 discovery plan 是临时的。可以随时根据证据修改：搜索结果、fetch 到的页面、board sync 结果、缺失的候选、不相关结果、source 限制、新发现的术语。
+Your plan is temporary. Revise it based on evidence: search results, fetched pages, missing candidates, irrelevant results, source limitations.
 
-持续区分三件事：
-- **action completion**: 跑了一个 query、sync 了一个 board、fetch 了一个页面
-- **objective progress**: 发现了有用的真实岗位候选
-- **strategy failure**: 动作在完成，但目标没有推进
+Continuously distinguish:
+- **action completion**: ran a query, fetched a page
+- **objective progress**: found relevant real job candidates
+- **strategy failure**: actions running but objective not advancing
 
-**不要优化 tool step 的完成数。优化 objective progress：新的相关候选、新的有用来源、或有真实 discovery action 支撑的明确 no-yield 解释。**
+**Optimize objective progress, not tool call count.**
 
-## 开始前：读 task spec 里的 catalog_context
+## Before You Start
 
-`catalog_context` 告诉你：
-- 已有多少岗位在库（`existing_job_count`）
-- 最近已经发现了哪些公司（`recent_companies`）——这些公司已在库，不需要重复全量 sync
-- Coverage gaps（`coverage_gaps`）——这次 run 应该优先补充的方向
+Read `catalog_context` and `previous_run_diagnostics` from the task spec:
+- `known_roles` — jobs already discovered. Do not re-log.
+- `recently_seen_companies` — deprioritize, explore new sources.
+- `last_run_errors` — fix whatever went wrong last time.
+- `coverage_gaps` — prioritize these directions.
+- `key_learnings` — known pitfalls in this search space.
 
-**先读 context，再制定策略。不要从零开始。**
+**Read context first, then plan. Never start from scratch.**
 
-## 你可以自由改变
+## You May Freely Change
 
-query family、source 策略、目标公司、术语、relevance 标准、探索深度、move 类型。
+Query family, source strategy, target companies, terminology, relevance criteria, exploration depth, move type.
 
-## 你不可以改变
+## You May Not Change
 
-- 数据边界（见 `data_policy_summary.md`）
-- Evidence 要求（见 `candidate_evidence_contract.md`）
-- 工具机制：搜索只能用 `web_search` 工具，不能用 `web_fetch` 抓搜索引擎结果页
-
-## Board Sync 0-yield 后的强制 pivot
-
-当 `career_sync_board` 返回 `would_keep=0` 或 `keep=0` 时：
-
-1. 这是一个 **strategy failure 信号**，不是探索完成信号。
-2. **不要立即写 coverage_report**。
-3. 必须在停止前至少执行以下一项：
-   - 同一 board 放宽或去掉 `--location-filter` 再试一次（确认是 filter 问题还是 board 本身无岗位）
-   - 切换到 `company_boards.yaml` 里其他 `status: active` 的公司做 board_sync（Source Pivot）
-   - 执行至少 1 次 `web_search`（Move 2 或 Move 4）寻找新来源
-
-只有完成上述 pivot 且仍然 0 结果，才能将其归因为"真实 no-yield"并写入 coverage_report。
+- Data boundaries (see `data_policy_summary.md`)
+- Evidence requirements (see `candidate_evidence_contract.md`)
+- Tool mechanism: search only via `web_search` tool, never `web_fetch` on search engine result pages
 
 ---
 
-## 每 5 次 discovery action 后自评（简短）
+## Discovery Moves
 
-每 5 次 discovery action 调一次 `career_search_status`，给自己回答（每条 1–2 句，不是给用户的汇报）：
+These moves can be **freely combined in any order**. Choose based on `payload.discovery_intent` and current discovery state.
 
-1. 这 5 次 action 想找什么？
-2. 尝试了哪些 move / source？
-3. 找到几个真实岗位候选？board sync / web search 各贡献多少？
-4. 哪些 move 没效果？failure mode？
-5. 还缺哪些 role category / company group / source type？
-6. 下一步：继续、扩展、还是换方向？为什么？
-7. 接下来具体做什么？
+### Move 1: Direct Web Search
 
-## 停止条件（任一满足）
+Best for: exploring new companies, new directions.
 
-1. 候选数量达到目标（通常 ≥20，或按 search_brief 给的更小目标）。
-2. 主要 source families 已覆盖（board sync 已知公司 + web search 新公司）。
-3. 连续 ≥3 次策略调整仍 0 新候选——记录 gap，结束。
-4. Budget 耗尽（spec 的 `max_queries` / `max_pages` / `max_board_syncs`）。
-
-满足后写 `coverage_report.md`（格式见 `candidate_evidence_contract.md` 末尾），然后 STOP。
-
-## Strategy Notebook
-
-在 `agent_work/drafts/strategy_state.md` 维护工作记录（随时修改，这是你的外部工作记忆）：
-
-```markdown
-# Discovery Strategy State
-Session: <session_id>
-
-## Current Objective
-（本次 run 要发现什么类型的岗位）
-
-## Catalog Context
-（已有多少岗位在库，最近发现了哪些公司，coverage gaps 是什么）
-
-## Current Working Hypothesis
-（我认为哪些 move / source 最有可能找到目标岗位）
-
-## What I Have Learned
-（已观测到的：哪些 move 有效，哪些 source 有结果，哪些 URL 是真实 JD）
-
-## What Is Not Working
-（哪些方向效果差，为什么）
-
-## Current Strategy Revision
-（基于上面的观测，我现在的 discovery 方向是什么）
-
-## Next Move
-（下一步具体做什么：哪个 move，哪个公司/source/query）
 ```
+web_search("<role keywords> <location> jobs")
+  → extract specific job posting URLs from results
+  → web_fetch each candidate URL to confirm real JD content
+  → career_log_candidates
+```
+
+### Move 2: Targeted ATS Search
+
+Best for: known ATS platforms (Greenhouse / Lever / Ashby).
+
+```
+web_search("site:boards.greenhouse.io <role keywords>")
+  → extract specific ATS job URLs (e.g. greenhouse.io/<company>/jobs/<id>)
+  → career_fetch_source (fetch + normalize)
+  → confirm real JD from returned text → career_log_candidates
+```
+
+### Move 3: Career Page Snowball
+
+Best for: companies with custom HTML career pages.
+
+```
+web_fetch(<company>/careers or /jobs listing page)
+  → extract specific job detail URLs from page content
+  → web_fetch each detail URL to confirm real JD content
+  → career_log_candidates
+```
+
+Key: listing pages are not candidates. Only specific job detail URLs qualify.
+
+### Move 4: Source Pivot
+
+Trigger when: current source/query direction yields nothing (403, login wall, irrelevant results).
+
+- LinkedIn/Indeed login wall → switch to `site:boards.greenhouse.io` targeted search
+- Workday blocked → try company career page (Move 3)
+- Too-broad platform results → add `site:` prefix for targeted ATS search
+- No results for a keyword → try other families from `target_role_families`
+
+Document every pivot reason in coverage_report.
+
+### Move Selection Guide
+
+| Scenario | Preferred Move |
+|----------|---------------|
+| Exploring new companies / directions | Move 1: Direct Web Search |
+| Known Greenhouse / Lever / Ashby ATS | Move 2: Targeted ATS Search |
+| Company has custom career page | Move 3: Career Page Snowball |
+| Current source blocked / no results | Move 4: Source Pivot |
+| Budget almost exhausted | Focus on highest-yield known direction |
+
+---
+
+## Self-Review Every 5 Actions
+
+Call `career_search_status` every 5 discovery actions. Answer briefly (1-2 sentences each):
+
+1. What was I looking for in these 5 actions?
+2. How many real candidates did I find?
+3. What didn't work? Why?
+4. What role categories / companies / sources are still uncovered?
+5. Next: continue, expand, or pivot? Why?
+
+## Stop Conditions (any one triggers)
+
+1. Candidate count reaches target (typically ≥20, or per discovery_intent).
+2. Major source families covered (known boards + web search for new companies).
+3. ≥3 consecutive strategy adjustments with 0 new candidates — document gap, finish.
+4. Budget exhausted (`max_candidates` or `max_tool_calls` reached).
+
+After stopping → write `coverage_report.md` → call `career_write_manifest` → STOP.

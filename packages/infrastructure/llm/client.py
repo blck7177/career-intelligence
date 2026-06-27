@@ -91,6 +91,21 @@ class LLMClient:
 
         return openai.OpenAI(api_key=self._api_key)
 
+    def _emit_usage(self, resp: "LLMResponse") -> None:
+        """Fire-and-forget: persist token usage to the cost ledger."""
+        if resp.total_tokens == 0:
+            return
+        try:
+            from packages.infrastructure.llm.usage_writer import persist_usage
+            persist_usage(
+                model=resp.model,
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+                total_tokens=resp.total_tokens,
+            )
+        except Exception:
+            logger.debug("_emit_usage failed (non-blocking)", exc_info=True)
+
     def complete(
         self,
         messages: list[LLMMessage],
@@ -153,13 +168,15 @@ class LLMClient:
             choice.finish_reason,
         )
 
-        return LLMResponse(
+        resp = LLMResponse(
             content=content,
             model=response.model,
             prompt_tokens=usage.prompt_tokens if usage else 0,
             completion_tokens=usage.completion_tokens if usage else 0,
             total_tokens=usage.total_tokens if usage else 0,
         )
+        self._emit_usage(resp)
+        return resp
 
     def complete_simple(
         self,
@@ -266,6 +283,13 @@ class LLMClient:
                 f"finish_reason={choice.finish_reason!r}"
             )
 
+        self._emit_usage(LLMResponse(
+            content="",
+            model=response.model,
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
+        ))
         return parsed  # type: ignore[return-value]
 
 

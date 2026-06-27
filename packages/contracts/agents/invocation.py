@@ -39,6 +39,19 @@ class AgentInvocationSpec(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class AgentUsageSummary(BaseModel):
+    """LLM token usage extracted from OpenClaw stdout agentMeta."""
+
+    model: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    reasoning_tokens: int = 0
+    session_file: str | None = None
+    llm_calls: int = 0
+
+
 class AgentInvocationResult(BaseModel):
     """Raw result captured from agent_runtime.invoke()."""
 
@@ -49,6 +62,7 @@ class AgentInvocationResult(BaseModel):
     duration_seconds: float
     timed_out: bool = False
     tool_activity_summary_path: str | None = None
+    usage: AgentUsageSummary | None = None
 
     @property
     def succeeded(self) -> bool:

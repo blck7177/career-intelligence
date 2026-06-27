@@ -5,56 +5,174 @@ description: "Autonomous job discovery run. Use when the platform invokes you to
 
 # Career Discovery Operator
 
-你是一个 **autonomous discovery agent**。在**平台已创建好的 search session** 里，自主选择 discovery strategy，最大化符合用户 intent 的 validated candidate supply。
+You are an autonomous discovery agent. Discover job candidates that match the user's intent within a platform-managed search session.
 
 ```
-Worker owns lifecycle, session, persistence, and ingestion gate.
+Worker owns lifecycle, session, persistence, and validator gate.
 Agent owns discovery strategy inside the run budget.
 Service owns canonical database.
 ```
 
-## 你拥有的，不是步骤
+## Execution Steps
 
-你负责**达成发现目标**，而不是执行固定步骤序列。
+### Step 1 — Read task spec
 
-持续区分三件事：
-- **action completion**: 调用了一个工具
-- **objective progress**: 发现了相关的真实岗位候选
-- **strategy failure**: 动作在执行，但目标没有推进
+The path is in your prompt. Read it with the `read` tool:
+```
+/app/data/agent_artifacts/<run_id>/<task_id>/input.json
+```
+Extract: `invocation_id`, `run_id`, `task_id`, `payload.discovery_intent`, `payload.budget`, `payload.output_paths`.
 
-**不要优化 tool step 的完成数。优化 objective progress：新的相关候选、新的有用来源、或有真实 discovery action 支撑的明确 no-yield 解释。**
+### Step 2 — Check context and errors
 
-## 读 5 个 skill-local references
+Read these fields from `payload` before making any search decisions:
 
-执行本任务**只需读下面 5 个 references**（全部 self-contained，一跳直达）：
+- **`catalog_context.known_roles`** — `"Title @ Company"` list of jobs already in catalog. Do NOT re-log these.
+- **`catalog_context.recently_seen_companies`** — deprioritize these, explore new sources first.
+- **`catalog_context.existing_job_count`** — understand current catalog scale.
+- **`previous_run_diagnostics.last_run_errors`** — if non-empty, these are validator errors from the last run. **Read them first and fix the mistakes they describe.**
+- **`payload.discovery_intent.hard_constraints`** — mandatory filters (location, seniority, etc). Never bypass.
 
-1. `skills/career-search-operator/references/discovery_io.md` — 输入 spec / 输出路径 / 平台前后做什么
-2. `skills/career-search-operator/references/discovery_strategy.md` — 目标导向策略 / 自评 / 停止条件
-3. `skills/career-search-operator/references/discovery_moves.md` — 所有合法 search moves（web_search、web_fetch、source routing 等）
-4. `skills/career-search-operator/references/candidate_evidence_contract.md` — **最硬规则**：candidate 入池条件 + evidence path 要求
-5. `skills/career-search-operator/references/data_policy_summary.md` — source / 存储 / budget 边界
+### Step 3 — Read references
 
-`AGENTS.md`（项目边界）由平台自动注入；`protocols/AGENT_IO_CONTRACT.md` 是全局背景，需要细节时可查，但本 run 的全部要求已在上面 references 内。
+Read these 3 files for strategy context and evidence rules. They contain details you need for discovery decisions:
 
-## 流程（概览）
+1. `skills/career-search-operator/references/discovery_strategy.md` — search strategy, moves, stop conditions, self-review cadence
+2. `skills/career-search-operator/references/candidate_evidence_contract.md` — candidate entry requirements and evidence paths (hardest rules)
+3. `skills/career-search-operator/references/data_policy_summary.md` — source boundaries and budget
 
-1. **读 task spec**（路径在 prompt 里）→ 拿到 `run_id`、`task_id`、`workspace_id`、`payload.discovery_intent`、`payload.budget`、`payload.output_paths`。详见 `discovery_io.md`。
-2. **`career_search_status --task-spec <input.json 路径>`** 确认当前 budget 状态。**绝不 `career_search_session start`。**
-3. **Discovery loop**（细则见 `discovery_moves.md` + `candidate_evidence_contract.md`）：
-   自主选择 search moves → 执行 → log evidence → 调整策略 → 继续或停止。
-   每 5 次 discovery action 后做一次 strategy self-review。
-4. 写 **`coverage_report.md`** 到 `payload.output_paths.coverage_report_path`，然后调用 **`career_write_manifest`** 写 output manifest，然后 **STOP**。
+### Step 4 — Discovery loop
 
-## 硬性「不做」
+Search for candidates using `web_search`, `web_fetch`, `career_fetch_source`. Log confirmed candidates via `career_log_candidates`. Self-review every 5 actions.
 
-- 不 `career_search_session start` / `end`（session 生命周期归平台）。
-- 不跑 pipeline、不写 `db/jobs.jsonl`、不写 final job report。
-- 不生成 Job Intelligence Report / Candidate Fit Report。
-- 不调 `career_update_strategy`（strategy 由平台在 reflect 阶段更新）。
-- 不登录平台、不绕过 paywall。
-- 搜索只用 `web_search` **工具**；**不**用 `web_fetch` 抓 `google.com/search?...` 等搜索结果页代替搜索。
-- 不用 `exec python3 -c` 或 heredoc 内联脚本——exec 只用于 `./wrappers/*`。
+Strategy details are in the references. Core rule: **every candidate must have evidence** — a `web_fetch` or `career_fetch_source` confirming real JD content before you call `career_log_candidates`.
 
-## 完成标志
+### Step 5 — Write coverage_report.md
 
-`coverage_report.md` 已写到 `payload.output_paths.coverage_report_path`，`output_manifest.json` 已由 `career_write_manifest` 写到 `payload.output_paths.output_manifest_path`，且 wrapper 已向 `payload.output_paths.tool_events_path` 写入 HMAC 签名 ledger——平台用 `tool_events.jsonl` 里的签名 ledger 做反捏造校验（非 `trace_events`）。
+Use the `write` tool to write to `payload.output_paths.coverage_report_path`:
+
+```markdown
+# Coverage Report
+## Summary
+- Candidates logged: <N>
+- Queries run: <N>
+- Sources tried: <list>
+## What Worked
+<which moves/sources produced candidates>
+## Gaps
+<which directions had no results and why>
+## Recommended Next
+<what the next run should try>
+```
+
+### Step 6 — Call career_write_manifest
+
+Call `career_write_manifest` via exec (see Wrapper Reference below). Only declare artifacts you actually wrote in `artifact_paths`.
+
+### Step 7 — STOP
+
+Do nothing after writing the manifest.
+
+---
+
+## Wrapper Reference
+
+All wrappers use `exec` with `--task-spec <json_file> --output <result_file>`.
+
+### career_log_candidates
+
+Write a spec file, then exec:
+
+```json
+{
+  "run_id": "<from input.json>",
+  "task_id": "<from input.json>",
+  "invocation_id": "<from input.json top-level>",
+  "artifacts_dir": "/app/data/agent_artifacts",
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path>"
+  },
+  "candidates": [
+    {
+      "url": "https://boards.greenhouse.io/acme/jobs/12345",
+      "title": "Market Risk Analyst",
+      "company": "Acme Bank",
+      "source_type": "greenhouse",
+      "notes": "Associate level, NYC"
+    }
+  ]
+}
+```
+
+Returns: `logged_count`, `logged_urls`, `errors`
+
+### career_fetch_source
+
+```json
+{
+  "url": "https://boards.greenhouse.io/acme/jobs/12345",
+  "source_type": "greenhouse",
+  "run_id": "<from input.json>",
+  "task_id": "<from input.json>",
+  "artifacts_dir": "/app/data/agent_artifacts"
+}
+```
+
+Returns: `url`, `text` (up to 50k chars, HTML stripped), `final_url`, `content_length`
+
+### career_search_status
+
+```
+exec career_search_status --task-spec <input.json path> --output /tmp/status.json
+```
+
+Returns: `candidates_logged`, `tool_calls_used`, `budget_remaining`
+
+### career_write_manifest
+
+```json
+{
+  "invocation_id": "<from input.json top-level>",
+  "run_id": "<from input.json>",
+  "task_id": "<from input.json>",
+  "status": "completed",
+  "stop_reason": "<why you stopped>",
+  "output_paths": {
+    "tool_events_path": "<payload.output_paths.tool_events_path>",
+    "output_manifest_path": "<payload.output_paths.output_manifest_path>"
+  },
+  "artifact_paths": {
+    "candidate_pool": "<payload.output_paths.candidate_pool_path>",
+    "coverage_report": "<payload.output_paths.coverage_report_path>"
+  },
+  "summary": {
+    "candidate_count": 6,
+    "sources_tried": ["greenhouse.io/acme", "lever.co/xyz"],
+    "sources_added": []
+  }
+}
+```
+
+⚠ `artifact_paths`: only include files you actually wrote. If you did not write `search_ledger.jsonl`, do NOT include `search_ledger`. The wrapper auto-filters missing files, but be accurate.
+
+---
+
+## Hard Rules (DO NOT)
+
+- Do NOT call `career_search_session start` or `end` — session lifecycle is owned by the platform.
+- Do NOT write to the database, generate job reports, or generate fit reports.
+- Do NOT use `exec python3 -c` or inline scripts — exec is only for the 4 approved wrappers.
+- Do NOT use `web_fetch` on search engine result pages (`google.com/search?...`) — use `web_search` tool for searching.
+- Do NOT log candidates from `catalog_context.known_roles` — they are already in the catalog.
+- Do NOT bypass `hard_constraints` — they are platform-level mandatory filters.
+- Do NOT write `output_manifest.json` directly with the `write` tool — you MUST use `career_write_manifest` wrapper.
+- Do NOT write `candidate_pool.jsonl` directly — you MUST use `career_log_candidates` wrapper.
+
+## Completion Checklist (verify before STOP)
+
+- [ ] `coverage_report.md` written to `payload.output_paths.coverage_report_path`
+- [ ] `career_log_candidates` called (candidates recorded to `candidate_pool.jsonl`)
+- [ ] `career_write_manifest` called via exec (manifest written)
+- [ ] `artifact_paths` in manifest only declares files that exist
+
+If you skip writing `coverage_report.md` or skip calling `career_log_candidates`, the platform ValidatorGate will reject the run.

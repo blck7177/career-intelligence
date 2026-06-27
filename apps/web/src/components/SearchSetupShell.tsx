@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useApiToken } from "@/hooks/useApiToken";
-import { createRun, getProfile, listRuns } from "@/api/client";
+import { createRun, getProfile, listProfiles, listRuns, updateSearchDefaults } from "@/api/client";
 import type { ProfileRead, RunRead } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
@@ -166,6 +166,7 @@ export function SearchSetupShell() {
 
   const [phase, setPhase] = useState<WizardPhase>("source-select");
   const [profile, setProfile] = useState<ProfileRead | null>(null);
+  const [allProfiles, setAllProfiles] = useState<ProfileRead[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
 
   const [searchSource, setSearchSource] = useState<SearchSource>("instruction_plus_profile");
@@ -182,6 +183,41 @@ export function SearchSetupShell() {
   const [compensationRange, setCompensationRange] = useState("");
   const [softPreferences, setSoftPreferences] = useState("");
   const [softPreferencesOpen, setSoftPreferencesOpen] = useState(false);
+
+  function applySearchDefaults(defaults: Record<string, unknown> | null | undefined) {
+    if (!defaults) return;
+    if (defaults.search_source) setSearchSource(defaults.search_source as SearchSource);
+    if (defaults.search_depth) setSearchDepth(defaults.search_depth as SearchDepth);
+    if (typeof defaults.location === "string") setLocation(defaults.location);
+    if (typeof defaults.seniority === "string") setSeniority(defaults.seniority);
+    if (typeof defaults.exclude_role_types === "string") setExcludeRoleTypes(defaults.exclude_role_types);
+    if (typeof defaults.must_include_keywords === "string") setMustIncludeKeywords(defaults.must_include_keywords);
+    if (typeof defaults.work_arrangement === "string") setWorkArrangement(defaults.work_arrangement as WorkArrangement);
+    if (typeof defaults.visa_note === "string") setVisaNote(defaults.visa_note);
+    if (typeof defaults.compensation_range === "string") setCompensationRange(defaults.compensation_range);
+    if (typeof defaults.soft_preferences === "string") setSoftPreferences(defaults.soft_preferences);
+    if (defaults.location || defaults.seniority || defaults.exclude_role_types ||
+        defaults.must_include_keywords || defaults.work_arrangement || defaults.visa_note ||
+        defaults.compensation_range) {
+      setConstraintsOpen(true);
+    }
+    if (defaults.soft_preferences) setSoftPreferencesOpen(true);
+  }
+
+  function collectSearchDefaults(): Record<string, string> {
+    return {
+      search_source: searchSource,
+      search_depth: searchDepth,
+      location,
+      seniority,
+      exclude_role_types: excludeRoleTypes,
+      must_include_keywords: mustIncludeKeywords,
+      work_arrangement: workArrangement,
+      visa_note: visaNote,
+      compensation_range: compensationRange,
+      soft_preferences: softPreferences,
+    };
+  }
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -212,10 +248,24 @@ export function SearchSetupShell() {
 
   useEffect(() => {
     getToken()
-      .then((token) => getProfile(token))
-      .then(setProfile)
+      .then(async (token) => {
+        const profiles = await listProfiles(token).catch(() => [] as ProfileRead[]);
+        setAllProfiles(profiles);
+        if (profiles.length > 0) {
+          setProfile(profiles[0]);
+          applySearchDefaults((profiles[0] as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
+        } else {
+          const defaultProfile = await getProfile(token).catch(() => null);
+          if (defaultProfile) {
+            setProfile(defaultProfile);
+            setAllProfiles([defaultProfile]);
+            applySearchDefaults((defaultProfile as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
+          }
+        }
+      })
       .catch(() => setProfile(null))
       .finally(() => setProfileLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [getToken]);
 
   const profileNeedsSetup =
@@ -247,6 +297,10 @@ export function SearchSetupShell() {
 
     try {
       const token = await getToken();
+
+      // Fire-and-forget: save current search preferences to the selected profile
+      updateSearchDefaults(profile.id, collectSearchDefaults(), token).catch(() => {});
+
       const run = await createRun(
         {
           run_type: "job_discovery",
@@ -392,14 +446,41 @@ export function SearchSetupShell() {
             </div>
           )}
 
-          <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
-            <span className="font-medium text-zinc-700">Your profile:</span>{" "}
-            {profile.summary?.slice(0, 80)}
-            {profile.summary && profile.summary.length > 80 ? "…" : ""}
-            {" · "}
-            <Link href="/profile" className="text-[var(--primary)] hover:underline">
-              Edit
-            </Link>
+          <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-600 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-zinc-700">
+                {allProfiles.length > 1 ? "Selected profile:" : "Your profile:"}
+              </span>
+              <Link href="/profile" className="text-[var(--primary)] hover:underline">
+                Edit
+              </Link>
+            </div>
+            {allProfiles.length > 1 && (
+              <select
+                value={profile.id}
+                onChange={(e) => {
+                  const p = allProfiles.find((x) => x.id === e.target.value);
+                  if (p) {
+                    setProfile(p);
+                    applySearchDefaults((p as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
+                  }
+                }}
+                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-800 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+              >
+                {allProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label || `Profile (${p.id.slice(0, 8)})`}
+                    {p.summary ? ` — ${p.summary.slice(0, 50)}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {allProfiles.length <= 1 && (
+              <div>
+                {profile.summary?.slice(0, 80)}
+                {profile.summary && profile.summary.length > 80 ? "…" : ""}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">

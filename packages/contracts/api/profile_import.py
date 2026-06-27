@@ -23,6 +23,15 @@ class ParseNotes(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
 
+class CleanResume(BaseModel):
+    """LLM-reconstructed resume — faithful to the original, not synthesized for job search."""
+
+    markdown: str = ""
+    experiences: list[dict] = Field(default_factory=list)
+    education: list[dict] = Field(default_factory=list)
+    skills: list[dict] = Field(default_factory=list)
+
+
 class ImportProject(BaseModel):
     """Mirrors RepresentativeProject from packages/contracts/profile/candidate.py."""
 
@@ -38,6 +47,7 @@ class ProfileImportDraft(BaseModel):
     Used as response_schema for LLMClient.complete_structured().
     """
 
+    clean_resume: CleanResume = Field(default_factory=CleanResume)
     summary: str = ""
     experience_summary: str = ""
     education_summary: str = ""

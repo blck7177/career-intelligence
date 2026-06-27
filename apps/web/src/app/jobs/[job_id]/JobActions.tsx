@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
-import { createRun } from "@/api/client";
+import { createRun, archiveJob } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { FitButton } from "@/components/FitButton";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText } from "lucide-react";
+import { Loader2, FileText, Trash2 } from "lucide-react";
 
 interface JobActionsProps {
   jobId: string;
@@ -49,6 +49,20 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
     }
   }
 
+  const [archiving, setArchiving] = useState(false);
+
+  async function handleArchive() {
+    if (!confirm("Remove this job from your saved roles?")) return;
+    setArchiving(true);
+    try {
+      const token = await getToken();
+      await archiveJob(jobId, token);
+      router.push("/jobs");
+    } catch {
+      setArchiving(false);
+    }
+  }
+
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -74,6 +88,17 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
         label={hasExistingReport ? "Analyze Fit" : "Analyze Fit"}
         inline
       />
+
+      <Button
+        onClick={handleArchive}
+        disabled={archiving}
+        size="sm"
+        variant="outline"
+        className="text-zinc-400 hover:text-rose-500 hover:border-rose-300"
+      >
+        <Trash2 size={13} className="mr-1.5" />
+        {archiving ? "Removing…" : "Remove"}
+      </Button>
     </div>
   );
 }

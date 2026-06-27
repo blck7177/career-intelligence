@@ -207,6 +207,15 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
         )
 
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.run_reflection",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+        )
+
     if result.exit_code != 0 or result.timed_out:
         error_code = "AGENT_TIMEOUT" if result.timed_out else "AGENT_EXIT_NONZERO"
         reason = (

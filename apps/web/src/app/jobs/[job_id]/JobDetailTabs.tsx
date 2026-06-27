@@ -99,31 +99,37 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
         </div>
       )}
 
-      {jd.required_skills.length > 0 && (
-        <div>
-          <SectionTitle>Required Skills</SectionTitle>
-          <BulletList items={jd.required_skills} />
+      {(jd.required_skills.length > 0 || jd.preferred_skills.length > 0) && (
+        <div className="grid grid-cols-2 gap-4">
+          {jd.required_skills.length > 0 && (
+            <div>
+              <SectionTitle>Required Skills</SectionTitle>
+              <BulletList items={jd.required_skills} />
+            </div>
+          )}
+          {jd.preferred_skills.length > 0 && (
+            <div>
+              <SectionTitle>Preferred Skills</SectionTitle>
+              <BulletList items={jd.preferred_skills} />
+            </div>
+          )}
         </div>
       )}
 
-      {jd.preferred_skills.length > 0 && (
-        <div>
-          <SectionTitle>Preferred Skills</SectionTitle>
-          <BulletList items={jd.preferred_skills} />
-        </div>
-      )}
-
-      {jd.likely_tasks.length > 0 && (
-        <div>
-          <SectionTitle>Likely Day-to-Day Tasks</SectionTitle>
-          <BulletList items={jd.likely_tasks} />
-        </div>
-      )}
-
-      {jd.likely_stakeholders.length > 0 && (
-        <div>
-          <SectionTitle>Stakeholders</SectionTitle>
-          <BulletList items={jd.likely_stakeholders} />
+      {(jd.likely_tasks.length > 0 || jd.likely_stakeholders.length > 0) && (
+        <div className="grid grid-cols-2 gap-4">
+          {jd.likely_tasks.length > 0 && (
+            <div>
+              <SectionTitle>Likely Day-to-Day Tasks</SectionTitle>
+              <BulletList items={jd.likely_tasks} />
+            </div>
+          )}
+          {jd.likely_stakeholders.length > 0 && (
+            <div>
+              <SectionTitle>Stakeholders</SectionTitle>
+              <BulletList items={jd.likely_stakeholders} />
+            </div>
+          )}
         </div>
       )}
 

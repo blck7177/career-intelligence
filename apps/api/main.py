@@ -17,6 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
+from apps.api.routes.admin_cost import router as admin_cost_router
 from apps.api.routes.admin_runs import router as admin_runs_router
 from apps.api.routes.admin_users import router as admin_users_router
 from apps.api.routes.health import router as health_router
@@ -70,6 +71,7 @@ app.include_router(runs_router)
 app.include_router(jobs_router)
 app.include_router(reports_router)
 app.include_router(profile_router)
+app.include_router(admin_cost_router)
 app.include_router(admin_runs_router)
 app.include_router(admin_users_router)
 

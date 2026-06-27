@@ -1,12 +1,13 @@
 """
-Jobs API — read discovered job records.
+Jobs API — read and archive discovered job records.
 
 Contract:
-  GET /api/jobs?status=&limit=&offset=&include_report_summary=  → JobList
-  GET /api/jobs/{job_id}                → JobRead
+  GET    /api/jobs?status=&limit=&offset=&include_report_summary=  → JobList
+  GET    /api/jobs/{job_id}                → JobRead
+  DELETE /api/jobs/{job_id}                → 204 (soft-delete: sets status to "archived")
 
-These are read-only endpoints. Job records are written by the worker/validator gate,
-not by the API. Results are always scoped to the authenticated user's workspace.
+Job records are written by the worker/validator gate, not by the API.
+Results are always scoped to the authenticated user's workspace.
 """
 
 from __future__ import annotations
@@ -139,3 +140,24 @@ def get_job(
         report = JobReportRepository(db).get_latest_active(job_id)
 
     return _job_read(job, report, include_jd_structured=True)
+
+
+@router.delete("/{job_id}", status_code=204)
+def archive_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Soft-delete a job by setting its status to 'archived'."""
+    job = JobRepository(db).get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+
+    if not job.discovered_run_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    run = RunRepository(db).get(job.discovered_run_id)
+    if run is None or run.workspace_id != workspace.id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    JobRepository(db).set_status(job_id, "archived")
+    db.commit()

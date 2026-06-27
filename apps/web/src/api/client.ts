@@ -167,6 +167,10 @@ export async function getJob(jobId: string, token?: string | null): Promise<JobR
   return req<JobRead>(`/api/app/jobs/${encodeURIComponent(jobId)}`, undefined, token);
 }
 
+export async function archiveJob(jobId: string, token?: string | null): Promise<void> {
+  await req<void>(`/api/app/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }, token);
+}
+
 // ---------------------------------------------------------------------------
 // Profile  (/api/app/profile)
 // ---------------------------------------------------------------------------
@@ -178,4 +182,55 @@ export async function getProfile(token?: string | null): Promise<ProfileRead> {
 
 export async function upsertProfile(body: ProfileUpdate, token?: string | null): Promise<ProfileRead> {
   return req<ProfileRead>("/api/app/profile", { method: "PUT", body: JSON.stringify(body) }, token);
+}
+
+export async function listProfiles(token?: string | null): Promise<ProfileRead[]> {
+  return req<ProfileRead[]>("/api/app/profiles", undefined, token);
+}
+
+export async function createProfile(body: ProfileUpdate, token?: string | null): Promise<ProfileRead> {
+  return req<ProfileRead>("/api/app/profiles", { method: "POST", body: JSON.stringify(body) }, token);
+}
+
+export async function updateProfile(profileId: string, body: ProfileUpdate, token?: string | null): Promise<ProfileRead> {
+  return req<ProfileRead>(`/api/app/profiles/${encodeURIComponent(profileId)}`, { method: "PUT", body: JSON.stringify(body) }, token);
+}
+
+export async function deleteProfile(profileId: string, token?: string | null): Promise<void> {
+  await req<void>(`/api/app/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" }, token);
+}
+
+export async function updateSearchDefaults(
+  profileId: string,
+  defaults: Record<string, unknown>,
+  token?: string | null,
+): Promise<void> {
+  await req<void>(
+    `/api/app/profiles/${encodeURIComponent(profileId)}/search-defaults`,
+    { method: "PUT", body: JSON.stringify(defaults) },
+    token,
+  );
+}
+
+export async function uploadResume(
+  file: File,
+  token?: string | null,
+): Promise<{ resume_text: string; char_count: number; source_filename: string }> {
+  const resolvedToken = await resolveToken(token);
+  const headers: Record<string, string> = {};
+  if (resolvedToken) headers["Authorization"] = `Bearer ${resolvedToken}`;
+
+  const form = new FormData();
+  form.append("file", file);
+
+  const res = await fetch(`${BASE}/api/app/profile/upload-resume`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw Object.assign(new Error(text), { status: res.status });
+  }
+  return res.json();
 }

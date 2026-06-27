@@ -35,7 +35,11 @@ from pathlib import Path
 import subprocess
 import time
 
-from packages.contracts.agents.invocation import AgentInvocationResult, AgentInvocationSpec
+from packages.contracts.agents.invocation import (
+    AgentInvocationResult,
+    AgentInvocationSpec,
+    AgentUsageSummary,
+)
 from packages.contracts.agents.tool_activity import ToolActivitySummary, ToolCallRecord
 from packages.infrastructure.agent_runtime.base import AgentRuntime
 
@@ -44,6 +48,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 _DEFAULT_STATE_DIR = os.environ.get("OPENCLAW_STATE_DIR")
 _TOOL_ACTIVITY_SUMMARY_FILENAME = "gateway_tool_activity.json"
+_SENTINEL = object()
 
 
 class OpenClawGatewayRuntime(AgentRuntime):
@@ -142,8 +147,10 @@ class OpenClawGatewayRuntime(AgentRuntime):
             spec.invocation_id,
         )
 
-        summary = _build_tool_activity_summary(spec, result.stdout)
+        payload, _ = _parse_stdout_json(result.stdout)
+        summary = _build_tool_activity_summary(spec, result.stdout, payload=payload)
         summary_path = _write_tool_activity_summary(spec, summary)
+        usage = _extract_agent_usage(payload, summary.session_file)
 
         transport_rejection_reason = _transport_rejection_reason(
             summary.transport, summary.fallback_from
@@ -177,6 +184,7 @@ class OpenClawGatewayRuntime(AgentRuntime):
             duration_seconds=duration,
             timed_out=timed_out,
             tool_activity_summary_path=summary_path,
+            usage=usage,
         )
 
     def _build_invocation_message(self, spec: AgentInvocationSpec) -> str:
@@ -331,8 +339,13 @@ def _transport_rejection_reason(
 def _build_tool_activity_summary(
     spec: AgentInvocationSpec,
     stdout: str,
+    *,
+    payload: object | None = _SENTINEL,
 ) -> ToolActivitySummary:
-    payload, parse_errors = _parse_stdout_json(stdout)
+    if payload is _SENTINEL:
+        payload, parse_errors = _parse_stdout_json(stdout)
+    else:
+        parse_errors: list[str] = []
     transport, fallback_from, session_file = _extract_runtime_meta(payload)
 
     payload_tool_calls = _extract_tool_calls_from_payload(payload)
@@ -568,3 +581,92 @@ def _dedupe_tool_calls(tool_calls: list[ToolCallRecord]) -> list[ToolCallRecord]
         seen.add(key)
         unique.append(call)
     return unique
+
+
+# ---------------------------------------------------------------------------
+# Agent LLM usage extraction
+# ---------------------------------------------------------------------------
+
+
+def _normalize_tokens(usage: dict) -> tuple[int, int, int, int, int]:
+    """Normalize provider-varying field names into (input, output, cache_read, cache_write, reasoning).
+
+    Handles OpenAI (input/output), Anthropic (input_tokens/output_tokens),
+    and legacy (prompt_tokens/completion_tokens) naming conventions.
+    """
+    inp = usage.get("input") or usage.get("input_tokens") or usage.get("inputTokens") or usage.get("prompt_tokens") or 0
+    out = usage.get("output") or usage.get("output_tokens") or usage.get("outputTokens") or usage.get("completion_tokens") or 0
+    cache_r = usage.get("cacheRead") or usage.get("cache_read") or usage.get("cache_read_tokens") or 0
+    if isinstance(usage.get("prompt_tokens_details"), dict):
+        cache_r = cache_r or usage["prompt_tokens_details"].get("cached_tokens", 0)
+    cache_w = usage.get("cacheWrite") or usage.get("cache_write") or usage.get("cache_write_tokens") or 0
+    reasoning = usage.get("reasoningTokens") or usage.get("reasoning_tokens") or 0
+    return int(inp), int(out), int(cache_r), int(cache_w), int(reasoning)
+
+
+def _count_session_llm_calls(session_file: str | None) -> int:
+    """Count assistant messages with usage in session JSONL (= number of LLM calls)."""
+    if not session_file:
+        return 0
+    path = Path(session_file)
+    if not path.exists():
+        return 0
+    count = 0
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj.get("type") == "message":
+                msg = obj.get("message", {})
+                if isinstance(msg, dict) and msg.get("usage"):
+                    count += 1
+    except OSError:
+        pass
+    return count
+
+
+def _extract_agent_usage(
+    payload: object | None,
+    session_file: str | None,
+) -> AgentUsageSummary | None:
+    """Extract LLM usage from stdout JSON → result.meta.agentMeta."""
+    if not isinstance(payload, dict):
+        return None
+
+    agent_meta = None
+    result = payload.get("result")
+    if isinstance(result, dict):
+        meta = result.get("meta")
+        if isinstance(meta, dict):
+            agent_meta = meta.get("agentMeta")
+
+    if not isinstance(agent_meta, dict):
+        return None
+
+    usage = agent_meta.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    model = str(agent_meta.get("model", ""))
+    inp, out, cache_r, cache_w, reasoning = _normalize_tokens(usage)
+
+    if inp == 0 and out == 0:
+        return None
+
+    llm_calls = _count_session_llm_calls(session_file)
+
+    return AgentUsageSummary(
+        model=model,
+        input_tokens=inp,
+        output_tokens=out,
+        cache_read_tokens=cache_r,
+        cache_write_tokens=cache_w,
+        reasoning_tokens=reasoning,
+        session_file=session_file,
+        llm_calls=llm_calls,
+    )

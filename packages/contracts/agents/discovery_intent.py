@@ -223,8 +223,8 @@ class CatalogContext(BaseModel):
     existing_job_count: int = 0
     recently_seen_companies: list[str] = Field(default_factory=list)
     # Company names already in catalog — agent avoids re-discovering these
-    recently_seen_urls: list[str] = Field(default_factory=list)
-    # Job URLs already seen — hard dedup, agent must not re-log these
+    known_roles: list[str] = Field(default_factory=list)
+    # "Title @ Company" list — agent uses for semantic dedup before logging candidates
 
 
 class SourceRegistrySnapshot(BaseModel):
@@ -247,6 +247,9 @@ class PreviousRunDiagnostics(BaseModel):
     # e.g. ["JPMorgan board_sync filter too narrow; broaden title_keywords"]
     recommended_next_searches: list[str] = Field(default_factory=list)
     # e.g. ["Retry exposure management with broader title scope"]
+    last_run_errors: list[str] = Field(default_factory=list)
+    # Validator errors from the most recent discovery run — injected by worker,
+    # not reflect. Agent should read these to avoid repeating the same mistakes.
 
 
 class OutputPaths(BaseModel):

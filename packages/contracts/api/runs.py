@@ -56,6 +56,8 @@ class RunResultSummary(BaseModel):
     artifact_paths: Optional[dict[str, str]] = None
     # profile_import path
     import_type: Optional[str] = None
+    source_resume: Optional[dict] = None
+    clean_resume: Optional[dict] = None
     profile_draft: Optional[dict] = None
     parse_notes: Optional[dict] = None
 

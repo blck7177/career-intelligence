@@ -38,6 +38,10 @@ def handle_job_report(env: TaskEnvelope) -> dict:
     Entry point for job_report tasks.
     Called by execute_task when task_type == "job_report".
     """
+    from packages.infrastructure.llm.usage_writer import set_llm_context
+    set_llm_context(run_id=env.run_id, task_id=env.task_id,
+                    workspace_id=env.workspace_id, call_site="job_report")
+
     logger.info("job_report: starting task_id=%s run_id=%s", env.task_id, env.run_id)
 
     with get_session() as session:

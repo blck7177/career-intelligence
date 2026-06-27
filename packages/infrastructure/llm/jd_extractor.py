@@ -26,7 +26,7 @@ _SYSTEM_PROMPT = """\
 You are a structured job description extractor.
 
 Rules:
-1. Extract only information explicitly stated or strongly implied by the JD.
+1. Extract only information explicitly stated in the JD.
 2. For inferred fields (likely_tasks, likely_stakeholders, inferred_team_context), \
 you may infer from context but stay grounded in the JD text.
 3. If a field cannot be extracted, use an empty list [] or empty string "".

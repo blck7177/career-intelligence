@@ -23,6 +23,7 @@ from packages.infrastructure.db.models import (
     FitReport,
     Job,
     JobReport,
+    LLMUsageEvent,
     Run,
     SearchStrategyStateRow,
     Task,
@@ -579,6 +580,7 @@ class JobRepository:
         *,
         run_ids: Optional[list[str]] = None,
         status: Optional[str] = None,
+        include_archived: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[Job], int]:
@@ -589,6 +591,8 @@ class JobRepository:
             stmt = stmt.where(Job.discovered_run_id.in_(run_ids))
         if status:
             stmt = stmt.where(Job.status == status)
+        elif not include_archived:
+            stmt = stmt.where(Job.status != "archived")
         stmt = stmt.order_by(Job.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = self._s.execute(count_stmt).scalar_one()
@@ -896,12 +900,105 @@ class ProfileRepository:
         self._s = session
 
     def get_for_workspace(self, workspace_id: str) -> Optional[CandidateProfile]:
-        """Return the workspace's profile, or None if not yet created."""
+        """Return the most recently updated profile for the workspace (default profile)."""
         return (
             self._s.query(CandidateProfile)
             .filter(CandidateProfile.workspace_id == workspace_id)
+            .order_by(CandidateProfile.updated_at.desc())
             .first()
         )
+
+    def get_by_id(self, profile_id: str) -> Optional[CandidateProfile]:
+        return self._s.query(CandidateProfile).filter(CandidateProfile.id == profile_id).first()
+
+    def list_for_workspace(self, workspace_id: str) -> list[CandidateProfile]:
+        return (
+            self._s.query(CandidateProfile)
+            .filter(CandidateProfile.workspace_id == workspace_id)
+            .order_by(CandidateProfile.updated_at.desc())
+            .all()
+        )
+
+    def count_for_workspace(self, workspace_id: str) -> int:
+        return (
+            self._s.query(CandidateProfile)
+            .filter(CandidateProfile.workspace_id == workspace_id)
+            .count()
+        )
+
+    def create(
+        self,
+        workspace_id: str,
+        *,
+        label: str = "",
+        summary: Optional[str] = None,
+        experience_summary: Optional[str] = None,
+        education_summary: Optional[str] = None,
+        technical_skills: Optional[list] = None,
+        subject_areas: Optional[list] = None,
+        tools: Optional[list] = None,
+        representative_projects: Optional[list] = None,
+        years_experience: Optional[int] = None,
+        profile_hash: str = "empty",
+    ) -> CandidateProfile:
+        profile = CandidateProfile(workspace_id=workspace_id)
+        profile.label = label
+        profile.summary = summary
+        profile.experience_summary = experience_summary
+        profile.education_summary = education_summary
+        profile.technical_skills = technical_skills
+        profile.subject_areas = subject_areas
+        profile.tools = tools
+        profile.representative_projects = representative_projects
+        profile.years_experience = years_experience
+        profile.profile_hash = profile_hash
+        self._s.add(profile)
+        self._s.flush()
+        return profile
+
+    def update(
+        self,
+        profile_id: str,
+        *,
+        label: Optional[str] = None,
+        summary: Optional[str] = None,
+        experience_summary: Optional[str] = None,
+        education_summary: Optional[str] = None,
+        technical_skills: Optional[list] = None,
+        subject_areas: Optional[list] = None,
+        tools: Optional[list] = None,
+        representative_projects: Optional[list] = None,
+        years_experience: Optional[int] = None,
+        profile_hash: str = "empty",
+    ) -> CandidateProfile:
+        profile = self.get_by_id(profile_id)
+        if profile is None:
+            raise ValueError(f"Profile {profile_id!r} not found")
+        if label is not None:
+            profile.label = label
+        profile.summary = summary
+        profile.experience_summary = experience_summary
+        profile.education_summary = education_summary
+        profile.technical_skills = technical_skills
+        profile.subject_areas = subject_areas
+        profile.tools = tools
+        profile.representative_projects = representative_projects
+        profile.years_experience = years_experience
+        profile.profile_hash = profile_hash
+        self._s.flush()
+        return profile
+
+    def delete(self, profile_id: str) -> None:
+        profile = self.get_by_id(profile_id)
+        if profile is not None:
+            self._s.delete(profile)
+            self._s.flush()
+
+    def update_search_defaults(self, profile_id: str, defaults: dict) -> None:
+        profile = self.get_by_id(profile_id)
+        if profile is not None:
+            profile.search_defaults = defaults
+            self._s.flush()
 
     def upsert(
         self,
@@ -917,7 +1014,7 @@ class ProfileRepository:
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
     ) -> CandidateProfile:
-        """Create or update the profile for a workspace."""
+        """Create or update the default (most recent) profile for a workspace."""
         profile = self.get_for_workspace(workspace_id)
         if profile is None:
             profile = CandidateProfile(workspace_id=workspace_id)
@@ -988,3 +1085,54 @@ class SearchStrategyStateRepository:
             last_reflection_task_id=row.last_reflection_task_id,
             updated_at=row.updated_at,
         )
+
+
+# ---------------------------------------------------------------------------
+# LLM Usage
+# ---------------------------------------------------------------------------
+
+
+class LLMUsageEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def list_for_run(self, run_id: str) -> list[LLMUsageEvent]:
+        return (
+            self._s.query(LLMUsageEvent)
+            .filter(LLMUsageEvent.run_id == run_id)
+            .order_by(LLMUsageEvent.created_at)
+            .all()
+        )
+
+    def summary_by_run_type(
+        self, *, limit: int = 100
+    ) -> list[dict]:
+        """Aggregate cost by run_type. Returns list of dicts."""
+        from sqlalchemy import func as sa_func
+
+        rows = (
+            self._s.query(
+                Run.run_type,
+                sa_func.count(LLMUsageEvent.id).label("llm_calls"),
+                sa_func.sum(LLMUsageEvent.prompt_tokens).label("prompt_tokens"),
+                sa_func.sum(LLMUsageEvent.completion_tokens).label("completion_tokens"),
+                sa_func.sum(LLMUsageEvent.total_tokens).label("total_tokens"),
+                sa_func.sum(LLMUsageEvent.estimated_cost_usd).label("estimated_cost_usd"),
+            )
+            .join(Run, LLMUsageEvent.run_id == Run.id)
+            .group_by(Run.run_type)
+            .order_by(sa_func.sum(LLMUsageEvent.estimated_cost_usd).desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "run_type": r.run_type,
+                "llm_calls": r.llm_calls,
+                "prompt_tokens": r.prompt_tokens or 0,
+                "completion_tokens": r.completion_tokens or 0,
+                "total_tokens": r.total_tokens or 0,
+                "estimated_cost_usd": round(r.estimated_cost_usd or 0, 6),
+            }
+            for r in rows
+        ]

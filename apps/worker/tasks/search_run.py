@@ -34,7 +34,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from packages.contracts.agents.discovery_intent import ProfileSnapshot
+from packages.contracts.agents.discovery_intent import CatalogContext, ProfileSnapshot
 from packages.contracts.agents.invocation import AgentBudget, AgentTaskInput
 from packages.contracts.agents.manifests import AgentOutputManifest, DiscoveryManifest
 from packages.contracts.api.discovery import JobDiscoveryFrontendInput
@@ -78,6 +78,10 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     Entry point for agent.job_discovery tasks.
     Called by execute_task when ExecutionMode == OPENCLAW.
     """
+    from packages.infrastructure.llm.usage_writer import set_llm_context
+    set_llm_context(run_id=env.run_id, task_id=env.task_id,
+                    workspace_id=env.workspace_id, call_site="job_discovery")
+
     logger.info("search_run: starting task_id=%s run_id=%s", env.task_id, env.run_id)
 
     # ------------------------------------------------------------------
@@ -108,7 +112,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 1c: Load ProfileSnapshot from DB (falls back to empty if none)
     # ------------------------------------------------------------------
-    profile_snapshot = _load_profile(workspace_id=workspace_id)
+    profile_snapshot = _load_profile(workspace_id=workspace_id, profile_id=frontend_input.profile_id)
 
     # ------------------------------------------------------------------
     # Step 1c.5: Guard — profile_guided requires a non-empty profile
@@ -234,12 +238,21 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             len(previous_run_diagnostics.recommended_next_searches),
         )
 
+    catalog_context = _build_catalog_context(workspace_id)
+    last_run_errors = _extract_last_run_errors(workspace_id)
+    if previous_run_diagnostics is None and last_run_errors:
+        from packages.contracts.agents.discovery_intent import PreviousRunDiagnostics as _PRD
+        previous_run_diagnostics = _PRD(last_run_errors=last_run_errors)
+    elif previous_run_diagnostics is not None and last_run_errors:
+        previous_run_diagnostics.last_run_errors = last_run_errors
+
     task_spec = build_discovery_task_spec(
         discovery_intent=discovery_intent,
         search_depth=frontend_input.search_depth,
         artifacts_dir=_ARTIFACTS_DIR,
         run_id=env.run_id,
         task_id=env.task_id,
+        catalog_context=catalog_context,
         source_registry_snapshot=source_registry_snapshot,
         previous_run_diagnostics=previous_run_diagnostics,
     )
@@ -335,6 +348,15 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             stderr_uri=stderr_path,
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
+        )
+
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.job_discovery",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
         )
 
     if result.exit_code != 0 or result.timed_out:
@@ -714,13 +736,75 @@ def _normalize_candidate_pool(manifest: DiscoveryManifest, run_dir: Path) -> Non
         )
 
 
-def _load_profile(workspace_id: str) -> ProfileSnapshot:
+def _extract_last_run_errors(workspace_id: str) -> list[str]:
+    """Extract validator errors from the most recent discovery run for this workspace."""
+    with get_session() as session:
+        runs = RunRepository(session).list_for_workspace(workspace_id, limit=20)
+        last_discovery = None
+        for r in runs:
+            if r.run_type == "job_discovery" and r.status in ("needs_review", "failed"):
+                last_discovery = r
+                break
+
+        if last_discovery is None:
+            return []
+
+        summary = last_discovery.result_summary_json or {}
+        error_code = summary.get("error_code", "")
+        failed_validators = summary.get("failed_validators", [])
+
+    errors: list[str] = []
+    if error_code:
+        errors.append(f"Previous run failed with error_code={error_code}.")
+
+    for fv in failed_validators:
+        name = fv.get("name", "unknown")
+        for err in fv.get("errors", []):
+            msg = err.get("message", "")
+            if msg:
+                errors.append(f"[{name}] {msg}")
+
+    if errors:
+        logger.info("search_run: injecting %d last_run_errors into diagnostics", len(errors))
+    return errors
+
+
+def _build_catalog_context(workspace_id: str) -> CatalogContext:
+    """Build a CatalogContext from existing jobs in this workspace."""
+    with get_session() as session:
+        run_ids = [r.id for r in RunRepository(session).list_for_workspace(workspace_id, limit=10_000)]
+        if not run_ids:
+            return CatalogContext()
+        jobs, _ = JobRepository(session).list(run_ids=run_ids, limit=500)
+
+        seen_companies: set[str] = set()
+        known_roles: list[str] = []
+        for job in jobs:
+            if job.company:
+                seen_companies.add(job.company)
+            known_roles.append(f"{job.title} @ {job.company}")
+
+    ctx = CatalogContext(
+        existing_job_count=len(jobs),
+        recently_seen_companies=sorted(seen_companies),
+        known_roles=known_roles,
+    )
+    logger.info(
+        "search_run: built catalog_context (jobs=%d, companies=%d, roles=%d)",
+        ctx.existing_job_count, len(ctx.recently_seen_companies), len(ctx.known_roles),
+    )
+    return ctx
+
+
+def _load_profile(workspace_id: str, profile_id: str | None = None) -> ProfileSnapshot:
     """
-    Load a ProfileSnapshot from the candidate_profiles table for the given workspace.
+    Load a ProfileSnapshot from the candidate_profiles table.
+    If profile_id is given, load that specific profile; otherwise load the default.
     Returns ProfileSnapshot.empty() if no profile has been created yet.
     """
     with get_session() as session:
-        row = ProfileRepository(session).get_for_workspace(workspace_id)
+        repo = ProfileRepository(session)
+        row = repo.get_by_id(profile_id) if profile_id else repo.get_for_workspace(workspace_id)
         if row is None:
             logger.debug(
                 "search_run: no profile found for workspace %s — using empty profile",

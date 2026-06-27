@@ -46,6 +46,10 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
     Entry point for fit_report tasks.
     Called by execute_task when task_type == "fit_report".
     """
+    from packages.infrastructure.llm.usage_writer import set_llm_context
+    set_llm_context(run_id=env.run_id, task_id=env.task_id,
+                    workspace_id=env.workspace_id, call_site="fit_report")
+
     logger.info("fit_report: starting task_id=%s run_id=%s", env.task_id, env.run_id)
 
     with get_session() as session:

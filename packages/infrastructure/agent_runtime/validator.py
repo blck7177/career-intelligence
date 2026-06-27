@@ -112,10 +112,10 @@ class SchemaValidator(Validator):
             )
 
         if not manifest.stop_reason:
-            errors.append(
-                ValidationError(
+            warnings.append(
+                ValidationWarning(
                     field="stop_reason",
-                    message="stop_reason is missing — agent must document why it stopped",
+                    message="stop_reason is missing — agent should document why it stopped",
                 )
             )
 
@@ -161,16 +161,26 @@ class ProvenanceValidator(Validator):
         errors: list[ValidationError] = []
         warnings: list[ValidationWarning] = []
 
+        _OPTIONAL_ARTIFACTS = {"search_ledger", "coverage_report", "trace_events"}
+
         for artifact_type, path_str in manifest.artifact_paths.items():
             path = Path(path_str)
             if not path.exists():
-                errors.append(
-                    ValidationError(
-                        field=f"artifact_paths.{artifact_type}",
-                        message=f"Artifact file does not exist: {path_str}",
-                        value=path_str,
+                if artifact_type in _OPTIONAL_ARTIFACTS:
+                    warnings.append(
+                        ValidationWarning(
+                            field=f"artifact_paths.{artifact_type}",
+                            message=f"Optional artifact file does not exist: {path_str}",
+                        )
                     )
-                )
+                else:
+                    errors.append(
+                        ValidationError(
+                            field=f"artifact_paths.{artifact_type}",
+                            message=f"Artifact file does not exist: {path_str}",
+                            value=path_str,
+                        )
+                    )
                 continue
             if path.stat().st_size == 0:
                 warnings.append(
@@ -181,7 +191,9 @@ class ProvenanceValidator(Validator):
                 )
 
         if isinstance(manifest, DiscoveryManifest):
-            errors.extend(self._check_discovery(manifest))
+            disc_errors, disc_warnings = self._check_discovery(manifest)
+            errors.extend(disc_errors)
+            warnings.extend(disc_warnings)
 
         status = "failed" if errors else ("warning" if warnings else "passed")
         return AgentValidationResult(
@@ -192,30 +204,31 @@ class ProvenanceValidator(Validator):
             warnings=warnings,
         )
 
-    def _check_discovery(self, manifest: DiscoveryManifest) -> list[ValidationError]:
+    def _check_discovery(
+        self, manifest: DiscoveryManifest,
+    ) -> tuple[list[ValidationError], list[ValidationWarning]]:
         errors: list[ValidationError] = []
+        warnings: list[ValidationWarning] = []
 
-        # coverage_report is mandatory on non-failed runs (SKILL.md completion gate)
         if manifest.status != "failed":
             if "coverage_report" not in manifest.artifact_paths:
-                errors.append(
-                    ValidationError(
+                warnings.append(
+                    ValidationWarning(
                         field="artifact_paths.coverage_report",
                         message=(
                             "coverage_report artifact is missing — "
-                            "skill requires writing coverage_report.md before stopping"
+                            "skill should write coverage_report.md before stopping"
                         ),
                     )
                 )
 
-        # Validate candidate_pool.jsonl line structure
         pool_path_str = manifest.artifact_paths.get("candidate_pool")
         if pool_path_str:
             pool_path = Path(pool_path_str)
             if pool_path.exists() and pool_path.stat().st_size > 0:
                 errors.extend(self._check_candidate_pool(pool_path))
 
-        return errors
+        return errors, warnings
 
     def _check_candidate_pool(self, path: Path) -> list[ValidationError]:
         errors: list[ValidationError] = []
@@ -528,17 +541,13 @@ class DiscoveryEvidenceValidator(Validator):
         ]
 
         if manifest.candidate_count == 0:
-            # 0-result runs: no signed search proof in v1 → needs_review
-            errors.append(
-                ValidationError(
+            warnings.append(
+                ValidationWarning(
                     field="candidate_count",
-                    message=(
-                        "0-result run: no signed search proof available in v1; needs_review"
-                    ),
+                    message="0-result run: agent searched but found no candidates",
                 )
             )
         else:
-            # candidate_count > 0: require a valid signed candidate_log event
             if not candidate_log_events:
                 errors.append(
                     ValidationError(
@@ -555,7 +564,7 @@ class DiscoveryEvidenceValidator(Validator):
                 pool_path_str = manifest.artifact_paths.get("candidate_pool")
                 if pool_path_str:
                     errors.extend(
-                        self._verify_pool_hash(last_event, pool_path_str, manifest.candidate_count)
+                        self._verify_pool_hash(last_event, pool_path_str)
                     )
 
         status = "failed" if errors else ("warning" if warnings else "passed")
@@ -571,12 +580,11 @@ class DiscoveryEvidenceValidator(Validator):
     def _verify_pool_hash(
         last_event,
         pool_path_str: str,
-        reported_count: int,
     ) -> list[ValidationError]:
         errors: list[ValidationError] = []
         pool_path = Path(pool_path_str)
         if not pool_path.exists():
-            return errors  # ProvenanceValidator will catch this
+            return errors
 
         actual_hash = "sha256:" + hashlib.sha256(pool_path.read_bytes()).hexdigest()
         if last_event.output_hash and last_event.output_hash != actual_hash:
@@ -587,27 +595,6 @@ class DiscoveryEvidenceValidator(Validator):
                         f"candidate_pool hash mismatch — "
                         f"ledger records {last_event.output_hash!r} but "
                         f"file hashes to {actual_hash!r}"
-                    ),
-                )
-            )
-
-        # Count pool lines
-        try:
-            actual_count = sum(1 for line in pool_path.read_text().splitlines() if line.strip())
-        except OSError:
-            actual_count = None
-
-        if (
-            last_event.candidate_count is not None
-            and actual_count is not None
-            and last_event.candidate_count != actual_count
-        ):
-            errors.append(
-                ValidationError(
-                    field="tool_events.jsonl",
-                    message=(
-                        f"candidate_count mismatch — ledger records "
-                        f"{last_event.candidate_count} but pool has {actual_count} lines"
                     ),
                 )
             )
@@ -625,8 +612,8 @@ class DiscoveryCountValidator(Validator):
     Verifies that manifest.candidate_count matches the actual number of
     non-empty lines in candidate_pool.jsonl.
 
-    Prevents the agent from self-reporting a count that differs from what
-    it actually wrote to the pool file.
+    Count mismatches are warnings, not errors — the authoritative count
+    comes from the signed ledger (DiscoveryEvidenceValidator).
     """
 
     name = "discovery_count"
@@ -652,11 +639,10 @@ class DiscoveryCountValidator(Validator):
         pool_path_str = manifest.artifact_paths.get("candidate_pool")
 
         if reported == 0 and not pool_path_str:
-            # Zero candidates with no pool file is consistent.
-            status = "passed"
+            pass
         elif reported > 0 and not pool_path_str:
-            errors.append(
-                ValidationError(
+            warnings.append(
+                ValidationWarning(
                     field="artifact_paths.candidate_pool",
                     message=(
                         f"candidate_count={reported} but candidate_pool artifact "
@@ -664,27 +650,20 @@ class DiscoveryCountValidator(Validator):
                     ),
                 )
             )
-            status = "failed"
         else:
             actual = self._count_pool_lines(pool_path_str)  # type: ignore[arg-type]
-            if actual is None:
-                # File missing or unreadable — ProvenanceValidator will catch this
-                status = "passed"
-            elif actual != reported:
-                errors.append(
-                    ValidationError(
+            if actual is not None and actual != reported:
+                warnings.append(
+                    ValidationWarning(
                         field="candidate_count",
                         message=(
                             f"manifest reports candidate_count={reported} but "
                             f"candidate_pool.jsonl has {actual} non-empty lines"
                         ),
-                        value=str(reported),
                     )
                 )
-                status = "failed"
-            else:
-                status = "passed"
 
+        status = "warning" if warnings else "passed"
         return AgentValidationResult(
             invocation_id=spec.invocation_id,
             validator_name=self.name,

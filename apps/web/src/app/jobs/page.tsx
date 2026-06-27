@@ -4,6 +4,7 @@ import { listJobs, listFitReports, getProfile } from "@/api/client";
 import type { FitReportSummary, JobRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { fmtTs } from "@/lib/utils";
+import { ArchiveJobButton } from "./ArchiveJobButton";
 import { JobFilters } from "./JobFilters";
 import { JobFitCell } from "./JobFitCell";
 
@@ -275,9 +276,12 @@ export default async function JobsPage({ searchParams }: PageProps) {
                   </Link>
 
                   <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
-                    <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>
-                      Discovered {fmtTs(job.created_at.toString())}
-                    </span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>
+                        Discovered {fmtTs(job.created_at.toString())}
+                      </span>
+                      <ArchiveJobButton jobId={job.id} />
+                    </div>
                     <Link
                       href={`/jobs/${job.id}`}
                       className="text-[12.5px] font-medium hover:underline"
