@@ -1,0 +1,22 @@
+{$DOMAIN:localhost} {
+	# /api/* → FastAPI
+	handle /api/* {
+		reverse_proxy api:8000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+
+	# /healthz → FastAPI (for external health checks)
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+
+	# Everything else → Next.js
+	handle {
+		reverse_proxy web:3000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+}

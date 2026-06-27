@@ -1,0 +1,167 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../../infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_started
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+    restart: unless-stopped
+    env_file:
+      - ../../.env.prod
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env.prod
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  openclaw-gateway:
+    build:
+      context: ../..
+      dockerfile: infra/docker/openclaw.Dockerfile
+    restart: unless-stopped
+    init: true
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - ../../.env.prod
+    environment:
+      OPENCLAW_STATE_DIR: /openclaw/state
+      OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
+      OPENCLAW_WORKSPACE_DIR: /openclaw/workspace
+    volumes:
+      - openclaw_state:/openclaw/state
+      - openclaw_config:/openclaw/config
+      - openclaw_workspace:/openclaw/workspace
+      - agent_artifacts:/app/data/agent_artifacts
+      - ../../agent:/app/agent:ro
+      - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker-fast:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=fast --concurrency=2
+    env_file:
+      - ../../.env.prod
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-agent:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
+    network_mode: "service:openclaw-gateway"
+    init: true
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - ../../.env.prod
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      OPENCLAW_BIN: openclaw
+      OPENCLAW_STATE_DIR: /openclaw/state
+      OPENCLAW_GATEWAY_MODE: "client"
+      OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
+    volumes:
+      - agent_artifacts:/app/data/agent_artifacts
+      - openclaw_state:/openclaw/state
+      - openclaw_config:/openclaw/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      openclaw-gateway:
+        condition: service_healthy
+
+  backup:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backup.Dockerfile
+    restart: unless-stopped
+    environment:
+      PGHOST: ${RDS_HOST}
+      PGPORT: "5432"
+      PGUSER: ${RDS_USER}
+      PGPASSWORD: ${RDS_PASSWORD}
+      PGDATABASE: ${RDS_DATABASE}
+      BACKUP_INTERVAL_SECONDS: "21600"
+      BACKUP_RETENTION_DAYS: "7"
+    volumes:
+      - backup_data:/backups
+      - agent_artifacts:/app/data/agent_artifacts:ro
+
+volumes:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  openclaw_state:
+  openclaw_config:
+  openclaw_workspace:
+  agent_artifacts:
+  backup_data:
