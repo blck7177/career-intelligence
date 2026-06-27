@@ -3,9 +3,6 @@ import { Suspense } from "react";
 import { listJobs, listFitReports, getProfile } from "@/api/client";
 import type { FitReportSummary, JobRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Building2, MapPin, Plus, Search, ChevronRight } from "lucide-react";
 import { fmtTs } from "@/lib/utils";
 import { JobFilters } from "./JobFilters";
 import { JobFitCell } from "./JobFitCell";
@@ -33,40 +30,19 @@ const SAVED_VIEWS: { label: string; status: StatusFilter }[] = [
   { label: "Stale", status: "stale" },
 ];
 
-function jobStatusBg(status: string): string {
-  if (status === "reportable") return "bg-emerald-100 text-emerald-800";
-  if (status === "discovered") return "bg-blue-100 text-blue-800";
-  if (status === "invalid") return "bg-rose-100 text-rose-800";
-  if (status === "stale") return "bg-zinc-100 text-zinc-500";
-  return "bg-zinc-100 text-zinc-600";
+function matchStyle(score: number | undefined): "strong" | "good" | "partial" {
+  if (score === undefined) return "partial";
+  if (score >= 75) return "strong";
+  if (score >= 50) return "good";
+  return "partial";
 }
 
-function jobStatusLabel(status: string): string {
-  const MAP: Record<string, string> = {
-    reportable: "Report Ready",
-    discovered: "Needs Report",
-    stale: "Stale",
-    invalid: "Invalid",
-  };
-  return MAP[status] ?? status;
-}
-
-function statusDot(status: string): string {
-  if (status === "reportable") return "bg-emerald-400";
-  if (status === "discovered") return "bg-blue-400";
-  if (status === "stale") return "bg-zinc-300";
-  if (status === "invalid") return "bg-rose-400";
-  return "bg-zinc-300";
-}
-
-function ConfidenceBadge({ c }: { c: string }) {
-  if (c === "high") return <Badge className="bg-emerald-100 text-emerald-800 border-0 text-[10px]">High</Badge>;
-  if (c === "medium") return <Badge className="bg-amber-100 text-amber-800 border-0 text-[10px]">Medium</Badge>;
-  return <Badge className="bg-rose-100 text-rose-800 border-0 text-[10px]">Low</Badge>;
-}
-
-function shortRoleCategory(ws: string) {
-  return ws.split(" / ")[0];
+function matchBadge(style: "strong" | "good" | "partial"): { text: string; classes: string } {
+  if (style === "strong")
+    return { text: "Strong match", classes: "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]" };
+  if (style === "good")
+    return { text: "Good fit", classes: "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]" };
+  return { text: "Partial", classes: "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]" };
 }
 
 function uniqueRoleCategories(jobs: JobRead[]): string[] {
@@ -177,154 +153,145 @@ export default async function JobsPage({ searchParams }: PageProps) {
   ].filter(Boolean).length;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Role Inbox</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {jobs.length} role{jobs.length !== 1 ? "s" : ""}
-            {activeProfileId && fitMap.size > 0 && ` · sorted by fit score`}
-            {activeFilters > 0 &&
-              ` · ${activeFilters} filter${activeFilters !== 1 ? "s" : ""} active`}
-          </p>
-        </div>
-        <Link href="/workspace">
-          <Button size="sm">
-            <Plus size={14} className="mr-1.5" />
-            New Discovery
-          </Button>
+    <>
+      {/* Header */}
+      <header
+        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+          Saved Roles
+        </span>
+        <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+          {jobs.length} role{jobs.length !== 1 ? "s" : ""}
+          {activeProfileId && fitMap.size > 0 && " · sorted by fit"}
+          {activeFilters > 0 && ` · ${activeFilters} filter${activeFilters !== 1 ? "s" : ""}`}
+        </span>
+        <div className="flex-1" />
+        <Link
+          href="/workspace"
+          className="flex items-center gap-[7px] h-[34px] px-[18px] rounded-lg text-[13px] font-semibold text-white shrink-0 transition-opacity hover:opacity-90"
+          style={{ background: "var(--primary)" }}
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12">
+            <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+            <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          New Search
         </Link>
-      </div>
+      </header>
 
-      {/* Saved views */}
-      <div className="flex flex-wrap gap-2">
-        {SAVED_VIEWS.map(({ label, status }) => {
-          const active = statusFilter === status;
-          return (
-            <Link
-              key={status}
-              href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status })}`}
-              className={[
-                "px-3 py-1 rounded-full text-xs font-medium border transition-colors",
-                active
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white text-zinc-600 border-zinc-200 hover:border-zinc-300",
-              ].join(" ")}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </div>
-
-      <Suspense fallback={null}>
-        <JobFilters profiles={profileOptions} roleCategories={roleCategories} />
-      </Suspense>
-
-      {!params.profile_id && profile && (
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3 text-xs text-indigo-800">
-          Showing fit scores for your profile. Use the filter above to change context.
-        </div>
-      )}
-
-      {jobs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-200 py-16 text-center space-y-3">
-          <p className="text-sm text-zinc-500">No roles match the current filters.</p>
-          <Link href="/workspace">
-            <Button size="sm" variant="outline">
-              <Search size={13} className="mr-1.5" />
-              Start Discovery
-            </Button>
-          </Link>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {jobs.map((job) => {
-            const fr = fitMap.get(job.id);
+      <div className="flex-1 overflow-y-auto px-7 py-6">
+        {/* Status filter pills */}
+        <div className="flex flex-wrap gap-1.5 mb-5">
+          {SAVED_VIEWS.map(({ label, status }) => {
+            const active = statusFilter === status;
             return (
-              <div
-                key={job.id}
-                className="flex items-start gap-3 border border-zinc-200 rounded-lg bg-white hover:border-zinc-300 hover:shadow-sm transition-all group"
+              <Link
+                key={status}
+                href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status })}`}
+                className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium transition-colors"
+                style={
+                  active
+                    ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                    : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
+                }
               >
-                <Link
-                  href={`/jobs/${job.id}`}
-                  className="flex flex-1 items-start gap-3 min-w-0 p-4 pr-0"
-                >
-                  <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${statusDot(job.status)}`} />
-
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0">
-                        <p className="text-sm font-semibold text-zinc-900 leading-snug truncate">
-                          {job.title}
-                        </p>
-                        {job.role_category_confidence && (
-                          <ConfidenceBadge c={job.role_category_confidence} />
-                        )}
-                      </div>
-                      <Badge className={jobStatusBg(job.status) + " text-[10px] shrink-0"}>
-                        {jobStatusLabel(job.status)}
-                      </Badge>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 text-xs text-zinc-500 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Building2 size={11} />
-                        {job.company}
-                      </span>
-                      {job.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin size={11} />
-                          {job.location}
-                        </span>
-                      )}
-                    </div>
-
-                    {(job.primary_role_category || job.seniority_inferred) && (
-                      <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {job.primary_role_category && job.primary_role_category !== "unknown" && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {shortRoleCategory(job.primary_role_category)}
-                          </Badge>
-                        )}
-                        {job.seniority_inferred && (
-                          <Badge variant="outline" className="text-[10px] text-zinc-500">
-                            {job.seniority_inferred}
-                          </Badge>
-                        )}
-                      </div>
-                    )}
-
-                    <p className="text-xs text-zinc-400">
-                      Discovered {fmtTs(job.created_at.toString())}
-                    </p>
-                  </div>
-                </Link>
-
-                <div className="flex flex-col items-end gap-2 shrink-0 p-4 pl-2">
-                  <JobFitCell
-                    jobId={job.id}
-                    jobReportId={job.latest_job_report_id}
-                    hasProfile={!!activeProfileId}
-                    fitReport={
-                      fr
-                        ? {
-                            id: fr.id,
-                            score: fr.overall_match_score,
-                            recommended_next_action: fr.recommended_next_action,
-                          }
-                        : undefined
-                    }
-                  />
-                  <Link href={`/jobs/${job.id}`} className="text-zinc-300 group-hover:text-zinc-400">
-                    <ChevronRight size={14} />
-                  </Link>
-                </div>
-              </div>
+                {label}
+              </Link>
             );
           })}
         </div>
-      )}
-    </div>
+
+        <Suspense fallback={null}>
+          <JobFilters profiles={profileOptions} roleCategories={roleCategories} />
+        </Suspense>
+
+        {jobs.length === 0 ? (
+          <div className="rounded-xl border border-dashed py-16 text-center mt-4" style={{ borderColor: "var(--border)" }}>
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No roles match the current filters.</p>
+            <Link
+              href="/workspace"
+              className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium hover:underline"
+              style={{ color: "var(--primary)" }}
+            >
+              Start Discovery →
+            </Link>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2.5 mt-4">
+            {jobs.map((job) => {
+              const fr = fitMap.get(job.id);
+              const score = fr?.overall_match_score;
+              const ms = matchStyle(score);
+              const badge = matchBadge(ms);
+              const isPartial = ms === "partial";
+
+              return (
+                <div
+                  key={job.id}
+                  className="bg-white rounded-[10px] p-[20px_22px] transition-shadow hover:shadow-md"
+                  style={{
+                    border: "1px solid var(--border)",
+                    boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)",
+                    opacity: isPartial ? 0.88 : 1,
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <span className={`py-[3px] px-2.5 rounded text-xs font-medium ${badge.classes}`}>
+                      {badge.text}
+                    </span>
+                    <div className="flex-1" />
+                    <div className="flex items-center gap-3 shrink-0">
+                      <JobFitCell
+                        jobId={job.id}
+                        jobReportId={job.latest_job_report_id}
+                        hasProfile={!!activeProfileId}
+                        fitReport={
+                          fr
+                            ? {
+                                id: fr.id,
+                                score: fr.overall_match_score,
+                                recommended_next_action: fr.recommended_next_action,
+                              }
+                            : undefined
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <Link href={`/jobs/${job.id}`} className="block group">
+                    <div
+                      className="text-base font-semibold mb-1 group-hover:underline"
+                      style={{ color: isPartial ? "oklch(28% 0.012 275)" : "oklch(16% 0.015 275)" }}
+                    >
+                      {job.title}
+                    </div>
+                    <div className="text-[13px] mb-3" style={{ color: "oklch(56% 0.01 275)" }}>
+                      {job.company}
+                      {job.location && ` · ${job.location}`}
+                      {job.seniority_inferred && ` · ${job.seniority_inferred}`}
+                    </div>
+                  </Link>
+
+                  <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
+                    <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>
+                      Discovered {fmtTs(job.created_at.toString())}
+                    </span>
+                    <Link
+                      href={`/jobs/${job.id}`}
+                      className="text-[12.5px] font-medium hover:underline"
+                      style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
+                    >
+                      View role →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

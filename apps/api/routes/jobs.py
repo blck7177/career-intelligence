@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dependencies.auth import get_current_workspace
 from apps.api.dependencies.db import get_db
-from packages.contracts.api.jobs import JobList, JobRead
+from packages.contracts.api.jobs import JDStructured, JobList, JobRead
 from packages.infrastructure.db.models import Workspace
 from packages.infrastructure.db.repositories import JobRepository, JobReportRepository, RunRepository
 
@@ -47,7 +47,7 @@ def _infer_seniority_from_title(title: str) -> Optional[str]:
     return None
 
 
-def _job_read(job, report=None) -> JobRead:
+def _job_read(job, report=None, include_jd_structured: bool = False) -> JobRead:
     data = {
         "id": job.id,
         "canonical_url": job.canonical_url,
@@ -70,10 +70,13 @@ def _job_read(job, report=None) -> JobRead:
         data["role_category_confidence"] = s.get("role_category_confidence")
         pf = s.get("position_function") or {}
         if isinstance(pf, dict) and pf.get("confidence"):
-            # Prefer function confidence as fallback when role category confidence absent
             if not data["role_category_confidence"]:
                 data["role_category_confidence"] = pf.get("confidence")
         data["seniority_inferred"] = _infer_seniority_from_title(job.title)
+    if include_jd_structured and job.raw_payload_json:
+        jd_raw = job.raw_payload_json.get("jd_structured")
+        if isinstance(jd_raw, dict) and "_extraction_error" not in jd_raw:
+            data["jd_structured"] = JDStructured.model_validate(jd_raw)
     return JobRead.model_validate(data)
 
 
@@ -135,4 +138,4 @@ def get_job(
     if include_report_summary:
         report = JobReportRepository(db).get_latest_active(job_id)
 
-    return _job_read(job, report)
+    return _job_read(job, report, include_jd_structured=True)

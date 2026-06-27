@@ -26,7 +26,7 @@ Worker owns workflow + persistence.  Agent owns the bounded reflection.  Service
 1. **读 input.json**（路径在 prompt 里）→ 拿到 `reflected_run_id`、artifact paths、`current_strategy_state`。
 2. **读本轮结果**：用 read tool 读 `coverage_report_path` + `search_ledger_path`（不要用 exec 内联脚本）。
 3. **诊断**：fetch failures（哪些源被墙）、role category coverage（sufficient/weak/missing）、query effectiveness（哪些 pattern 产出真实 JD URL）。
-4. **写 `strategy_patch.json`**（字段与合并语义见 `strategy_patch_contract.md`；coverage key 必须是 taxonomy 合法 label）。
+4. **写 `strategy_patch.json`**（字段与合并语义见 `strategy_patch_contract.md`；coverage key 必须是 taxonomy 合法 **id**；文件必须是 **flat 7 字段 object**，禁止 nested `patches` / `run_id` wrapper）。
 5. **写 `reflection_report.md`**（质量标准见 `reflection_quality.md`）。
 6. 两个文件都写到 spec 路径后 **STOP**。
 

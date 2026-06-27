@@ -238,7 +238,12 @@ def _evidence_instructions(agent_id: str) -> str:
             "artifacts (coverage report, search ledger, candidate pool) before "
             "writing the manifest. Do NOT write placeholder or mock output. "
             "Do NOT mark status as completed or partial without genuine analysis "
-            "of the prior run's results."
+            "of the prior run's results. "
+            "strategy_patch.json MUST be a flat object with only the 7 allowed "
+            "fields (effective_sources, avoid_sources, effective_query_patterns, "
+            "avoid_query_patterns, coverage_by_role_category, key_learnings, "
+            "recommended_next_searches). Do NOT wrap it in run_id, patches, "
+            "operations, or other metadata."
         )
     return (
         "This is a real production run. You MUST perform genuine discovery "

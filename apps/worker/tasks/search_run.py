@@ -62,6 +62,7 @@ from packages.infrastructure.db.repositories import (
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.llm.client import get_llm_client
 from packages.infrastructure.jd_fetch import resolve_jd
+from packages.infrastructure.llm.jd_extractor import extract_jd_fields
 from packages.infrastructure.llm.intent_translator import (
     IntentTranslationError,
     IntentTranslator,
@@ -819,20 +820,37 @@ def _persist_discovered_jobs(
 
                 if jd_result.ok and jd_result.jd_text and jd_result.jd_hash:
                     payload = dict(entry)
+                    job_title = entry.get("title", "")
+                    job_company = entry.get("company", "")
+                    job_location = entry.get("location") or _extract_location_from_url(url)
+
+                    jd_extracted = {}
+                    try:
+                        jd_extracted = extract_jd_fields(
+                            jd_text=jd_result.jd_text,
+                            company=job_company,
+                            title=job_title,
+                            location=job_location or "",
+                            llm_client=get_llm_client(),
+                        )
+                    except Exception as exc:
+                        logger.warning("search_run: JD extraction failed for %s: %s", url, exc)
+
                     job = job_repo.create(
                         canonical_url=url,
                         source_url=url,
                         source_type=norm_source_type,
                         source_provider=norm_provider,
-                        title=entry.get("title", ""),
-                        company=entry.get("company", ""),
-                        location=entry.get("location") or _extract_location_from_url(url),
+                        title=job_title,
+                        company=job_company,
+                        location=job_location,
                         jd_text=jd_result.jd_text,
                         jd_hash=jd_result.jd_hash,
                         raw_payload_json={
                             **payload,
                             "jd_source": jd_result.source,
                             "fetch_status": jd_result.fetch_status,
+                            "jd_structured": jd_extracted,
                         },
                         status="reportable",
                         discovered_run_id=run_id,

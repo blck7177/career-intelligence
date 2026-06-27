@@ -41,6 +41,7 @@ from packages.domain.agent_jobs.planner import build_invocation_spec, build_task
 from packages.domain.strategy_state import (
     StrategyPatchError,
     apply_strategy_patch,
+    normalize_strategy_patch_raw,
     validate_strategy_patch,
 )
 from packages.infrastructure.agent_runtime.openclaw import create_runtime
@@ -444,6 +445,18 @@ def _best_effort_apply_strategy_patch(
 
     try:
         raw = json.loads(patch_path.read_text(encoding="utf-8"))
+        _, was_normalized = normalize_strategy_patch_raw(raw)
+        if was_normalized:
+            logger.info(
+                "reflect_run: normalized nested strategy_patch envelope workspace=%s",
+                workspace_id,
+            )
+            event_repo.append(
+                task_id=env.task_id,
+                run_id=env.run_id,
+                event_type="strategy_patch_normalized",
+                message="Converted nested patches envelope to flat strategy patch",
+            )
         patch = validate_strategy_patch(raw)
     except (json.JSONDecodeError, StrategyPatchError) as exc:
         logger.warning("reflect_run: strategy patch rejected: %s", exc)

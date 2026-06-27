@@ -22,18 +22,18 @@ import {
 
 function ScoreRing({ score }: { score: number }) {
   const color =
-    score >= 70 ? "text-emerald-600" : score >= 50 ? "text-amber-600" : "text-rose-600";
+    score >= 70 ? "text-[var(--match-strong-fg)]" : score >= 50 ? "text-amber-600" : "text-rose-600";
   const label =
     score >= 70 ? "Strong Match" : score >= 50 ? "Partial Match" : "Significant Gaps";
   return (
     <div className="flex items-center gap-4">
       <div className={`text-5xl font-bold tabular-nums ${color}`}>{score}</div>
       <div>
-        <div className="text-sm font-medium text-zinc-500">/ 100</div>
+        <div className="text-sm font-medium" style={{ color: "oklch(56% 0.01 275)" }}>/ 100</div>
         <Badge
           className={`mt-1 border-0 text-xs font-semibold ${
             score >= 70
-              ? "bg-emerald-100 text-emerald-800"
+              ? "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]"
               : score >= 50
               ? "bg-amber-100 text-amber-800"
               : "bg-rose-100 text-rose-800"
@@ -181,7 +181,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
             onClick={() => setTab(t.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === t.id
-                ? "border-indigo-600 text-indigo-700"
+                ? "border-[var(--primary)] text-[var(--secondary-foreground)]"
                 : "border-transparent text-zinc-500 hover:text-zinc-800"
             }`}
           >

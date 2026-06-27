@@ -16,6 +16,7 @@ interface FitButtonProps {
   size?: "sm" | "md" | "lg";
   variant?: "default" | "outline" | "ghost";
   label?: string;
+  inline?: boolean;
 }
 
 type UIState =
@@ -34,6 +35,7 @@ export function FitButton({
   size = "sm",
   variant = "default",
   label,
+  inline = false,
 }: FitButtonProps) {
   const router = useRouter();
   const getToken = useApiToken();
@@ -41,13 +43,14 @@ export function FitButton({
   const runIdRef = useRef<string | null>(null);
 
   const resolveReportId = useCallback(
-    async (runId: string, token: string | null) => {
-      const run = await pollRunUntilDone(runId, token, { intervalMs: POLL_INTERVAL_MS });
+    async (runId: string) => {
+      const run = await pollRunUntilDone(runId, getToken, { intervalMs: POLL_INTERVAL_MS });
       if (run.status !== "succeeded") {
         throw new Error(run.error_message ?? `Fit analysis ${run.status.replace(/_/g, " ")}`);
       }
       let reportId = extractReportId(run);
       if (!reportId) {
+        const token = await getToken();
         const report = await getRunReport(runId, token);
         reportId = report.id;
       }
@@ -56,7 +59,7 @@ export function FitButton({
       }
       return reportId;
     },
-    [],
+    [getToken],
   );
 
   useEffect(() => {
@@ -66,11 +69,15 @@ export function FitButton({
 
     (async () => {
       try {
-        const token = await getToken();
-        const reportId = await resolveReportId(runIdRef.current!, token);
+        const reportId = await resolveReportId(runIdRef.current!);
         if (!cancelled) {
-          router.push(`/fit-reports/${reportId}`);
-          router.refresh();
+          if (inline) {
+            setState({ phase: "idle" });
+            router.refresh();
+          } else {
+            router.push(`/fit-reports/${reportId}`);
+            router.refresh();
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -85,7 +92,7 @@ export function FitButton({
     return () => {
       cancelled = true;
     };
-  }, [state.phase, getToken, resolveReportId, router]);
+  }, [state.phase, getToken, resolveReportId, router, inline]);
 
   async function handleClick() {
     if (disabled) return;

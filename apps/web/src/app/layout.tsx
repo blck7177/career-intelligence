@@ -4,8 +4,8 @@ import { Nav } from "@/components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Career OpenClaw",
-  description: "Job intelligence platform",
+  title: "Career Agent",
+  description: "Your personal career intelligence agent",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -14,7 +14,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <html lang="en" className="h-full">
         <body className="flex h-full overflow-hidden">
           <Nav />
-          <main className="flex-1 min-w-0 overflow-y-auto">{children}</main>
+          <main className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</main>
         </body>
       </html>
     </ClerkProvider>

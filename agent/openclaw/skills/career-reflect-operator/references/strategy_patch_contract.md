@@ -18,6 +18,32 @@
 
 空 patch（`{}`）也合法。
 
+## 格式要求（必读）
+
+`strategy_patch.json` **必须是 flat object 本身**，不是 manifest、不是 operation list：
+
+```json
+{
+  "effective_sources": ["boards.greenhouse.io — produced real JD URLs"],
+  "avoid_sources": ["example.com — 403"]
+}
+```
+
+**禁止**以下写法（会被拒或需 worker 兜底 normalize，仍可能丢字段）：
+
+```json
+{
+  "run_id": "...",
+  "patches": [
+    { "field": "effective_sources", "action": "add", "value": ["..."] }
+  ]
+}
+```
+
+- 不要包 `run_id`、`invocation_id`、`patches`、`operations` 等 envelope 字段。
+- manifest 的 `summary.patches_proposed` 是**计数**，与 `strategy_patch.json` 文件格式无关。
+- 文件名虽叫 “patch”，内容是 **state delta object**（字段增量），不是 JSON Patch 操作列表。
+
 ## 合并语义（决定你写「增量」还是「全量」）
 
 - **list 字段 union 合并**（累积，不替换）：`effective_sources`、`avoid_sources`、`effective_query_patterns`、`avoid_query_patterns`、`key_learnings`。→ 只写本轮**新增**的即可。

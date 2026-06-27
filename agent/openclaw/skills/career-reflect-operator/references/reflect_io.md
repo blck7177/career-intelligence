@@ -40,7 +40,7 @@ Worker owns workflow + persistence.  Agent owns the bounded reflection.  Service
 ## 你只做这一件事
 
 对已完成的 run 做复盘，产出两个文件：
-- `strategy_patch.json`（机器可读，字段受限，见 `strategy_patch_contract.md`）。
+- `strategy_patch.json`（机器可读，**flat 7 字段 object**，见 `strategy_patch_contract.md`；**不是** manifest summary，**不要**写 `{"patches": [...]}` 或 `run_id` wrapper）。
 - `reflection_report.md`（人类可读，简短复盘）。
 
 诊断重点：

@@ -49,7 +49,7 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
           <select
             value={profileId}
             onChange={(e) => update("profile_id", e.target.value || null)}
-            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
           >
             <option value="">— no profile —</option>
             {profiles.map((p) => (
@@ -67,7 +67,7 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
           <select
             value={roleCategory}
             onChange={(e) => update("role_category", e.target.value || null)}
-            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 max-w-[180px]"
+            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 max-w-[180px]"
           >
             <option value="">All</option>
             {roleCategories.map((category) => (
@@ -84,7 +84,7 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
         <select
           value={seniority}
           onChange={(e) => update("seniority", e.target.value || null)}
-          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
         >
           <option value="">All</option>
           <option value="junior">Junior</option>
@@ -100,7 +100,7 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
         <select
           value={confidence}
           onChange={(e) => update("confidence", e.target.value || null)}
-          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
         >
           <option value="">All</option>
           <option value="high">High</option>

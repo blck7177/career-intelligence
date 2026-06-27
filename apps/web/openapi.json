@@ -1755,6 +1755,82 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "JDStructured": {
+        "properties": {
+          "responsibilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Responsibilities",
+            "default": []
+          },
+          "required_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Skills",
+            "default": []
+          },
+          "preferred_skills": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Preferred Skills",
+            "default": []
+          },
+          "tools_mentioned": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tools Mentioned",
+            "default": []
+          },
+          "seniority_inferred": {
+            "type": "string",
+            "title": "Seniority Inferred",
+            "default": "unknown"
+          },
+          "likely_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likely Tasks",
+            "default": []
+          },
+          "likely_stakeholders": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Likely Stakeholders",
+            "default": []
+          },
+          "inferred_team_context": {
+            "type": "string",
+            "title": "Inferred Team Context",
+            "default": ""
+          },
+          "role_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Category"
+          }
+        },
+        "type": "object",
+        "title": "JDStructured",
+        "description": "Structured fields extracted from JD text during discovery."
+      },
       "JobDiscoveryFrontendInput": {
         "properties": {
           "raw_user_request": {
@@ -1969,6 +2045,16 @@
               }
             ],
             "title": "Role Category Confidence"
+          },
+          "jd_structured": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JDStructured"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",

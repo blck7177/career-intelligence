@@ -2,16 +2,10 @@ import Link from "next/link";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { Badge } from "@/components/ui/badge";
 import { StartRunButton } from "./StartRunButton";
-import { CheckCircle2, XCircle, Circle, AlertCircle, Clock } from "lucide-react";
 import { fmtTs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-// ---------------------------------------------------------------------------
-// Label helpers
-// ---------------------------------------------------------------------------
 
 const RUN_TYPE_LABELS: Record<string, string> = {
   job_discovery: "Discovery Run",
@@ -36,42 +30,48 @@ function humanStatus(status: string): string {
   return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
 }
 
-function statusBadgeClass(status: string): string {
-  if (status === "succeeded") return "bg-emerald-100 text-emerald-700";
-  if (status === "running") return "bg-blue-100 text-blue-700";
-  if (status === "queued") return "bg-zinc-100 text-zinc-600";
-  if (status === "needs_review") return "bg-amber-100 text-amber-700";
-  if (status === "failed") return "bg-rose-100 text-rose-700";
-  return "bg-zinc-100 text-zinc-500";
+function statusDotColor(status: string): string {
+  if (status === "succeeded") return "oklch(52% 0.18 155)";
+  if (status === "running") return "oklch(52% 0.18 260)";
+  if (status === "failed") return "oklch(52% 0.18 25)";
+  if (status === "needs_review") return "oklch(52% 0.18 80)";
+  return "oklch(70% 0.01 275)";
 }
 
-function StatusIcon({ status }: { status: string }) {
-  if (status === "succeeded") return <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />;
-  if (status === "failed") return <XCircle size={14} className="text-rose-500 shrink-0" />;
-  if (status === "needs_review") return <AlertCircle size={14} className="text-amber-500 shrink-0" />;
-  if (status === "running") return <Circle size={14} className="text-blue-500 animate-pulse shrink-0" />;
-  if (status === "cancelled") return <Circle size={14} className="text-zinc-400 shrink-0" />;
-  return <Clock size={14} className="text-zinc-400 shrink-0" />;
+function statusBadgeStyle(status: string): { bg: string; fg: string } {
+  if (status === "succeeded") return { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" };
+  if (status === "running") return { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" };
+  if (status === "failed") return { bg: "oklch(95% 0.02 25)", fg: "oklch(45% 0.15 25)" };
+  if (status === "needs_review") return { bg: "oklch(95% 0.03 80)", fg: "oklch(45% 0.12 80)" };
+  return { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" };
 }
 
 function RunRow({ run }: { run: RunRead }) {
+  const badge = statusBadgeStyle(run.status);
   return (
     <Link
       href={`/runs/${run.id}`}
-      className="flex items-center justify-between gap-4 border border-zinc-200 rounded-lg bg-white p-4 hover:border-zinc-300 hover:shadow-sm transition-all"
+      className="flex items-center justify-between gap-4 bg-white rounded-[10px] p-4 transition-shadow hover:shadow-md"
+      style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)" }}
     >
       <div className="flex items-center gap-3 min-w-0">
-        <StatusIcon status={run.status} />
+        <div
+          className="w-2 h-2 rounded-full shrink-0"
+          style={{ background: statusDotColor(run.status) }}
+        />
         <div className="min-w-0">
-          <p className="text-sm font-medium text-zinc-800 truncate">
+          <p className="text-sm font-medium truncate" style={{ color: "oklch(22% 0.015 275)" }}>
             {runTypeLabel(run.run_type)}
           </p>
-          <p className="text-xs text-zinc-400 mt-0.5">{fmtTs(run.created_at)}</p>
+          <p className="text-xs mt-0.5" style={{ color: "oklch(60% 0.01 275)" }}>{fmtTs(run.created_at)}</p>
         </div>
       </div>
-      <Badge className={statusBadgeClass(run.status) + " text-xs shrink-0"}>
+      <span
+        className="text-xs font-medium px-2.5 py-1 rounded-full shrink-0"
+        style={{ background: badge.bg, color: badge.fg }}
+      >
         {humanStatus(run.status)}
-      </Badge>
+      </span>
     </Link>
   );
 }
@@ -92,56 +92,60 @@ export default async function RunsPage() {
   const reportRuns = runs.filter((r) => r.run_type !== "job_discovery");
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Search Runs</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {runs.length} run{runs.length !== 1 ? "s" : ""}
-          </p>
-        </div>
+    <>
+      <header
+        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+          Reports & Runs
+        </span>
+        <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
+          {runs.length} run{runs.length !== 1 ? "s" : ""}
+        </span>
+        <div className="flex-1" />
         <StartRunButton />
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-7 py-6 max-w-3xl">
+
+        {fetchError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 mb-5">
+            {fetchError}
+          </div>
+        )}
+
+        {runs.length === 0 && !fetchError && (
+          <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No runs yet</p>
+            <p className="text-xs mt-1" style={{ color: "oklch(60% 0.01 275)" }}>
+              Start a Discovery Run from Searches to find matching roles.
+            </p>
+          </div>
+        )}
+
+        {discoveryRuns.length > 0 && (
+          <div className="space-y-2 mb-6">
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
+              Discovery
+            </h2>
+            {discoveryRuns.map((run) => (
+              <RunRow key={run.id} run={run} />
+            ))}
+          </div>
+        )}
+
+        {reportRuns.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
+              Reports
+            </h2>
+            {reportRuns.map((run) => (
+              <RunRow key={run.id} run={run} />
+            ))}
+          </div>
+        )}
       </div>
-
-      {fetchError && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {fetchError}
-        </div>
-      )}
-
-      {runs.length === 0 && !fetchError && (
-        <div className="rounded-lg border border-dashed border-zinc-300 p-12 text-center space-y-2">
-          <p className="text-zinc-500 text-sm font-medium">No runs yet</p>
-          <p className="text-zinc-400 text-xs">
-            Start a Discovery Run from Search Setup to find matching roles.
-          </p>
-        </div>
-      )}
-
-      {/* Discovery runs */}
-      {discoveryRuns.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-            Discovery
-          </h2>
-          {discoveryRuns.map((run) => (
-            <RunRow key={run.id} run={run} />
-          ))}
-        </div>
-      )}
-
-      {/* Report runs */}
-      {reportRuns.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-            Reports
-          </h2>
-          {reportRuns.map((run) => (
-            <RunRow key={run.id} run={run} />
-          ))}
-        </div>
-      )}
-    </div>
+    </>
   );
 }

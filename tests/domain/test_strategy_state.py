@@ -34,6 +34,66 @@ class TestValidateStrategyPatch:
                 {"coverage_by_role_category": {"Market Risk": "missing"}}
             )
 
+    def test_normalizes_nested_patches_envelope(self):
+        patch = validate_strategy_patch(
+            {
+                "run_id": "run_abc",
+                "patches": [
+                    {
+                        "field": "effective_sources",
+                        "action": "add",
+                        "value": ["boards.greenhouse.io/acme"],
+                    },
+                    {
+                        "field": "avoid_sources",
+                        "action": "add",
+                        "value": ["blocked.com — 403"],
+                    },
+                ],
+            }
+        )
+        assert patch.effective_sources == ["boards.greenhouse.io/acme"]
+        assert patch.avoid_sources == ["blocked.com — 403"]
+
+    def test_normalizes_envelope_keys_on_flat_patch(self):
+        patch = validate_strategy_patch(
+            {
+                "run_id": "run_abc",
+                "patches_proposed": 2,
+                "effective_sources": ["lever.co/xyz"],
+            }
+        )
+        assert patch.effective_sources == ["lever.co/xyz"]
+
+    def test_normalizes_multiple_ops_for_same_list_field(self):
+        patch = validate_strategy_patch(
+            {
+                "patches": [
+                    {
+                        "field": "key_learnings",
+                        "action": "add",
+                        "value": ["first"],
+                    },
+                    {
+                        "field": "key_learnings",
+                        "action": "add",
+                        "value": ["second"],
+                    },
+                ]
+            }
+        )
+        assert patch.key_learnings == ["first", "second"]
+
+    def test_rejects_unknown_patch_field_in_nested_format(self):
+        with pytest.raises(StrategyPatchError, match="unknown field"):
+            validate_strategy_patch(
+                {
+                    "patches": [
+                        {"field": "source_weights", "action": "add", "value": ["x"]}
+                    ]
+                }
+            )
+
 
 class TestApplyStrategyPatch:
     def test_list_fields_union_dedup(self):

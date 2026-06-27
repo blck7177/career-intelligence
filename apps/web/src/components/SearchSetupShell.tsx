@@ -135,7 +135,7 @@ const SOURCE_OPTIONS: Array<{
 
 const HOW_IT_WORKS = [
   {
-    icon: <Search size={16} className="text-indigo-500" />,
+    icon: <Search size={16} className="text-[var(--primary)]" />,
     title: "Choose your search source",
     desc: "Pick profile-guided, criteria-only, or a combination based on how you want to search.",
   },
@@ -271,7 +271,7 @@ export function SearchSetupShell() {
       );
 
       setPollStatus("Searching for roles…");
-      const finished = await pollRunUntilDone(run.id, token);
+      const finished = await pollRunUntilDone(run.id, getToken);
 
       if (finished.status !== "succeeded") {
         throw new Error(finished.error_message ?? `Discovery ${finished.status.replace(/_/g, " ")}`);
@@ -330,7 +330,7 @@ export function SearchSetupShell() {
     if (phase === "polling") {
       return (
         <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center space-y-4">
-          <Loader2 size={28} className="animate-spin text-indigo-600 mx-auto" />
+          <Loader2 size={28} className="animate-spin text-[var(--primary)] mx-auto" />
           <div>
             <p className="text-sm font-medium text-zinc-800">{pollStatus}</p>
             <p className="text-xs text-zinc-500 mt-1">This may take a few minutes.</p>
@@ -397,7 +397,7 @@ export function SearchSetupShell() {
             {profile.summary?.slice(0, 80)}
             {profile.summary && profile.summary.length > 80 ? "…" : ""}
             {" · "}
-            <Link href="/profile" className="text-indigo-600 hover:underline">
+            <Link href="/profile" className="text-[var(--primary)] hover:underline">
               Edit
             </Link>
           </div>
@@ -411,11 +411,11 @@ export function SearchSetupShell() {
                 className={[
                   "w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all",
                   searchSource === opt.id
-                    ? "border-indigo-600 bg-indigo-50"
+                    ? "border-[var(--primary)] bg-[var(--secondary)]"
                     : "border-zinc-200 hover:border-zinc-300 bg-white",
                 ].join(" ")}
               >
-                <span className={searchSource === opt.id ? "text-indigo-600" : "text-zinc-400"}>
+                <span className={searchSource === opt.id ? "text-[var(--primary)]" : "text-zinc-400"}>
                   {opt.icon}
                 </span>
                 <span>
@@ -455,7 +455,7 @@ export function SearchSetupShell() {
               placeholder="e.g. Market risk VP roles at mid-size banks in NYC, quantitative background preferred..."
               value={rawUserRequest}
               onChange={(e) => setRawUserRequest(e.target.value)}
-              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:bg-white transition-colors resize-none"
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
             />
             <p className="text-xs text-zinc-400">
               {rawUserRequest.trim().length < 5
@@ -476,7 +476,7 @@ export function SearchSetupShell() {
                     className={[
                       "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                       criteriaMode === mode
-                        ? "border-indigo-600 bg-indigo-600 text-white font-medium"
+                        ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
                         : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
                     ].join(" ")}
                   >
@@ -484,7 +484,7 @@ export function SearchSetupShell() {
                     <span
                       className={[
                         "block text-[11px] mt-0.5",
-                        criteriaMode === mode ? "text-indigo-200" : "text-zinc-400",
+                        criteriaMode === mode ? "text-white/60" : "text-zinc-400",
                       ].join(" ")}
                     >
                       {mode === "direct" ? "Exact match" : "Broader search"}
@@ -541,7 +541,7 @@ export function SearchSetupShell() {
                 className={[
                   "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                   searchDepth === val
-                    ? "border-indigo-600 bg-indigo-600 text-white font-medium"
+                    ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
                     : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
                 ].join(" ")}
               >
@@ -549,7 +549,7 @@ export function SearchSetupShell() {
                 <span
                   className={[
                     "block text-[11px] mt-0.5",
-                    searchDepth === val ? "text-indigo-200" : "text-zinc-400",
+                    searchDepth === val ? "text-white/60" : "text-zinc-400",
                   ].join(" ")}
                 >
                   {hint}
@@ -620,7 +620,7 @@ export function SearchSetupShell() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">Location</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder="NYC, remote US..."
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
@@ -631,7 +631,7 @@ export function SearchSetupShell() {
                 <select
                   value={workArrangement}
                   onChange={(e) => setWorkArrangement(e.target.value as WorkArrangement)}
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 >
                   <option value="">No preference</option>
                   <option value="hybrid">Hybrid</option>
@@ -645,7 +645,7 @@ export function SearchSetupShell() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-500">Seniority (comma-separated)</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder="analyst, associate, avp, vp"
                 value={seniority}
                 onChange={(e) => setSeniority(e.target.value)}
@@ -655,7 +655,7 @@ export function SearchSetupShell() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-500">Must include keywords</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder="market risk, quantitative"
                 value={mustIncludeKeywords}
                 onChange={(e) => setMustIncludeKeywords(e.target.value)}
@@ -665,7 +665,7 @@ export function SearchSetupShell() {
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-500">Exclude role types</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder="model_validation, pure_audit"
                 value={excludeRoleTypes}
                 onChange={(e) => setExcludeRoleTypes(e.target.value)}
@@ -676,7 +676,7 @@ export function SearchSetupShell() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">Compensation range</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder="$120k–$160k"
                   value={compensationRange}
                   onChange={(e) => setCompensationRange(e.target.value)}
@@ -685,7 +685,7 @@ export function SearchSetupShell() {
               <div className="space-y-1">
                 <label className="text-xs font-medium text-zinc-500">Visa note</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder="H1B transfer only"
                   value={visaNote}
                   onChange={(e) => setVisaNote(e.target.value)}
@@ -720,7 +720,7 @@ export function SearchSetupShell() {
                 Soft preferences (prefer / ideally)
               </label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder="prefer buy-side, market-facing analytics, automation-heavy workflow"
                 value={softPreferences}
                 onChange={(e) => setSoftPreferences(e.target.value)}
@@ -826,7 +826,7 @@ export function SearchSetupShell() {
           <Star size={13} className="text-zinc-400 shrink-0" />
           <p className="text-xs text-zinc-500">
             After discovery, review roles in{" "}
-            <Link href="/jobs" className="font-medium text-indigo-600 hover:underline">
+            <Link href="/jobs" className="font-medium text-[var(--primary)] hover:underline">
               Role Inbox
             </Link>
             .

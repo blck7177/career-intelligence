@@ -105,6 +105,113 @@ def is_board_source(source: str) -> bool:
     return any(hint in lower for hint in _ATS_BOARD_HINTS)
 
 
+_ALLOWED_PATCH_FIELDS = frozenset(
+    {
+        "effective_sources",
+        "avoid_sources",
+        "effective_query_patterns",
+        "avoid_query_patterns",
+        "coverage_by_role_category",
+        "key_learnings",
+        "recommended_next_searches",
+    }
+)
+
+_LIST_PATCH_FIELDS = _ALLOWED_PATCH_FIELDS - {
+    "coverage_by_role_category",
+    "recommended_next_searches",
+}
+
+_ENVELOPE_KEYS = frozenset(
+    {
+        "run_id",
+        "invocation_id",
+        "metadata",
+        "summary",
+        "patches_proposed",
+    }
+)
+
+_SUPPORTED_PATCH_ACTIONS = frozenset({"add", "set", "replace", "update"})
+
+
+def _merge_patch_list_field(flat: dict[str, Any], field: str, value: Any) -> None:
+    items = value if isinstance(value, list) else [value]
+    existing = flat.get(field, [])
+    if not isinstance(existing, list):
+        raise StrategyPatchError(f"patch field {field!r} must be a list")
+    flat[field] = [*existing, *[str(item) for item in items]]
+
+
+def _apply_patch_operation(flat: dict[str, Any], op: dict[str, Any], index: int) -> None:
+    field = op.get("field")
+    if not field or field not in _ALLOWED_PATCH_FIELDS:
+        raise StrategyPatchError(f"patches[{index}] has unknown field {field!r}")
+
+    action = str(op.get("action", "add")).lower()
+    if action not in _SUPPORTED_PATCH_ACTIONS:
+        raise StrategyPatchError(
+            f"patches[{index}] has unsupported action {action!r} for field {field!r}"
+        )
+
+    value = op.get("value")
+    if field == "coverage_by_role_category":
+        if not isinstance(value, dict):
+            raise StrategyPatchError(
+                f"patches[{index}] value for coverage_by_role_category must be an object"
+            )
+        merged = dict(flat.get(field, {}))
+        merged.update(value)
+        flat[field] = merged
+        return
+
+    if field == "recommended_next_searches":
+        if not isinstance(value, list):
+            raise StrategyPatchError(
+                f"patches[{index}] value for recommended_next_searches must be an array"
+            )
+        flat[field] = [str(item) for item in value]
+        return
+
+    if field in _LIST_PATCH_FIELDS:
+        _merge_patch_list_field(flat, field, value)
+        return
+
+    raise StrategyPatchError(f"patches[{index}] has unknown field {field!r}")
+
+
+def normalize_strategy_patch_raw(raw: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """
+    Convert agent-friendly nested patch envelopes into the flat StrategyPatch object.
+
+    Handles:
+    - {"patches": [{"field": "...", "action": "add", "value": ...}]}
+    - {"run_id": "...", "effective_sources": [...]} (strips envelope keys)
+
+    Returns (normalized_dict, was_normalized).
+    """
+    if not isinstance(raw, dict):
+        raise StrategyPatchError("strategy patch must be a JSON object")
+
+    if "patches" in raw:
+        patches = raw["patches"]
+        if not isinstance(patches, list):
+            raise StrategyPatchError("patches must be an array")
+        flat: dict[str, Any] = {}
+        for index, op in enumerate(patches):
+            if not isinstance(op, dict):
+                raise StrategyPatchError(f"patches[{index}] must be an object")
+            _apply_patch_operation(flat, op, index)
+        return flat, True
+
+    extra_keys = set(raw.keys()) - _ALLOWED_PATCH_FIELDS
+    if extra_keys and extra_keys <= _ENVELOPE_KEYS:
+        stripped = {key: raw[key] for key in raw if key in _ALLOWED_PATCH_FIELDS}
+        return stripped, True
+
+    return raw, False
+
+
 def validate_strategy_patch(raw: dict[str, Any]) -> StrategyPatch:
     """
     Validate raw patch dict against strategy_patch.schema.json and taxonomy keys.
@@ -113,17 +220,19 @@ def validate_strategy_patch(raw: dict[str, Any]) -> StrategyPatch:
     if not isinstance(raw, dict):
         raise StrategyPatchError("strategy patch must be a JSON object")
 
+    normalized_raw, _ = normalize_strategy_patch_raw(raw)
+
     validator = _load_schema_validator()
-    errors = sorted(validator.iter_errors(raw), key=lambda e: e.path)
+    errors = sorted(validator.iter_errors(normalized_raw), key=lambda e: e.path)
     if errors:
         messages = "; ".join(e.message for e in errors[:5])
         raise StrategyPatchError(f"strategy patch schema validation failed: {messages}")
 
     id_to_label, label_to_id = _build_taxonomy_maps()
-    normalized = dict(raw)
-    if "coverage_by_role_category" in raw and raw["coverage_by_role_category"]:
+    normalized = dict(normalized_raw)
+    if "coverage_by_role_category" in normalized_raw and normalized_raw["coverage_by_role_category"]:
         normalized["coverage_by_role_category"] = _normalize_coverage_keys(
-            raw["coverage_by_role_category"],
+            normalized_raw["coverage_by_role_category"],
             id_to_label=id_to_label,
             label_to_id=label_to_id,
         )

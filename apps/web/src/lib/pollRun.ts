@@ -5,7 +5,7 @@ const TERMINAL = new Set(["succeeded", "failed", "cancelled", "needs_review"]);
 
 export async function pollRunUntilDone(
   runId: string,
-  token: string | null,
+  tokenOrGetter: string | null | (() => Promise<string | null>),
   options?: { intervalMs?: number; timeoutMs?: number },
 ): Promise<RunRead> {
   const intervalMs = options?.intervalMs ?? 3000;
@@ -13,6 +13,10 @@ export async function pollRunUntilDone(
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
+    const token =
+      typeof tokenOrGetter === "function"
+        ? await tokenOrGetter()
+        : tokenOrGetter;
     const run = await getRun(runId, token);
     if (TERMINAL.has(run.status)) return run;
     await new Promise((r) => setTimeout(r, intervalMs));

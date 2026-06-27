@@ -30,6 +30,7 @@ export type TaskRead = components["schemas"]["TaskRead"];
 export type TaskEventRead = components["schemas"]["TaskEventRead"];
 export type AgentInvocationRead = components["schemas"]["AgentInvocationRead"];
 export type JobRead = components["schemas"]["JobRead"];
+export type JDStructured = components["schemas"]["JDStructured"];
 export type JobList = components["schemas"]["JobList"];
 export type JobReportResponse = components["schemas"]["JobReportResponse"];
 export type FitReportResponse = components["schemas"]["FitReportResponse"];

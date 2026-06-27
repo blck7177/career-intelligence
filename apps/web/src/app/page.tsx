@@ -1,362 +1,429 @@
 import Link from "next/link";
-import { listJobs, listRuns, getProfile } from "@/api/client";
-import type { JobRead, RunRead } from "@/api/client";
+import { listJobs, listRuns, getProfile, listFitReports } from "@/api/client";
+import type { JobRead, RunRead, FitReportSummary } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Building2,
-  MapPin,
-  Plus,
-  Inbox,
-  BarChart3,
-  Search,
-  CheckCircle2,
-  XCircle,
-  Circle,
-  AlertCircle,
-  Clock,
-  ChevronRight,
-  User,
-  Sparkles,
-} from "lucide-react";
 import { fmtTs } from "@/lib/utils";
+import { JobFitCell } from "@/app/jobs/JobFitCell";
 
 export const dynamic = "force-dynamic";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const RUN_TYPE_LABELS: Record<string, string> = {
-  job_discovery: "Discovery Run",
-  job_report: "Job Intelligence Report",
-  fit_report: "Fit Analysis",
-};
-
-function runTypeLabel(t: string) {
-  return RUN_TYPE_LABELS[t] ?? t.replace(/_/g, " ");
+function matchLabel(score: number | undefined): { text: string; style: "strong" | "good" | "partial" } {
+  if (score === undefined) return { text: "New role", style: "partial" };
+  if (score >= 75) return { text: "Strong match", style: "strong" };
+  if (score >= 50) return { text: "Good fit", style: "good" };
+  return { text: "Partial match", style: "partial" };
 }
 
-const DEFAULT_PROFILE_SNIPPET =
-  "Edit this profile to personalize your job discovery and fit analysis.";
-
-const RUN_STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  running: "In Progress",
-  succeeded: "Completed",
-  failed: "Failed",
-  needs_review: "Needs Review",
-  cancelled: "Cancelled",
-};
-
-function humanRunStatus(s: string) {
-  return RUN_STATUS_LABELS[s] ?? s.replace(/_/g, " ");
+function matchBadgeClass(style: "strong" | "good" | "partial"): string {
+  if (style === "strong") return "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]";
+  if (style === "good") return "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]";
+  return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
 }
 
-function runStatusBadge(status: string): string {
-  if (status === "succeeded") return "bg-emerald-100 text-emerald-700";
-  if (status === "running") return "bg-blue-100 text-blue-700";
-  if (status === "queued") return "bg-zinc-100 text-zinc-600";
-  if (status === "needs_review") return "bg-amber-100 text-amber-700";
-  if (status === "failed") return "bg-rose-100 text-rose-700";
-  return "bg-zinc-100 text-zinc-500";
+function whyMatchText(job: JobRead, score: number | undefined): string | null {
+  if (score === undefined) return null;
+  const parts: string[] = [];
+  if (job.primary_role_category && job.primary_role_category !== "unknown") {
+    parts.push(job.primary_role_category.split(" / ")[0]);
+  }
+  if (job.seniority_inferred) {
+    parts.push(`${job.seniority_inferred}-level`);
+  }
+  if (parts.length === 0) return null;
+  return `${parts.join(", ")} role${job.location ? ` in ${job.location}` : ""} aligns with your profile.`;
 }
 
-function jobStatusDot(status: string): string {
-  if (status === "reportable") return "bg-emerald-400";
-  if (status === "discovered") return "bg-blue-400";
-  return "bg-zinc-300";
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "Yesterday";
+  return `${days} days ago`;
 }
-
-function RunStatusIcon({ status }: { status: string }) {
-  if (status === "succeeded") return <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />;
-  if (status === "failed") return <XCircle size={13} className="text-rose-500 shrink-0" />;
-  if (status === "needs_review") return <AlertCircle size={13} className="text-amber-500 shrink-0" />;
-  if (status === "running") return <Circle size={13} className="text-blue-500 animate-pulse shrink-0" />;
-  return <Clock size={13} className="text-zinc-400 shrink-0" />;
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function SummaryCard({
-  label,
-  value,
-  sub,
-  icon,
-  href,
-  accent,
-}: {
-  label: string;
-  value: number | string;
-  sub?: string;
-  icon: React.ReactNode;
-  href: string;
-  accent?: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-white p-4 hover:border-zinc-300 hover:shadow-sm transition-all group"
-    >
-      <div
-        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${accent ?? "bg-zinc-100 text-zinc-500"}`}
-      >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-xl font-bold text-zinc-900 leading-tight">{value}</p>
-        <p className="text-xs font-medium text-zinc-600 mt-0.5">{label}</p>
-        {sub && <p className="text-[10px] text-zinc-400 mt-0.5">{sub}</p>}
-      </div>
-      <ChevronRight size={14} className="text-zinc-200 group-hover:text-zinc-400 transition-colors ml-auto mt-0.5 shrink-0" />
-    </Link>
-  );
-}
-
-function RecentRunRow({ run }: { run: RunRead }) {
-  return (
-    <Link
-      href={`/runs/${run.id}`}
-      className="flex items-center justify-between gap-3 py-2.5 border-b border-zinc-100 last:border-0 hover:bg-zinc-50 -mx-3 px-3 rounded transition-colors"
-    >
-      <div className="flex items-center gap-2.5 min-w-0">
-        <RunStatusIcon status={run.status} />
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-zinc-700 truncate">{runTypeLabel(run.run_type)}</p>
-          <p className="text-[10px] text-zinc-400">{fmtTs(run.created_at)}</p>
-        </div>
-      </div>
-      <Badge className={runStatusBadge(run.status) + " text-[10px] shrink-0"}>
-        {humanRunStatus(run.status)}
-      </Badge>
-    </Link>
-  );
-}
-
-function RecentRoleRow({ job }: { job: JobRead }) {
-  return (
-    <Link
-      href={`/jobs/${job.id}`}
-      className="flex items-center justify-between gap-3 py-2.5 border-b border-zinc-100 last:border-0 hover:bg-zinc-50 -mx-3 px-3 rounded transition-colors"
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${jobStatusDot(job.status)}`} />
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-zinc-700 truncate">{job.title}</p>
-          <div className="flex items-center gap-1.5 text-[10px] text-zinc-400">
-            <span className="flex items-center gap-0.5">
-              <Building2 size={9} />
-              {job.company}
-            </span>
-            {job.location && (
-              <span className="flex items-center gap-0.5">
-                <MapPin size={9} />
-                {job.location}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-      <span className="text-[10px] text-zinc-400 shrink-0">{fmtTs(job.created_at.toString())}</span>
-    </Link>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 
 export default async function HomePage() {
   const token = await getServerToken();
 
   let jobs: JobRead[] = [];
   let runs: RunRead[] = [];
-  let profileNeedsSetup = false;
+  let profileSummary = "";
+  let profileId: string | undefined;
   let fetchError: string | null = null;
 
   try {
     const [jobList, runList, profile] = await Promise.all([
-      listJobs(undefined, token),
+      listJobs({ include_report_summary: true }, token),
       listRuns(token).catch(() => ({ items: [] as RunRead[] })),
       getProfile(token).catch(() => null),
     ]);
     jobs = jobList.items;
     runs = runList.items;
-    profileNeedsSetup =
-      !profile?.summary || profile.summary.includes(DEFAULT_PROFILE_SNIPPET);
+    profileSummary = profile?.summary ?? "";
+    profileId = profile?.id;
   } catch (err) {
     fetchError = err instanceof Error ? err.message : "Failed to load data";
   }
 
-  const total = jobs.length;
-  const reportable = jobs.filter((j) => j.status === "reportable").length;
-  const discovered = jobs.filter((j) => j.status === "discovered").length;
-  const fitAnalyses = runs.filter(
-    (r) => r.run_type === "fit_report" && r.status === "succeeded",
-  ).length;
+  const fitListData = profileId
+    ? await listFitReports({ profile_id: profileId }, token).catch(() => ({
+        items: [] as FitReportSummary[],
+        total: 0,
+      }))
+    : { items: [] as FitReportSummary[], total: 0 };
 
-  const oneWeekAgo = new Date();
-  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-  const newThisWeek = jobs.filter((j) => new Date(j.created_at) > oneWeekAgo).length;
+  const fitMap = new Map<string, FitReportSummary>();
+  for (const fr of fitListData.items) {
+    if (!fitMap.has(fr.job_id)) {
+      fitMap.set(fr.job_id, fr);
+    }
+  }
+
+  if (profileId && fitMap.size > 0) {
+    jobs = [...jobs].sort((a, b) => {
+      const sa = fitMap.get(a.id)?.overall_match_score ?? -1;
+      const sb = fitMap.get(b.id)?.overall_match_score ?? -1;
+      return sb - sa;
+    });
+  }
+
+  const total = jobs.length;
+  const strongCount = jobs.filter((j) => {
+    const s = fitMap.get(j.id)?.overall_match_score;
+    return s !== undefined && s >= 75;
+  }).length;
+  const goodCount = jobs.filter((j) => {
+    const s = fitMap.get(j.id)?.overall_match_score;
+    return s !== undefined && s >= 50 && s < 75;
+  }).length;
+  const partialCount = total - strongCount - goodCount;
 
   const discoveryRuns = runs
     .filter((r) => r.run_type === "job_discovery")
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 5);
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  const recentRoles = [...jobs]
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 5);
+  const lastSearch = discoveryRuns[0];
+  const lastSearchTime = lastSearch ? relativeTime(lastSearch.created_at) : null;
+
+  const unreviewedCount = jobs.filter((j) => j.status === "discovered").length;
+  const recentSearches = discoveryRuns.slice(0, 3);
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-zinc-900">Command Center</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            Profile → Search → Role Inbox → Fit decisions
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Link href="/jobs">
-            <Button size="sm" variant="outline">
-              <Inbox size={14} className="mr-1.5" />
-              Review Role Inbox
-            </Button>
-          </Link>
-          <Link href="/workspace">
-            <Button size="sm">
-              <Search size={14} className="mr-1.5" />
-              Start Discovery
-            </Button>
-          </Link>
-        </div>
-      </div>
+    <>
+      {/* Header bar */}
+      <header
+        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+          Role Inbox
+        </span>
+        <div className="flex-1" />
+        <Link
+          href="/workspace"
+          className="flex items-center gap-[7px] h-[34px] px-[18px] rounded-lg text-[13px] font-semibold text-white shrink-0 transition-opacity hover:opacity-90"
+          style={{ background: "var(--primary)", letterSpacing: "0.01em" }}
+        >
+          <svg width="11" height="11" viewBox="0 0 12 12">
+            <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+            <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
+          </svg>
+          New Search
+        </Link>
+      </header>
 
-      {profileNeedsSetup && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <User size={16} className="text-amber-600 shrink-0 mt-0.5" />
-          <div className="space-y-2">
-            <p className="text-sm text-amber-900">
-              Set up your candidate profile before running profile-guided search or fit analysis.
+      {/* Content grid: main + right rail */}
+      <div className="flex-1 min-h-0 grid grid-cols-[1fr_268px] overflow-hidden">
+
+        {/* Main content */}
+        <div className="overflow-y-auto px-7 py-6">
+
+          {fetchError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 mb-5">
+              {fetchError}
+            </div>
+          )}
+
+          {/* Hero summary */}
+          <div
+            className="bg-white rounded-xl p-[22px_26px] mb-5"
+            style={{
+              border: "1px solid oklch(86% 0.022 285)",
+              boxShadow: "0 2px 10px oklch(52% 0.15 285 / 0.07)",
+            }}
+          >
+            <div className="flex items-center gap-[7px] mb-2.5">
+              <div className="w-[7px] h-[7px] rounded-full" style={{ background: "var(--primary)" }} />
+              <span className="text-xs font-medium" style={{ color: "var(--primary)" }}>
+                {lastSearchTime ? `Searched ${lastSearchTime}` : "No searches yet"}
+              </span>
+            </div>
+            <h2 className="text-[22px] font-semibold mb-[7px] leading-tight" style={{ color: "oklch(16% 0.015 275)" }}>
+              {total} role{total !== 1 ? "s" : ""} found for you
+            </h2>
+            <p className="text-sm mb-[18px] leading-relaxed" style={{ color: "oklch(52% 0.01 275)" }}>
+              {profileSummary
+                ? `Based on your ${profileSummary.slice(0, 60).trim()}${profileSummary.length > 60 ? "…" : ""} profile.`
+                : "Set up your profile to get personalized match scores."}
+              {strongCount > 0 && ` ${strongCount} ${strongCount === 1 ? "is a" : "are"} strong match${strongCount !== 1 ? "es" : ""} — a good place to start reviewing.`}
             </p>
-            <Link href="/profile">
-              <Button size="sm" variant="outline" className="text-xs h-8">
-                Set up Profile
-              </Button>
-            </Link>
+            <div className="flex gap-1.5 flex-wrap">
+              <span className="py-[5px] px-3.5 rounded-full text-white text-[12.5px] font-medium" style={{ background: "oklch(20% 0.02 275)" }}>
+                All · {total}
+              </span>
+              {strongCount > 0 && (
+                <span
+                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
+                  style={{ background: "var(--match-strong-bg)", color: "var(--match-strong-fg)", border: "1px solid var(--match-strong-border)" }}
+                >
+                  Strong · {strongCount}
+                </span>
+              )}
+              {goodCount > 0 && (
+                <span
+                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
+                  style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)", border: "1px solid var(--match-good-border)" }}
+                >
+                  Good fit · {goodCount}
+                </span>
+              )}
+              {partialCount > 0 && (
+                <span
+                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
+                  style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)", border: "1px solid var(--match-partial-border)" }}
+                >
+                  Partial · {partialCount}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {fetchError && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          {fetchError}
-        </div>
-      )}
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <SummaryCard
-          label="Role Inbox"
-          value={total}
-          sub={`${discovered} need report`}
-          icon={<Inbox size={16} />}
-          href="/jobs"
-          accent="bg-indigo-50 text-indigo-600"
-        />
-        <SummaryCard
-          label="Reports Ready"
-          value={reportable}
-          sub={reportable > 0 ? "Ready to analyze fit" : "Generate reports first"}
-          icon={<BarChart3 size={16} />}
-          href="/jobs"
-          accent="bg-emerald-50 text-emerald-600"
-        />
-        <SummaryCard
-          label="Fit Analyses"
-          value={fitAnalyses}
-          sub="Completed fit reports"
-          icon={<Sparkles size={16} />}
-          href="/jobs"
-          accent="bg-violet-50 text-violet-600"
-        />
-        <SummaryCard
-          label="Recent Searches"
-          value={discoveryRuns.length}
-          sub={`${runs.filter((r) => r.status === "running").length} in progress`}
-          icon={<Search size={16} />}
-          href="/runs"
-          accent="bg-amber-50 text-amber-600"
-        />
-      </div>
-
-      {/* New this week banner */}
-      {newThisWeek > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
-          <Sparkles size={15} className="text-indigo-500 shrink-0" />
-          <p className="text-sm text-indigo-700">
-            <span className="font-semibold">{newThisWeek} new role{newThisWeek !== 1 ? "s" : ""}</span> added
-            {" "}in the last 7 days.{" "}
-            <Link href="/jobs" className="underline hover:text-indigo-900">
-              View in Role Inbox →
-            </Link>
-          </p>
-        </div>
-      )}
-
-      {/* Two-column lower sections */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Recent Searches */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-1">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-zinc-700">Recent Searches</h2>
-            <Link href="/runs" className="text-xs text-zinc-400 hover:text-zinc-700">
-              View all →
-            </Link>
-          </div>
-          {discoveryRuns.length > 0 ? (
-            discoveryRuns.map((run) => <RecentRunRow key={run.id} run={run} />)
-          ) : (
-            <div className="py-6 text-center space-y-2">
-              <p className="text-xs text-zinc-400">No discovery runs yet</p>
-              <Link href="/workspace">
-                <Button size="sm" variant="outline" className="text-xs">
-                  <Plus size={12} className="mr-1" />
-                  Start Discovery
-                </Button>
+          {/* Role cards */}
+          {jobs.length === 0 && !fetchError ? (
+            <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
+              <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No roles in your inbox yet.</p>
+              <Link
+                href="/workspace"
+                className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium hover:underline"
+                style={{ color: "var(--primary)" }}
+              >
+                Start your first search →
               </Link>
             </div>
-          )}
-        </div>
-
-        {/* Recent Roles */}
-        <div className="rounded-xl border border-zinc-200 bg-white p-4 space-y-1">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-zinc-700">Recent Roles</h2>
-            <Link href="/jobs" className="text-xs text-zinc-400 hover:text-zinc-700">
-              View all →
-            </Link>
-          </div>
-          {recentRoles.length > 0 ? (
-            recentRoles.map((job) => <RecentRoleRow key={job.id} job={job} />)
           ) : (
-            <div className="py-6 text-center space-y-2">
-              <p className="text-xs text-zinc-400">No roles in inbox yet</p>
-              <Link href="/workspace">
-                <Button size="sm" variant="outline" className="text-xs">
-                  <Plus size={12} className="mr-1" />
-                  Start Discovery
-                </Button>
-              </Link>
+            <div className="flex flex-col gap-2.5">
+              {jobs.map((job) => {
+                const fr = fitMap.get(job.id);
+                const score = fr?.overall_match_score;
+                const match = matchLabel(score);
+                const isPartial = match.style === "partial";
+                const why = whyMatchText(job, score);
+
+                return (
+                  <div
+                    key={job.id}
+                    className="bg-white rounded-[10px] p-[20px_22px] transition-shadow hover:shadow-md"
+                    style={{
+                      border: "1px solid var(--border)",
+                      boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)",
+                      opacity: isPartial ? 0.88 : 1,
+                    }}
+                  >
+                    {/* Top row: badge + actions */}
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <span className={`py-[3px] px-2.5 rounded text-xs font-medium ${matchBadgeClass(match.style)}`}>
+                        {match.text}
+                      </span>
+                      <div className="flex-1" />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <JobFitCell
+                          jobId={job.id}
+                          jobReportId={job.latest_job_report_id}
+                          hasProfile={!!profileId}
+                          fitReport={
+                            fr
+                              ? {
+                                  id: fr.id,
+                                  score: fr.overall_match_score,
+                                  recommended_next_action: fr.recommended_next_action,
+                                }
+                              : undefined
+                          }
+                        />
+                      </div>
+                    </div>
+
+                    {/* Title + company */}
+                    <Link href={`/jobs/${job.id}`} className="block group">
+                      <div
+                        className="text-base font-semibold mb-1 group-hover:underline"
+                        style={{ color: isPartial ? "oklch(28% 0.012 275)" : "oklch(16% 0.015 275)" }}
+                      >
+                        {job.title}
+                      </div>
+                      <div className="text-[13px] mb-3.5" style={{ color: "oklch(56% 0.01 275)" }}>
+                        {job.company}
+                        {job.location && ` · ${job.location}`}
+                        {job.seniority_inferred && ` · ${job.seniority_inferred}`}
+                      </div>
+                    </Link>
+
+                    {/* Why this matches */}
+                    {why && (
+                      <div className="pt-3.5 flex items-start justify-between gap-5" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
+                        <p className="text-[13px] leading-relaxed" style={{ color: "oklch(50% 0.01 275)" }}>
+                          <span className="font-medium" style={{ color: isPartial ? "oklch(62% 0.01 275)" : "oklch(50% 0.2 285)" }}>
+                            Why this matches —{" "}
+                          </span>
+                          {why}
+                        </p>
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="text-[12.5px] font-medium whitespace-nowrap shrink-0 mt-[1px] hover:underline"
+                          style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
+                        >
+                          View role →
+                        </Link>
+                      </div>
+                    )}
+
+                    {!why && (
+                      <div className="pt-3.5 flex items-center justify-end" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
+                        <Link
+                          href={`/jobs/${job.id}`}
+                          className="text-[12.5px] font-medium whitespace-nowrap hover:underline"
+                          style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
+                        >
+                          View role →
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
+
+          <div className="h-9" />
+        </div>
+
+        {/* Right rail */}
+        <div
+          className="overflow-y-auto min-h-0 bg-white px-5 py-6 flex flex-col gap-7"
+          style={{ borderLeft: "1px solid var(--border)" }}
+        >
+          {/* This search */}
+          <div>
+            <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
+              This search
+            </div>
+            <div
+              className="rounded-lg p-[14px_16px]"
+              style={{ background: "var(--background)", border: "1px solid oklch(88% 0.018 285)" }}
+            >
+              <div className="flex flex-col gap-2.5 mb-3.5">
+                <div>
+                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>Profile</div>
+                  <div className="text-[13px] font-medium" style={{ color: "oklch(22% 0.015 275)" }}>
+                    {profileSummary ? profileSummary.slice(0, 40).trim() + (profileSummary.length > 40 ? "…" : "") : "Not set up"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>Last searched</div>
+                  <div className="text-[13px]" style={{ color: "oklch(32% 0.012 275)" }}>
+                    {lastSearchTime ?? "Never"}
+                  </div>
+                </div>
+              </div>
+              <Link
+                href="/workspace"
+                className="w-full h-8 flex items-center justify-center rounded-md text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+                style={{ background: "var(--primary)" }}
+              >
+                Search again
+              </Link>
+            </div>
+          </div>
+
+          {/* Up next */}
+          <div>
+            <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
+              Up next
+            </div>
+            <div className="flex flex-col gap-2">
+              {unreviewedCount > 0 && (
+                <Link
+                  href="/jobs?status=discovered"
+                  className="flex items-center gap-2.5 p-[11px_14px] rounded-lg transition-colors hover:opacity-90"
+                  style={{ background: "var(--sidebar-item-active-bg)" }}
+                >
+                  <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "var(--primary)" }} />
+                  <span className="flex-1 text-[13px] font-medium" style={{ color: "oklch(36% 0.015 275)" }}>
+                    {unreviewedCount} role{unreviewedCount !== 1 ? "s" : ""} to review
+                  </span>
+                  <span className="text-[13px]" style={{ color: "var(--primary)" }}>→</span>
+                </Link>
+              )}
+              <Link
+                href="/workspace"
+                className="flex items-center gap-2.5 p-[11px_14px] rounded-lg transition-colors hover:bg-zinc-50"
+                style={{ border: "1px solid var(--border)" }}
+              >
+                <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "oklch(86% 0.01 275)" }} />
+                <span className="flex-1 text-[13px]" style={{ color: "oklch(48% 0.01 275)" }}>
+                  Start new search
+                </span>
+                <span className="text-[13px]" style={{ color: "oklch(64% 0.01 275)" }}>→</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* Recent searches */}
+          <div>
+            <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
+              Recent searches
+            </div>
+            {recentSearches.length > 0 ? (
+              <>
+                <div className="flex flex-col">
+                  {recentSearches.map((run, i) => (
+                    <Link
+                      key={run.id}
+                      href={run.status === "succeeded" ? "/" : `/runs/${run.id}`}
+                      className="flex items-center py-[9px] hover:opacity-80"
+                      style={{
+                        borderBottom: i < recentSearches.length - 1 ? "1px solid oklch(93% 0.008 280)" : undefined,
+                      }}
+                    >
+                      <span className="flex-1 text-[13px]" style={{ color: i === 0 ? "oklch(30% 0.015 275)" : "oklch(48% 0.01 275)" }}>
+                        Discovery Run
+                      </span>
+                      <span className="text-xs" style={{ color: "oklch(66% 0.008 275)" }}>
+                        {relativeTime(run.created_at)}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <Link
+                    href="/runs"
+                    className="text-[12.5px] font-medium hover:underline"
+                    style={{ color: "var(--primary)" }}
+                  >
+                    View all searches →
+                  </Link>
+                </div>
+              </>
+            ) : (
+              <p className="text-[13px]" style={{ color: "oklch(60% 0.01 275)" }}>
+                No searches yet.
+              </p>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

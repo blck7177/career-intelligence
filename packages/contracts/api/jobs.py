@@ -3,7 +3,6 @@ API DTOs for discovered jobs.
 
 Jobs are written to the database only after Validator Gate passes.
 These DTOs reflect the actual Job ORM model fields.
-Internal fields (jd_text, jd_hash, raw_payload_json) are not exposed.
 """
 
 from __future__ import annotations
@@ -12,6 +11,20 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
+
+
+class JDStructured(BaseModel):
+    """Structured fields extracted from JD text during discovery."""
+
+    responsibilities: list[str] = []
+    required_skills: list[str] = []
+    preferred_skills: list[str] = []
+    tools_mentioned: list[str] = []
+    seniority_inferred: str = "unknown"
+    likely_tasks: list[str] = []
+    likely_stakeholders: list[str] = []
+    inferred_team_context: str = ""
+    role_category: Optional[str] = None
 
 
 class JobRead(BaseModel):
@@ -34,6 +47,8 @@ class JobRead(BaseModel):
     primary_role_category: Optional[str] = None
     seniority_inferred: Optional[str] = None
     role_category_confidence: Optional[str] = None  # high | medium | low
+    # Structured JD extraction (from discovery-time LLM call)
+    jd_structured: Optional[JDStructured] = None
 
     model_config = {"from_attributes": True}
 

@@ -15,9 +15,9 @@ interface JobFitCellProps {
 }
 
 function fitScoreClass(score: number): string {
-  if (score >= 75) return "bg-emerald-100 text-emerald-800";
-  if (score >= 50) return "bg-amber-100 text-amber-800";
-  return "bg-rose-100 text-rose-800";
+  if (score >= 75) return "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]";
+  if (score >= 50) return "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]";
+  return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
 }
 
 function FitScoreBadge({ fitReportId, score }: { fitReportId: string; score: number }) {

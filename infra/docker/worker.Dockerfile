@@ -22,6 +22,7 @@ RUN groupadd -g ${APP_GID} appuser && \
     useradd -u ${APP_UID} -g ${APP_GID} -m -s /bin/bash appuser
 
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # EXTRA_DEPS: comma-separated optional extras to install in addition to the
 # default [anthropic,openai]. Used by the flower service to add "monitoring".

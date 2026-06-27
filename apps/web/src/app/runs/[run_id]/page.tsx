@@ -339,39 +339,48 @@ export default async function RunDetailPage({ params }: PageProps) {
   const runLabel = RUN_TYPE_LABELS[run.run_type] ?? run.run_type.replace(/_/g, " ");
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
-      {/* Back */}
-      <Link
-        href="/runs"
-        className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-900"
+    <>
+      <header
+        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
       >
-        <ArrowLeft size={14} /> Back to Search Runs
-      </Link>
+        <Link
+          href="/runs"
+          className="text-[13px] hover:underline"
+          style={{ color: "var(--primary)" }}
+        >
+          ← Back to Reports
+        </Link>
+      </header>
 
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <StatusIcon status={run.status} />
-          <div>
-            <h1 className="text-xl font-bold capitalize">{runLabel}</h1>
-            <p className="text-zinc-500 text-sm mt-0.5">Started {fmtTs(run.created_at)}</p>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-7 py-6 space-y-6">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <StatusIcon status={run.status} />
+              <div>
+                <h1 className="text-xl font-semibold capitalize" style={{ color: "oklch(16% 0.015 275)" }}>{runLabel}</h1>
+                <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>Started {fmtTs(run.created_at)}</p>
+              </div>
+            </div>
+            <Badge className={statusBg(run.status) + " text-sm px-3 py-1"}>
+              {run.status.replace(/_/g, " ")}
+            </Badge>
           </div>
+
+          {/* Status message */}
+          <StatusMessage run={run} />
+
+          {/* Report viewer */}
+          {report && run.run_type === "job_report" && (
+            <JobReportSection report={report as JobReportResponse} />
+          )}
+          {report && run.run_type === "fit_report" && (
+            <FitReportSection report={report as FitReportResponse} />
+          )}
         </div>
-        <Badge className={statusBg(run.status) + " text-sm px-3 py-1"}>
-          {run.status.replace(/_/g, " ")}
-        </Badge>
       </div>
-
-      {/* Status message */}
-      <StatusMessage run={run} />
-
-      {/* Report viewer */}
-      {report && run.run_type === "job_report" && (
-        <JobReportSection report={report as JobReportResponse} />
-      )}
-      {report && run.run_type === "fit_report" && (
-        <FitReportSection report={report as FitReportResponse} />
-      )}
-    </div>
+    </>
   );
 }
