@@ -177,6 +177,35 @@ def save_fetched_jd_artifact(
     return text_path, validated.jd_text, validated.jd_hash
 
 
+def _fetch_via_jina(url: str, *, timeout: float = 15.0) -> JdFetchResult:
+    """Fallback: use Jina Reader to render JS-heavy pages (Workday, etc.)."""
+    jina_url = f"https://r.jina.ai/{url}"
+    try:
+        with httpx.Client(
+            headers={"Accept": "text/plain", **_HEADERS},
+            follow_redirects=True,
+            timeout=timeout,
+        ) as client:
+            response = client.get(jina_url)
+            response.raise_for_status()
+        jd_text = response.text[:_MAX_JD_TEXT_CHARS].strip()
+        validated = _validate_jd_text(jd_text)
+        return JdFetchResult(
+            ok=validated.ok,
+            jd_text=validated.jd_text,
+            jd_hash=validated.jd_hash,
+            error=validated.error,
+            source="worker_fetch",
+            fetch_status=validated.fetch_status,
+        )
+    except Exception:
+        return JdFetchResult(
+            ok=False, jd_text=None, jd_hash=None,
+            error=f"Jina fallback failed for {url}",
+            source="worker_fetch", fetch_status="failed",
+        )
+
+
 def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
     """Deterministic HTTP fetch + normalize (worker fallback)."""
     if not url.startswith(("http://", "https://")):
@@ -229,6 +258,12 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
 
     jd_text = _normalize_fetched_content(raw, content_type)
     validated = _validate_jd_text(jd_text)
+
+    if not validated.ok and validated.fetch_status == "too_short":
+        jina_result = _fetch_via_jina(url, timeout=timeout)
+        if jina_result.ok:
+            return jina_result
+
     return JdFetchResult(
         ok=validated.ok,
         jd_text=validated.jd_text,

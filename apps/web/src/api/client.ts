@@ -171,6 +171,37 @@ export async function archiveJob(jobId: string, token?: string | null): Promise<
   await req<void>(`/api/app/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }, token);
 }
 
+export async function batchArchiveJobs(
+  jobIds: string[],
+  token?: string | null,
+): Promise<{ archived_count: number }> {
+  return req<{ archived_count: number }>("/api/app/jobs/batch-archive", {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds }),
+  }, token);
+}
+
+export async function importJob(
+  url: string,
+  token?: string | null,
+): Promise<{ job: JobRead; created: boolean; jd_fetched: boolean }> {
+  return req<{ job: JobRead; created: boolean; jd_fetched: boolean }>("/api/app/jobs/import", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  }, token);
+}
+
+export async function batchAnalyzeJobs(
+  jobIds: string[],
+  profileId?: string | null,
+  token?: string | null,
+): Promise<{ run_ids: string[]; skipped: string[]; report_first?: string[] }> {
+  return req<{ run_ids: string[]; skipped: string[]; report_first?: string[] }>("/api/app/jobs/batch-analyze", {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds, profile_id: profileId }),
+  }, token);
+}
+
 // ---------------------------------------------------------------------------
 // Profile  (/api/app/profile)
 // ---------------------------------------------------------------------------
