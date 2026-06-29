@@ -21,6 +21,7 @@ from apps.worker.router import dispatch
 from apps.worker.tasks.fit_report import handle_fit_report
 from apps.worker.tasks.job_report import handle_job_report
 from apps.worker.tasks.profile_import import handle_profile_import
+from apps.worker.tasks.resume_tailor import handle_resume_tailor
 from apps.worker.tasks.reflect_run import handle_reflect_run
 from apps.worker.tasks.research_run import handle_research_run
 from apps.worker.tasks.search_run import handle_search_run
@@ -45,6 +46,7 @@ _DETERMINISTIC_HANDLERS = {
     "job_report": handle_job_report,
     "fit_report": handle_fit_report,
     "profile_import": handle_profile_import,
+    "resume_tailor": handle_resume_tailor,
 }
 
 

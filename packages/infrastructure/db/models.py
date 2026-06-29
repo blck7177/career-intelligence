@@ -556,6 +556,7 @@ class CandidateProfile(Base):
     # Quantitative
     years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
+    structured_resume_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     search_defaults: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

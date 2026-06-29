@@ -67,6 +67,7 @@ _TASK_TYPE_MAP: dict[str, str] = {
     "job_report": "job_report",
     "fit_report": "fit_report",
     "profile_import": "profile_import",
+    "resume_tailor": "resume_tailor",
 }
 
 

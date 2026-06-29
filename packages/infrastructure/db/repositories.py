@@ -1014,6 +1014,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         """Create or update the default (most recent) profile for a workspace."""
         profile = self.get_for_workspace(workspace_id)
@@ -1030,6 +1031,8 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        if structured_resume_json is not None:
+            profile.structured_resume_json = structured_resume_json
 
         self._s.flush()
         return profile

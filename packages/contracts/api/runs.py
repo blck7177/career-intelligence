@@ -109,6 +109,14 @@ class RunReflectionInput(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class ResumeTailorInput(BaseModel):
+    """Input for run_type=resume_tailor."""
+
+    job_id: str
+    candidate_profile_id: Optional[str] = None
+    preferences: Optional[dict] = None
+
+
 # ---------------------------------------------------------------------------
 # RunCreate — discriminated union on run_type
 # ---------------------------------------------------------------------------
@@ -156,6 +164,13 @@ class RunReflectionRunCreate(BaseModel):
     input_snapshot: RunReflectionInput
 
 
+class ResumeTailorRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=resume_tailor."""
+
+    run_type: Literal["resume_tailor"]
+    input_snapshot: ResumeTailorInput
+
+
 _RunCreateUnion = Annotated[
     Union[
         JobDiscoveryRunCreate,
@@ -164,6 +179,7 @@ _RunCreateUnion = Annotated[
         ProfileImportRunCreate,
         JobResearchRunCreate,
         RunReflectionRunCreate,
+        ResumeTailorRunCreate,
     ],
     Field(discriminator="run_type"),
 ]

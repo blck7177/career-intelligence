@@ -7,19 +7,22 @@ import { createRun, archiveJob } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { FitButton } from "@/components/FitButton";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, Trash2 } from "lucide-react";
+import { Loader2, FileText, Trash2, PenLine } from "lucide-react";
 
 interface JobActionsProps {
   jobId: string;
   hasExistingReport: boolean;
   jobReportId?: string;
+  hasProfile?: boolean;
 }
 
-export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActionsProps) {
+export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }: JobActionsProps) {
   const router = useRouter();
   const getToken = useApiToken();
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [tailorLoading, setTailorLoading] = useState(false);
+  const [tailorError, setTailorError] = useState<string | null>(null);
 
   async function handleGenerateReport() {
     setReportLoading(true);
@@ -88,6 +91,42 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
         label={hasExistingReport ? "Analyze Fit" : "Analyze Fit"}
         inline
       />
+
+      {hasProfile && hasExistingReport && (
+        <Button
+          onClick={async () => {
+            setTailorLoading(true);
+            setTailorError(null);
+            try {
+              const token = await getToken();
+              const run = await createRun(
+                { run_type: "resume_tailor", input_snapshot: { job_id: jobId } },
+                token,
+              );
+              const finished = await pollRunUntilDone(run.id, getToken);
+              if (finished.status !== "succeeded") {
+                throw new Error(finished.error_message ?? "Resume tailor failed");
+              }
+              router.refresh();
+            } catch (err) {
+              setTailorError(err instanceof Error ? err.message : "Failed");
+            } finally {
+              setTailorLoading(false);
+            }
+          }}
+          disabled={tailorLoading}
+          size="sm"
+          variant="outline"
+        >
+          {tailorLoading ? (
+            <Loader2 size={15} className="animate-spin mr-1.5" />
+          ) : (
+            <PenLine size={15} className="mr-1.5" />
+          )}
+          {tailorLoading ? "Tailoring…" : "Tailor Resume"}
+        </Button>
+      )}
+      {tailorError && <span className="text-xs text-rose-600">{tailorError}</span>}
 
       <Button
         onClick={handleArchive}

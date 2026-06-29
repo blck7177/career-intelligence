@@ -110,6 +110,7 @@ export default async function JobDetailPage({ params }: PageProps) {
             jobId={job_id}
             hasExistingReport={!!report}
             jobReportId={report?.id}
+            hasProfile={!!profile}
           />
         }
       />

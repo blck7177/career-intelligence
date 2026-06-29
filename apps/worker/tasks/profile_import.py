@@ -136,6 +136,7 @@ def handle_profile_import(env: TaskEnvelope) -> dict:
     clean_resume = draft.clean_resume.model_dump()
     parse_notes = draft.parse_notes.model_dump()
     profile_fields = draft.model_dump(exclude={"parse_notes", "clean_resume"})
+    profile_fields["structured_resume_json"] = clean_resume
 
     with get_session() as session:
         run_repo = RunRepository(session)
