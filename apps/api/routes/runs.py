@@ -157,6 +157,28 @@ def get_run(
     return RunRead.model_validate(run)
 
 
+@router.get("/{run_id}/resume-draft")
+def get_resume_draft(
+    run_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Return the resume tailor draft for a completed resume_tailor run."""
+    run = RunRepository(db).get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    _assert_run_owned(run, workspace)
+    if run.run_type != "resume_tailor":
+        raise HTTPException(status_code=400, detail="Not a resume_tailor run")
+    if run.status != "succeeded":
+        raise HTTPException(status_code=409, detail=f"Run not yet complete: {run.status}")
+    summary = run.result_summary_json or {}
+    draft = summary.get("draft", {})
+    if not draft:
+        raise HTTPException(status_code=404, detail="No draft found in run result")
+    return draft
+
+
 @router.post("/{run_id}/cancel", response_model=RunRead)
 def cancel_run(
     run_id: str,

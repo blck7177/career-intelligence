@@ -41,6 +41,7 @@ from packages.contracts.reports.resume_tailor import (
 )
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.infrastructure.db.repositories import (
+    ArtifactRepository,
     FitReportRepository,
     JobReportRepository,
     JobRepository,
@@ -78,6 +79,9 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
         job = JobRepository(session).get(inp.job_id)
         if not job:
             return _fail(env, "JOB_NOT_FOUND", f"Job {inp.job_id} not found")
+        jd_text = job.jd_text or ""
+        job_title = job.title
+        job_company = job.company
 
         profile_id = inp.candidate_profile_id
         if profile_id:
@@ -86,8 +90,10 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
             profile = ProfileRepository(session).get_for_workspace(env.workspace_id)
         if not profile:
             return _fail(env, "MISSING_PROFILE", "No candidate profile found")
-
+        resolved_profile_id = profile.id
         structured_resume = profile.structured_resume_json
+        experience_summary = profile.experience_summary or ""
+
         if not structured_resume or not structured_resume.get("experiences"):
             return _fail(env, "MISSING_STRUCTURED_RESUME",
                          "Profile has no structured resume. Import your resume first.")
@@ -96,26 +102,26 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
         if not job_report:
             return _fail(env, "MISSING_JOB_REPORT",
                          "No job report found. Generate a job report first.")
+        job_report_structured = job_report.structured_json or {}
 
-        fit_report = None
+        fit_structured: dict = {}
         fit_reports = FitReportRepository(session).list_summaries_for_workspace(
-            workspace_id=env.workspace_id, profile_id=profile.id,
+            workspace_id=env.workspace_id, profile_id=resolved_profile_id,
         )
         for fr in fit_reports:
             if fr.job_id == inp.job_id:
-                fit_report = FitReportRepository(session).get(fr.id)
+                full_fr = FitReportRepository(session).get(fr.id)
+                if full_fr:
+                    fit_structured = full_fr.structured_json or {}
                 break
 
-    jd_text = job.jd_text or ""
-    job_report_structured = job_report.structured_json or {}
-    fit_structured = (fit_report.structured_json or {}) if fit_report else {}
     experiences = structured_resume.get("experiences", [])
 
     with get_session() as session:
         TaskEventRepository(session).append(
             task_id=env.task_id, run_id=env.run_id,
             event_type="resume_tailor_started",
-            message=f"Tailoring resume for {job.title} @ {job.company}",
+            message=f"Tailoring resume for {job_title} @ {job_company}",
         )
 
     llm = get_llm_client()
@@ -128,7 +134,7 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
             _step_workstream_analysis, llm, jd_text, job_report_structured
         )
         future_facts = pool.submit(
-            _step_experience_decomposition, llm, experiences, profile
+            _step_experience_decomposition, llm, experiences, experience_summary
         )
         workstream_analysis = future_ws.result()
         fact_atoms, experience_workflows = future_facts.result()
@@ -172,15 +178,39 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
         audit=audit,
     )
 
+    # Write artifacts to disk
+    import os
+    artifacts_dir = os.environ.get("AGENT_ARTIFACTS_DIR", "/app/data/agent_artifacts")
+    run_dir = Path(artifacts_dir) / env.run_id / env.task_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    resume_path = run_dir / "revised_resume.md"
+    resume_path.write_text(revised_markdown, encoding="utf-8")
+
+    draft_path = run_dir / "tailor_draft.json"
+    draft_path.write_text(draft.model_dump_json(indent=2), encoding="utf-8")
+
     with get_session() as session:
         run_repo = RunRepository(session)
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
+        artifact_repo = ArtifactRepository(session)
+
+        artifact_repo.create(
+            run_id=env.run_id, task_id=env.task_id,
+            artifact_type="revised_resume",
+            storage_uri=str(resume_path),
+        )
+        artifact_repo.create(
+            run_id=env.run_id, task_id=env.task_id,
+            artifact_type="tailor_draft",
+            storage_uri=str(draft_path),
+        )
 
         run_repo.complete(env.run_id, status="succeeded", result_summary={
             "validation_status": "passed",
             "job_id": inp.job_id,
-            "profile_id": profile.id,
+            "profile_id": resolved_profile_id,
             "bullet_edits_count": len(bullet_edits),
             "audit_passed": audit.passed,
             "audit_issues": len(audit.issues),
@@ -312,7 +342,7 @@ def _step_workstream_analysis(llm, jd_text: str, job_report: dict) -> Workstream
     )
 
 
-def _step_experience_decomposition(llm, experiences: list[dict], profile) -> tuple[list[FactAtom], list[ExperienceWorkflow]]:
+def _step_experience_decomposition(llm, experiences: list[dict], experience_summary: str) -> tuple[list[FactAtom], list[ExperienceWorkflow]]:
     class _DecompOutput(WorkstreamAnalysis.__class__.__bases__[0]):
         fact_atoms: list[FactAtom] = []
         experience_workflows: list[ExperienceWorkflow] = []
@@ -325,8 +355,8 @@ def _step_experience_decomposition(llm, experiences: list[dict], profile) -> tup
 
     exp_text = json.dumps(experiences, indent=2)[:15000]
     profile_ctx = ""
-    if profile.experience_summary:
-        profile_ctx = f"\n\n<experience_summary>\n{profile.experience_summary[:3000]}\n</experience_summary>"
+    if experience_summary:
+        profile_ctx = f"\n\n<experience_summary>\n{experience_summary[:3000]}\n</experience_summary>"
 
     result = llm.complete_structured(
         system_prompt=_DECOMPOSE_PROMPT,

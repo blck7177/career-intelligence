@@ -110,6 +110,10 @@ export async function cancelRun(runId: string, token?: string | null): Promise<R
   return req<RunRead>(`/api/app/runs/${runId}/cancel`, { method: "POST" }, token);
 }
 
+export async function getResumeDraft(runId: string, token?: string | null): Promise<Record<string, unknown>> {
+  return req<Record<string, unknown>>(`/api/app/runs/${runId}/resume-draft`, undefined, token);
+}
+
 // ---------------------------------------------------------------------------
 // Reports  (/api/app/*)
 // ---------------------------------------------------------------------------
