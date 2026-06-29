@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -147,10 +148,17 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
     )
 
     # ------------------------------------------------------------------
-    # Step 5: Claim design + section story + edit operations
+    # Step 5a: Claim design + section story (from role needs, NOT from original wording)
     # ------------------------------------------------------------------
-    section_plans, bullet_edits = _step_claim_design(
-        llm, workstream_analysis, evidence_matches, experiences, inp.preferences
+    section_plans = _step_claim_design(
+        llm, workstream_analysis, evidence_matches, fact_atoms, experiences,
+    )
+
+    # ------------------------------------------------------------------
+    # Step 5b: Compare ideal claims against original bullets → edit operations
+    # ------------------------------------------------------------------
+    bullet_edits = _step_edit_operations(
+        llm, section_plans, experiences, evidence_matches, inp.preferences,
     )
 
     # ------------------------------------------------------------------
@@ -246,15 +254,48 @@ Focus on operational reality, not JD buzzwords. \
 Return valid JSON matching the schema."""
 
 _DECOMPOSE_PROMPT = """\
-You are decomposing a candidate's resume into fact atoms and experience workflows.
+You are decomposing a candidate's resume bullets into fact atoms and experience workflows.
 
-For each bullet in each experience:
-- Extract fact atoms: context, action, method, output, stakeholder, impact
-- Only extract what is stated or strongly implied. Do NOT invent facts.
+## What a fact atom is
 
-Then group related fact atoms into experience workflows — chains of work \
-that together demonstrate a capability (e.g., "received ambiguous request → \
-gathered data → built analysis → presented to stakeholders").
+Each bullet is a compressed surface-level description. Your job is to \
+reconstruct the underlying work by asking these questions for each bullet:
+
+- What was actually happening? (context — project, business situation, trigger)
+- What was the input? (data, problem, request, ambiguity)
+- What complexity did the person handle? (messy data, conflicting requirements, scale)
+- What specific method did they use? (not just "Python" — what kind of analysis?)
+- What did they produce? (deliverable, decision, framework, automation)
+- Who consumed the output? (stakeholders, committees, downstream systems)
+- Why did it matter? (risk reduced, process improved, decision enabled)
+
+## Rules
+
+- Go deeper than the bullet text. "Evaluated predictive models" should become: \
+what types of models, what evaluation criteria, what did they find, what happened next.
+- "Supported process improvement" is not enough. What process? What was broken? \
+What did they build? What changed as a result?
+- Extract what is stated AND what is strongly implied by the work context. \
+A model risk analyst who "assessed PnL decomposition" almost certainly also \
+investigated data sources, compared methodology variants, and reported to governance.
+- Do NOT fabricate — but DO reconstruct plausible workflow steps that are \
+implied by the stated role, seniority, and deliverables.
+- Mark anything that is inferred (not explicitly stated) in the impact field \
+with "(inferred)" so downstream steps know the confidence level.
+
+## Experience workflows
+
+After extracting fact atoms, group related ones into experience workflows — \
+chains of work that together demonstrate an end-to-end capability:
+
+Example: problem_received → data_gathered → analysis_built → finding_identified → \
+stakeholder_communicated → decision_driven → process_improved
+
+A workflow proves more than individual facts. Focus on workflows that map to \
+real job capabilities like:
+- "can turn an ambiguous problem into a repeatable analytical process"
+- "can diagnose model behavior and translate findings into governance actions"
+- "can build automation that replaces manual analytical work"
 
 Return valid JSON matching the schema."""
 
@@ -271,25 +312,61 @@ Use the fit report analysis as a reference but do bullet-level matching.
 
 Return valid JSON matching the schema."""
 
-_CLAIM_PROMPT = """\
-You are designing the editing strategy for a resume tailored to a specific role.
+_CLAIM_DESIGN_PROMPT = """\
+You are designing what each bullet in a resume SHOULD prove for a target role.
 
-For each experience section, design:
-1. section_plan: what story this section should tell, ordered bullet claims
-2. bullet_edits: for each bullet, choose an operation:
-   - keep: already proves the right claim
-   - light_edit: right fact, needs minor wording adjustment
-   - reframe: good fact but wrong angle — rewrite to prove target capability
-   - compress: too long, condense while keeping the claim
-   - replace: weak bullet, use a stronger fact from the same experience
+IMPORTANT: Design claims from the ROLE'S perspective first, then find supporting \
+facts. Do NOT start from what the original bullet says — start from what the \
+role needs to see.
 
-Each bullet_edit must have:
-- claim: what this bullet should prove
-- rationale: why this edit operation was chosen
-- evidence_strength: direct/adjacent/supporting
+For each experience section:
+1. Design a section_plan with a story_arc that answers: "After reading this section, \
+the hiring manager should believe this person can ___."
+2. For each bullet position, design a bullet_claim: what capability should this \
+bullet prove? Use the evidence_requirements and fact_atoms to find the best \
+fact-claim pairing.
 
-Do NOT invent facts. Only use evidence from the candidate's actual experience.
-Do NOT turn every bullet into a keyword-stuffed mess — be selective and strategic.
+Claim design rules:
+- A claim is NOT a sentence. It is a statement of what the bullet should prove.
+  Good: "Can diagnose VaR model behavior through PnL decomposition and sensitivity analysis"
+  Bad: "Assessed PnL decomposition across risk clusters"
+- Order claims to build a narrative: establish identity → prove core capability → \
+prove execution → prove stakeholder/governance impact
+- Each claim must be backed by at least one fact_atom. If no fact supports it, \
+do not include the claim.
+- Do not duplicate claims across bullets — each should prove something different.
+- Prioritize claims for capabilities marked "core" in evidence_requirements.
+
+Return valid JSON matching the schema."""
+
+_EDIT_OPS_PROMPT = """\
+You are deciding HOW to edit each resume bullet to fulfill its assigned claim.
+
+You receive:
+- section_plans with ideal claims per bullet position
+- original bullet text
+- evidence matches showing fact strength
+
+For each bullet, compare the IDEAL CLAIM against the ORIGINAL BULLET and choose:
+
+- keep: Original already proves the exact claim with correct framing. Rare — \
+only if the bullet's angle, verb choice, and emphasis already match the target role.
+- light_edit: Same facts, minor wording fixes (grammar, tense, clarity). \
+The claim angle is already correct.
+- reframe: The underlying facts support the claim, but the angle/perspective \
+needs to change. This is common when the candidate's experience is adjacent — \
+e.g., changing "evaluated models" (validation perspective) to \
+"built diagnostic framework" (development/analytics perspective).
+- compress: The claim is correct but the bullet is too verbose. Tighten it.
+- replace: The original bullet proves a low-value claim for this role. \
+Use a different, stronger fact from the SAME experience to prove the ideal claim.
+
+Key judgment:
+- If the original bullet uses passive/review language ("evaluated", "assessed", \
+"supported", "conducted") but the role needs active/ownership language ("built", \
+"designed", "decomposed", "translated", "drove"), choose REFRAME, not keep.
+- "keep" should be rare. Most bullets need at least reframing to shift from the \
+candidate's current role perspective to the target role perspective.
 
 Return valid JSON matching the schema."""
 
@@ -395,12 +472,36 @@ def _step_evidence_matching(
 
 def _step_claim_design(
     llm, workstream: WorkstreamAnalysis, matches: list[EvidenceMatch],
-    experiences: list[dict], preferences: dict | None,
-) -> tuple[list[SectionPlan], list[BulletEdit]]:
+    facts: list[FactAtom], experiences: list[dict],
+) -> list[SectionPlan]:
     from pydantic import BaseModel as _BM
 
     class ClaimOutput(_BM):
         section_plans: list[SectionPlan] = []
+
+    user_msg = (
+        f"<evidence_requirements>\n{json.dumps([r.model_dump() for r in workstream.evidence_requirements], indent=2)}\n</evidence_requirements>\n\n"
+        f"<evidence_matches>\n{json.dumps([m.model_dump() for m in matches], indent=2)}\n</evidence_matches>\n\n"
+        f"<fact_atoms>\n{json.dumps([f.model_dump() for f in facts], indent=2)[:8000]}\n</fact_atoms>\n\n"
+        f"<experiences_structure>\n{json.dumps([{'index': i, 'employer': e.get('employer',''), 'title': e.get('title',''), 'bullet_count': len(e.get('bullets',[]))} for i, e in enumerate(experiences)], indent=2)}\n</experiences_structure>"
+    )
+    result = llm.complete_structured(
+        system_prompt=_CLAIM_DESIGN_PROMPT,
+        user_prompt=user_msg,
+        response_schema=ClaimOutput,
+        max_tokens=4096,
+        temperature=0.3,
+    )
+    return result.section_plans
+
+
+def _step_edit_operations(
+    llm, plans: list[SectionPlan], experiences: list[dict],
+    matches: list[EvidenceMatch], preferences: dict | None,
+) -> list[BulletEdit]:
+    from pydantic import BaseModel as _BM
+
+    class EditOutput(_BM):
         bullet_edits: list[BulletEdit] = []
 
     pref_text = ""
@@ -408,19 +509,19 @@ def _step_claim_design(
         pref_text = f"\n\n<preferences>\n{json.dumps(preferences, indent=2)}\n</preferences>"
 
     user_msg = (
-        f"<evidence_requirements>\n{json.dumps([r.model_dump() for r in workstream.evidence_requirements], indent=2)}\n</evidence_requirements>\n\n"
-        f"<evidence_matches>\n{json.dumps([m.model_dump() for m in matches], indent=2)}\n</evidence_matches>\n\n"
-        f"<original_experiences>\n{json.dumps(experiences, indent=2)[:12000]}\n</original_experiences>"
+        f"<section_plans>\n{json.dumps([p.model_dump() for p in plans], indent=2)}\n</section_plans>\n\n"
+        f"<original_experiences>\n{json.dumps(experiences, indent=2)[:12000]}\n</original_experiences>\n\n"
+        f"<evidence_matches>\n{json.dumps([m.model_dump() for m in matches], indent=2)}\n</evidence_matches>"
         f"{pref_text}"
     )
     result = llm.complete_structured(
-        system_prompt=_CLAIM_PROMPT,
+        system_prompt=_EDIT_OPS_PROMPT,
         user_prompt=user_msg,
-        response_schema=ClaimOutput,
+        response_schema=EditOutput,
         max_tokens=6144,
         temperature=0.3,
     )
-    return result.section_plans, result.bullet_edits
+    return result.bullet_edits
 
 
 def _step_write_bullets(
