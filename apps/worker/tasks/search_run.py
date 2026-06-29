@@ -390,11 +390,18 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 
     # ------------------------------------------------------------------
     # Step 6b: Multi-turn continuation if agent stopped too early
+    #
+    # Each continuation uses a FRESH session (not reusing the original)
+    # to avoid context window bloat — reused sessions accumulate all
+    # prior tool call I/O (web_fetch HTML, etc.) causing 50x token
+    # inflation and doubling LLM processing time per turn.
     # ------------------------------------------------------------------
-    _MAX_CONTINUATIONS = 2
+    _CONT_LIMITS_BY_DEPTH = {"quick": 1, "standard": 2, "deep": 2}
+    _CONT_TIMEOUT = 240
+    max_continuations = _CONT_LIMITS_BY_DEPTH.get(frontend_input.search_depth, 2)
     candidate_pool_path = run_dir / "candidate_pool.jsonl"
 
-    for continuation in range(1, _MAX_CONTINUATIONS + 1):
+    for continuation in range(1, max_continuations + 1):
         candidates_so_far = _count_jsonl_lines(candidate_pool_path)
         if candidates_so_far >= budget.max_candidates * 0.8:
             break
@@ -406,7 +413,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 
         logger.info(
             "search_run: continuation %d/%d — %d candidates (target %d), %d tool calls remaining",
-            continuation, _MAX_CONTINUATIONS,
+            continuation, max_continuations,
             candidates_so_far, budget.max_candidates, tool_calls_remaining,
         )
         with get_session() as session:
@@ -420,35 +427,22 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 ),
             )
 
-        unchecked_hint = ""
-        try:
-            all_boards = task_spec.source_registry_snapshot.known_boards if task_spec.source_registry_snapshot else []
-            manifest_path_tmp = Path(task_spec.output_paths.output_manifest_path)
-            if manifest_path_tmp.exists():
-                tried = json.loads(manifest_path_tmp.read_text()).get("sources_tried", [])
-                tried_lower = {s.lower() for s in tried}
-                unchecked = [b for b in all_boards if not any(t in b.lower() for t in tried_lower)]
-                if unchecked:
-                    board_list = "\n".join(f"  - {b}" for b in unchecked[:10])
-                    unchecked_hint = (
-                        f"\n\nBoards you have NOT checked yet:\n{board_list}\n"
-                        f"Try searching these for relevant roles."
-                    )
-        except Exception:
-            pass
-
-        continuation_msg = (
-            f"You stopped with only {candidates_so_far} candidates logged. "
-            f"The target is {budget.max_candidates}. "
-            f"You have {tool_calls_remaining} tool calls remaining.\n\n"
-            f"Continue searching for more candidates. Try different companies, "
-            f"different role titles, or boards you haven't checked yet."
-            f"{unchecked_hint}\n\n"
-            f"Call career_log_candidates to append new candidates, "
-            f"then call career_write_manifest when done."
+        cont_msg = _build_continuation_message(
+            candidates_so_far=candidates_so_far,
+            budget=budget,
+            tool_calls_remaining=tool_calls_remaining,
+            candidate_pool_path=candidate_pool_path,
+            task_spec=task_spec,
+            discovery_intent=discovery_intent,
         )
 
-        cont_result = runtime.invoke(spec, message_override=continuation_msg)
+        cont_session_key = f"{spec.session_key}:cont{continuation}"
+        cont_spec = spec.model_copy(update={
+            "session_key": cont_session_key,
+            "timeout_seconds": _CONT_TIMEOUT,
+        })
+
+        cont_result = runtime.invoke(cont_spec, message_override=cont_msg)
 
         if cont_result.stdout:
             p = run_dir / f"stdout_cont{continuation}.txt"
@@ -466,9 +460,11 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 
         if cont_result.exit_code != 0:
             logger.warning(
-                "search_run: continuation %d failed (exit_code=%d), proceeding with current results",
+                "search_run: continuation %d exit_code=%d (may be timeout), checking candidates before deciding",
                 continuation, cont_result.exit_code,
             )
+            if cont_result.timed_out:
+                continue
             break
 
     final_candidate_count = _count_jsonl_lines(candidate_pool_path)
@@ -675,6 +671,84 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 # All containers that write to the shared agent_artifacts volume run as this UID.
 _ARTIFACT_UID = 1000
 _ARTIFACT_GID = 1000
+
+
+def _build_continuation_message(
+    *,
+    candidates_so_far: int,
+    budget: AgentBudget,
+    tool_calls_remaining: int,
+    candidate_pool_path: Path,
+    task_spec,
+    discovery_intent,
+) -> str:
+    """Build a compact message for a fresh-session continuation invoke."""
+    already_found_urls: list[str] = []
+    already_found_companies: set[str] = set()
+    if candidate_pool_path.exists():
+        for line in candidate_pool_path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                c = json.loads(line)
+                already_found_urls.append(c.get("url", ""))
+                already_found_companies.add(c.get("company", ""))
+            except json.JSONDecodeError:
+                pass
+
+    sources_tried: list[str] = []
+    manifest_path = Path(task_spec.output_paths.output_manifest_path)
+    if manifest_path.exists():
+        try:
+            sources_tried = json.loads(manifest_path.read_text()).get("sources_tried", [])
+        except Exception:
+            pass
+
+    all_boards = task_spec.source_registry_snapshot.known_boards if task_spec.source_registry_snapshot else []
+    tried_lower = {s.lower() for s in sources_tried}
+    unchecked = [b for b in all_boards if not any(t in b.lower() for t in tried_lower)]
+
+    parts = [
+        f"Agent: {task_spec.output_paths.output_manifest_path.split('/')[4] if '/' in task_spec.output_paths.output_manifest_path else 'career-search-agent'}",
+        f"\nYou are continuing a job discovery run. A previous search found only "
+        f"{candidates_so_far} candidates — the target is {budget.max_candidates}.",
+        f"You have {tool_calls_remaining} tool calls remaining.",
+        f"\nGoal: {discovery_intent.interpreted_goal}",
+    ]
+
+    if discovery_intent.hard_constraints:
+        hc = discovery_intent.hard_constraints
+        parts.append(f"Constraints: location={hc.location}, seniority={hc.seniority}, visa={hc.visa_note}")
+
+    if already_found_companies:
+        parts.append(f"\nCompanies already covered: {', '.join(sorted(already_found_companies))}")
+    if already_found_urls:
+        parts.append(f"URLs already logged ({len(already_found_urls)} total) — do NOT re-log these.")
+
+    if unchecked:
+        board_list = "\n".join(f"  - {b}" for b in unchecked[:15])
+        parts.append(f"\nBoards NOT yet checked — search these:\n{board_list}")
+
+    if sources_tried:
+        parts.append(f"\nSources already tried: {', '.join(sources_tried[:10])}")
+
+    parts.append(
+        f"\nSearch for NEW candidates at companies not yet covered. "
+        f"Use web_search and web_fetch to find real job posting URLs. "
+        f"Call career_log_candidates to log them, then career_write_manifest when done."
+    )
+
+    output_paths = task_spec.output_paths
+    parts.append(
+        f"\nOutput paths (same as original run):"
+        f"\n  candidate_pool: {output_paths.candidate_pool_path}"
+        f"\n  output_manifest: {output_paths.output_manifest_path}"
+        f"\n  search_ledger: {output_paths.search_ledger_path}"
+        f"\n  coverage_report: {output_paths.coverage_report_path}"
+        f"\n  tool_events: {output_paths.tool_events_path}"
+    )
+
+    return "\n".join(parts)
 
 
 def _count_jsonl_lines(path: Path) -> int:
