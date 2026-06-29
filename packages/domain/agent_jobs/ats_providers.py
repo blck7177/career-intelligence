@@ -28,7 +28,7 @@ class ATSProviderSpec:
 ATS_PROVIDERS: dict[str, ATSProviderSpec] = {
     "greenhouse": ATSProviderSpec(
         provider="greenhouse",
-        api_url_template="https://boards-api.greenhouse.io/v1/boards/{token}/jobs",
+        api_url_template="https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true",
         careers_url_template="https://boards.greenhouse.io/{token}",
         token_patterns=(
             re.compile(r"boards\.greenhouse\.io/(?P<token>[a-z0-9_-]+)", re.I),
@@ -83,11 +83,25 @@ def build_careers_url(provider: str, token: str) -> str | None:
 
 @dataclass(frozen=True)
 class BoardJob:
-    """Minimal job record parsed from an ATS board API response."""
+    """Job record parsed from an ATS board API response."""
     url: str
     title: str
     company: str
     location: str | None = None
+    jd_html: str | None = None
+    jd_plain: str | None = None
+
+
+def _strip_html(html: str) -> str:
+    """HTML → plain text for JD content."""
+    import html as _html_mod
+    import re as _re
+    text = _html_mod.unescape(html)
+    text = _re.sub(r"<br\s*/?>", "\n", text)
+    text = _re.sub(r"</(p|div|li|h[1-6])>", "\n", text)
+    text = _re.sub(r"<[^>]+>", "", text)
+    text = _re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def parse_board_response(provider: str, data: object) -> list[BoardJob]:
@@ -115,11 +129,14 @@ def _parse_greenhouse(data: object) -> list[BoardJob]:
         if not url:
             continue
         loc = j.get("location")
+        content_html = j.get("content") or ""
         result.append(BoardJob(
             url=url,
             title=j.get("title", ""),
             company=(j.get("company_name") or "").strip(),
             location=loc.get("name") if isinstance(loc, dict) else None,
+            jd_html=content_html or None,
+            jd_plain=_strip_html(content_html) if content_html else None,
         ))
     return result
 
@@ -135,11 +152,15 @@ def _parse_lever(data: object) -> list[BoardJob]:
         if not url:
             continue
         cats = j.get("categories", {})
+        desc_plain = j.get("descriptionPlain") or ""
+        desc_html = j.get("description") or ""
         result.append(BoardJob(
             url=url,
             title=j.get("text", ""),
             company="",
             location=cats.get("location") if isinstance(cats, dict) else None,
+            jd_html=desc_html or None,
+            jd_plain=desc_plain or (_strip_html(desc_html) if desc_html else None),
         ))
     return result
 
@@ -157,10 +178,14 @@ def _parse_ashby(data: object) -> list[BoardJob]:
         url = j.get("jobUrl", "")
         if not url:
             continue
+        desc_plain = j.get("descriptionPlain") or ""
+        desc_html = j.get("descriptionHtml") or ""
         result.append(BoardJob(
             url=url,
             title=j.get("title", ""),
             company="",
             location=j.get("location") or None,
+            jd_html=desc_html or None,
+            jd_plain=desc_plain or (_strip_html(desc_html) if desc_html else None),
         ))
     return result

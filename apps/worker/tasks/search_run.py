@@ -1372,6 +1372,8 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
     )
     from packages.infrastructure.db.repositories import CompanySourceRepository
 
+    from packages.domain.agent_jobs.ats_providers import build_api_url as _build_api_url
+
     with get_session() as session:
         raw_sources = CompanySourceRepository(session).list_syncable()
         sources = [
@@ -1379,7 +1381,7 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                 "id": s.id,
                 "company_name": s.company_name,
                 "ats_provider": s.ats_provider,
-                "board_api_url": s.board_api_url,
+                "board_token": s.board_token,
                 "status": s.status,
             }
             for s in raw_sources
@@ -1394,7 +1396,7 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
     for src in sources:
         if src["ats_provider"] not in ATS_PROVIDERS:
             continue
-        api_url = src["board_api_url"]
+        api_url = _build_api_url(src["ats_provider"], src["board_token"])
         if not api_url:
             continue
 
@@ -1417,6 +1419,12 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                 if job_repo.get_by_canonical_url(bj.url):
                     continue
                 company = bj.company or src["company_name"]
+                jd_text = (bj.jd_plain or "").strip()
+                has_jd = len(jd_text) >= 200
+                jd_hash = None
+                if has_jd:
+                    import hashlib as _hl
+                    jd_hash = _hl.md5(jd_text.encode("utf-8")).hexdigest()[:16]
                 job_repo.create(
                     canonical_url=bj.url,
                     source_url=bj.url,
@@ -1425,9 +1433,16 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                     title=bj.title,
                     company=company,
                     location=bj.location,
-                    status="discovered",
+                    jd_text=jd_text if has_jd else None,
+                    jd_hash=jd_hash,
+                    status="reportable" if has_jd else "discovered",
                     discovered_run_id=run_id,
                     discovered_task_id=task_id,
+                    raw_payload_json={
+                        "source": "board_sync",
+                        "jd_source": "ats_api",
+                        "fetch_status": "success" if has_jd else "too_short",
+                    },
                 )
                 new_count += 1
             session.commit()
