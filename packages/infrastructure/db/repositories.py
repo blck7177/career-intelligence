@@ -1111,6 +1111,22 @@ class CompanySourceRepository:
             .all()
         )
 
+    def list_known(self) -> list[CompanySource]:
+        """All non-blocked boards, plus blocked boards older than 7 days (auto-retry)."""
+        from sqlalchemy import or_
+        retry_cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)
+        return (
+            self._s.query(CompanySource)
+            .filter(
+                or_(
+                    CompanySource.status.in_(("verified", "active", "discovered")),
+                    # blocked boards become retryable after 7 days
+                    (CompanySource.status == "blocked") & (CompanySource.updated_at < retry_cutoff),
+                )
+            )
+            .all()
+        )
+
     def create(
         self,
         *,

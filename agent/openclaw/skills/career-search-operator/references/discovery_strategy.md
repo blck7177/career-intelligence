@@ -4,6 +4,8 @@
 
 You own the **discovery objective** — maximize validated candidate supply within budget — not a fixed query sequence.
 
+`budget.max_candidates` is your **target, not just a ceiling**. Do not stop early because you found a few strong matches. Keep searching until you approach this target or exhaust your tool call budget.
+
 Your plan is temporary. Revise it based on evidence: search results, fetched pages, missing candidates, irrelevant results, source limitations.
 
 Continuously distinguish:
@@ -23,6 +25,10 @@ Read `catalog_context` and `previous_run_diagnostics` from the task spec:
 - `key_learnings` — known pitfalls in this search space.
 
 **Read context first, then plan. Never start from scratch.**
+
+### Known Boards — Use Them First
+
+Before broad web searches, iterate through `source_registry_snapshot.known_boards`. These are confirmed ATS boards with structured job listings — the highest-yield source. For each board, do a targeted search for roles matching `target_role_families`.
 
 ## You May Freely Change
 
@@ -62,6 +68,11 @@ web_search("site:boards.greenhouse.io <role keywords>")
   → confirm real JD from returned text → career_log_candidates
 ```
 
+**If `career_fetch_source` fails for a URL:**
+1. Try `web_fetch` on the same URL as fallback.
+2. If the URL itself is bad (403/404), try other jobs from the same ATS board.
+3. Do NOT stop the search because one fetch failed — move to the next source.
+
 ### Move 3: Career Page Snowball
 
 Best for: companies with custom HTML career pages.
@@ -96,23 +107,35 @@ Document every pivot reason in coverage_report.
 | Current source blocked / no results | Move 4: Source Pivot |
 | Budget almost exhausted | Focus on highest-yield known direction |
 
+### Minimum Coverage Before Stopping
+
+- At least 3 distinct search query families (different role titles or ATS platforms).
+- At least 50% of `known_boards` checked for relevant roles.
+- At least 1 open web search (not site-constrained) to discover new companies.
+
 ---
 
 ## Self-Review Every 5 Actions
 
-Call `career_search_status` every 5 discovery actions. Answer briefly (1-2 sentences each):
+**MANDATORY**: After every 5 tool calls, call `career_search_status`. Check the response:
+- If `budget_remaining.candidates` > 10, you **MUST** continue searching.
+- If `budget_remaining.tool_calls` ≤ 2, wrap up with the best candidates found so far.
+
+Answer briefly (1-2 sentences each):
 
 1. What was I looking for in these 5 actions?
-2. How many real candidates did I find?
+2. How many real candidates did I find? How many remain vs `budget.max_candidates`?
 3. What didn't work? Why?
 4. What role categories / companies / sources are still uncovered?
 5. Next: continue, expand, or pivot? Why?
 
 ## Stop Conditions (any one triggers)
 
-1. Candidate count reaches target (typically ≥20, or per discovery_intent).
-2. Major source families covered (known boards + web search for new companies).
+1. Candidate count approaches `budget.max_candidates` (within 80% of target).
+2. All `known_boards` checked AND ≥3 distinct web search query families exhausted with no new results.
 3. ≥3 consecutive strategy adjustments with 0 new candidates — document gap, finish.
-4. Budget exhausted (`max_candidates` or `max_tool_calls` reached).
+4. Budget exhausted (`max_tool_calls` reached).
+
+Do NOT stop just because you found a few strong matches. The user selected this budget because they want comprehensive coverage.
 
 After stopping → write `coverage_report.md` → call `career_write_manifest` → STOP.

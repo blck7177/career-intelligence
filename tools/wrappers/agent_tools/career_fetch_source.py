@@ -109,6 +109,7 @@ def main(task_spec: str, output: str) -> None:
 def _fail(output: str, message: str) -> None:
     Path(output).write_text(json.dumps({"error": message}))
     click.echo(f"ERROR: {message}", err=True)
+    click.echo(f"career_fetch_source failed: {message}")
 
 
 if __name__ == "__main__":

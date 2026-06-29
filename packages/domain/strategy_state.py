@@ -294,13 +294,13 @@ def materialize_discovery_hints(
 
     known_boards = [s for s in state.effective_sources if is_board_source(s)]
 
-    # Supplement with verified/active boards from company_sources DB table.
+    # Supplement with all non-blocked boards from company_sources DB table.
     try:
         from packages.infrastructure.db.session import get_session
         from packages.infrastructure.db.repositories import CompanySourceRepository
 
         with get_session() as session:
-            for src in CompanySourceRepository(session).list_syncable():
+            for src in CompanySourceRepository(session).list_known():
                 if src.board_careers_url and src.board_careers_url not in known_boards:
                     known_boards.append(src.board_careers_url)
     except Exception:
@@ -316,9 +316,16 @@ def materialize_discovery_hints(
             label = id_to_label.get(cat_id, cat_id)
             coverage_gaps.append(f"{label} ({level})")
 
+    avoid_with_hint = [
+        f"{s} (may be temporary — retry if no alternatives)"
+        if "block" in s.lower() or "403" in s
+        else s
+        for s in state.avoid_sources
+    ]
+
     source_snapshot = SourceRegistrySnapshot(
         known_boards=known_boards,
-        avoid_sources=list(state.avoid_sources),
+        avoid_sources=avoid_with_hint,
         effective_query_patterns=list(state.effective_query_patterns),
     )
     previous_diagnostics = PreviousRunDiagnostics(

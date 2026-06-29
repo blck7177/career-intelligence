@@ -128,14 +128,18 @@ If `career_log_candidates` or `career_write_manifest` exec fails, stop and write
    - Example: `web_fetch https://r.jina.ai/https://www.google.com/search?q=market+risk+analyst+New+York+bank+site:careers.jpmorgan.com`
 4. **Use direct ATS search URLs** from `source_registry_snapshot.known_boards`.
 
-**Do NOT spend more than 3 tool calls per search direction before moving on.** Context window is finite — breadth beats depth.
+**Do NOT spend more than 5 tool calls per search direction before moving on.** Breadth matters, but so does reaching the candidate target.
 
 ## Stop Conditions
 
-Stop and write manifest when:
+`budget.max_candidates` is your **target**, not just a ceiling. Keep searching until you approach it.
+
+**MANDATORY**: Call `career_search_status` after every 5 tool calls to check progress. If `budget_remaining.candidates` > 10 and `budget_remaining.tool_calls` > 2, you MUST continue searching.
+
+Stop and write manifest only when:
+- Candidate count approaches `budget.max_candidates` (within 80%)
 - `budget.max_tool_calls` is reached
-- `budget.max_candidates` new jobs have been logged
-- No more viable sources remain to check
+- ≥3 consecutive strategy pivots with 0 new candidates found
 - An unrecoverable error occurs
 
 ## Prohibited Actions

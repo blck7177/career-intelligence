@@ -89,8 +89,8 @@ class OpenClawGatewayRuntime(AgentRuntime):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
-    def invoke(self, spec: AgentInvocationSpec) -> AgentInvocationResult:
-        message = self._build_invocation_message(spec)
+    def invoke(self, spec: AgentInvocationSpec, *, message_override: str | None = None) -> AgentInvocationResult:
+        message = message_override or self._build_invocation_message(spec)
 
         cmd = [
             self._bin,
@@ -104,10 +104,11 @@ class OpenClawGatewayRuntime(AgentRuntime):
         env = _build_env(self._state_dir)
 
         logger.info(
-            "Invoking OpenClaw agent via gateway: agent_id=%s session_key=%s invocation_id=%s",
+            "Invoking OpenClaw agent via gateway: agent_id=%s session_key=%s invocation_id=%s%s",
             spec.agent_id,
             spec.session_key,
             spec.invocation_id,
+            " (continuation)" if message_override else "",
         )
 
         start = time.monotonic()
