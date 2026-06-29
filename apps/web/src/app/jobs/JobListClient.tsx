@@ -366,17 +366,17 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
       {/* Batch action bar */}
       {selected.size > 0 && (
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white rounded-xl shadow-lg px-5 py-3 z-50"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2.5 bg-white rounded-2xl shadow-xl px-5 py-3.5 z-50"
           style={{ border: "1px solid var(--border)" }}
         >
-          <span className="text-[13px] font-semibold" style={{ color: "var(--foreground)" }}>
+          <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
             {selected.size} selected
           </span>
-          <div className="w-px h-5 bg-zinc-200" />
+          <div className="w-px h-6 bg-zinc-200" />
           <button
             onClick={handleBatchArchive}
             disabled={!!loading}
-            className="text-[13px] font-medium text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+            className="text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
           >
             {loading === "archive" ? "Archiving…" : "Archive"}
           </button>
@@ -384,15 +384,15 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
             <button
               onClick={handleBatchAnalyze}
               disabled={!!loading}
-              className="text-[13px] font-medium px-3 py-1.5 rounded-md transition-colors hover:opacity-80 disabled:opacity-50"
-              style={{ color: "var(--primary)", background: "var(--secondary)" }}
+              className="text-sm font-medium px-4 py-2 rounded-lg transition-all hover:shadow-sm disabled:opacity-50"
+              style={{ color: "white", background: "var(--primary)" }}
             >
               {loading === "analyze" ? "Analyzing…" : "Analyze Fit"}
             </button>
           )}
           <button
             onClick={() => setSelected(new Set())}
-            className="text-[13px] text-zinc-400 hover:text-zinc-600 px-2 py-1.5"
+            className="text-sm text-zinc-400 hover:text-zinc-600 px-3 py-2"
           >
             Cancel
           </button>

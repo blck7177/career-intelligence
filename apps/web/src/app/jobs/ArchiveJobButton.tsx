@@ -29,13 +29,13 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
         <button
           onClick={handleArchive}
           disabled={loading}
-          className="text-[12px] font-medium text-rose-600 hover:text-rose-800 disabled:opacity-50"
+          className="text-[13px] font-medium text-rose-600 hover:text-rose-800 disabled:opacity-50"
         >
           {loading ? "Removing…" : "Confirm"}
         </button>
         <button
           onClick={() => setConfirming(false)}
-          className="text-[12px] text-zinc-400 hover:text-zinc-600"
+          className="text-[13px] text-zinc-400 hover:text-zinc-600"
         >
           Cancel
         </button>
@@ -46,7 +46,7 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
   return (
     <button
       onClick={() => setConfirming(true)}
-      className="text-[12px] text-zinc-400 hover:text-rose-500 transition-colors"
+      className="text-[13px] text-zinc-400 hover:text-rose-500 transition-colors"
     >
       Remove
     </button>

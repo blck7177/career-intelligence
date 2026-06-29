@@ -11,9 +11,10 @@ interface ProfileOption {
 interface JobFiltersProps {
   profiles: ProfileOption[];
   roleCategories: string[];
+  companies: string[];
 }
 
-export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
+export function JobFilters({ profiles, roleCategories, companies }: JobFiltersProps) {
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -34,6 +35,8 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
   const roleCategory = sp.get("role_category") ?? "";
   const seniority = sp.get("seniority") ?? "";
   const confidence = sp.get("confidence") ?? "";
+  const company = sp.get("company") ?? "";
+  const sort = sp.get("sort") ?? "";
 
   useEffect(() => {
     if (!profileId && profiles.length === 1) {
@@ -41,15 +44,33 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
     }
   }, [profileId, profiles, update]);
 
+  const selectClass =
+    "h-8 rounded-md border border-zinc-200 bg-white px-2.5 text-[13px] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50";
+
   return (
-    <div className="flex flex-wrap gap-2 items-center">
+    <div className="flex flex-wrap gap-2.5 items-center">
+      {/* Sort */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Sort:</span>
+        <select
+          value={sort}
+          onChange={(e) => update("sort", e.target.value || null)}
+          className={selectClass}
+        >
+          <option value="">Newest</option>
+          <option value="oldest">Oldest</option>
+          <option value="company">Company A→Z</option>
+          {profileId && <option value="fit">Fit Score</option>}
+        </select>
+      </div>
+
       {profiles.length > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-zinc-500 whitespace-nowrap">Fit for:</span>
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Fit for:</span>
           <select
             value={profileId}
             onChange={(e) => update("profile_id", e.target.value || null)}
-            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+            className={selectClass}
           >
             <option value="">— no profile —</option>
             {profiles.map((p) => (
@@ -61,13 +82,32 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
         </div>
       )}
 
+      {/* Company */}
+      {companies.length > 1 && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Company:</span>
+          <select
+            value={company}
+            onChange={(e) => update("company", e.target.value || null)}
+            className={`${selectClass} max-w-[180px]`}
+          >
+            <option value="">All</option>
+            {companies.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {roleCategories.length > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-zinc-500 whitespace-nowrap">Role category:</span>
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Role category:</span>
           <select
             value={roleCategory}
             onChange={(e) => update("role_category", e.target.value || null)}
-            className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 max-w-[180px]"
+            className={`${selectClass} max-w-[180px]`}
           >
             <option value="">All</option>
             {roleCategories.map((category) => (
@@ -80,11 +120,11 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
       )}
 
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-zinc-500 whitespace-nowrap">Seniority:</span>
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Seniority:</span>
         <select
           value={seniority}
           onChange={(e) => update("seniority", e.target.value || null)}
-          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+          className={selectClass}
         >
           <option value="">All</option>
           <option value="junior">Junior</option>
@@ -96,11 +136,11 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-zinc-500 whitespace-nowrap">Confidence:</span>
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Confidence:</span>
         <select
           value={confidence}
           onChange={(e) => update("confidence", e.target.value || null)}
-          className="h-7 rounded-md border border-zinc-200 bg-white px-2 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+          className={selectClass}
         >
           <option value="">All</option>
           <option value="high">High</option>
@@ -109,11 +149,11 @@ export function JobFilters({ profiles, roleCategories }: JobFiltersProps) {
         </select>
       </div>
 
-      {(profileId || roleCategory || seniority || confidence) && (
+      {(profileId || roleCategory || seniority || confidence || company || sort) && (
         <button
           type="button"
           onClick={() => router.push("/jobs")}
-          className="text-xs text-zinc-500 hover:text-zinc-800 underline underline-offset-2"
+          className="text-[13px] text-zinc-500 hover:text-zinc-800 underline underline-offset-2"
         >
           Clear filters
         </button>

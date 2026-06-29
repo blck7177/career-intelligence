@@ -64,7 +64,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5">
       <Button
         onClick={handleGenerateReport}
         disabled={reportLoading}
@@ -72,9 +72,9 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
         variant={hasExistingReport ? "outline" : "default"}
       >
         {reportLoading ? (
-          <Loader2 size={13} className="animate-spin mr-1.5" />
+          <Loader2 size={15} className="animate-spin mr-1.5" />
         ) : (
-          <FileText size={13} className="mr-1.5" />
+          <FileText size={15} className="mr-1.5" />
         )}
         {hasExistingReport ? "Refresh Report" : "Generate Report"}
       </Button>
@@ -96,7 +96,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId }: JobActions
         variant="outline"
         className="text-zinc-400 hover:text-rose-500 hover:border-rose-300"
       >
-        <Trash2 size={13} className="mr-1.5" />
+        <Trash2 size={15} className="mr-1.5" />
         {archiving ? "Removing…" : "Remove"}
       </Button>
     </div>

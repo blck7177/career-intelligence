@@ -105,12 +105,78 @@ def handle_job_report(env: TaskEnvelope) -> dict:
         )
 
     logger.info("job_report: task_id=%s succeeded report_id=%s", env.task_id, result["job_report_id"])
+
+    auto_fit_profile_id = snap.get("auto_fit_profile_id")
+    if auto_fit_profile_id:
+        _chain_fit_report(env, inp.job_id, result["job_report_id"], auto_fit_profile_id)
+
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "job_report_id": result["job_report_id"],
         "cache_status": result["status"],
     }
+
+
+def _chain_fit_report(
+    env: TaskEnvelope,
+    job_id: str,
+    job_report_id: str,
+    profile_id: str,
+) -> None:
+    """Auto-create and enqueue a fit_report run after job_report completes."""
+    import uuid as _uuid
+    from packages.domain.agent_jobs.routing import celery_queue_for_task_type
+    from packages.contracts.tasks.envelopes import TaskEnvelope as TE
+
+    try:
+        correlation_id = str(_uuid.uuid4())
+        with get_session() as session:
+            run_repo = RunRepository(session)
+            task_repo = TaskRepository(session)
+
+            run = run_repo.create(
+                workspace_id=env.workspace_id,
+                run_type="fit_report",
+                input_snapshot_json={
+                    "job_id": job_id,
+                    "job_report_id": job_report_id,
+                    "force_refresh": False,
+                    "profile_id": profile_id,
+                },
+                correlation_id=correlation_id,
+            )
+            task = task_repo.create(
+                run_id=run.id,
+                workspace_id=env.workspace_id,
+                task_type="fit_report",
+                idempotency_key=f"fit_report:{env.workspace_id}:{run.id}",
+            )
+            run_id = run.id
+            task_id = task.id
+            session.commit()
+
+        envelope = TE(
+            task_id=task_id,
+            run_id=run_id,
+            workspace_id=env.workspace_id,
+            task_type="fit_report",
+            idempotency_key=f"fit_report:{env.workspace_id}:{run_id}",
+            correlation_id=correlation_id,
+        )
+        celery_queue = celery_queue_for_task_type("fit_report")
+        from apps.worker.celery_app import celery_app
+        celery_app.send_task(
+            "apps.worker.tasks.execute_task",
+            kwargs={"envelope": envelope.model_dump(mode="json")},
+            queue=celery_queue,
+        )
+        logger.info(
+            "job_report: auto-chained fit_report run=%s for job=%s profile=%s",
+            run_id, job_id, profile_id,
+        )
+    except Exception as exc:
+        logger.error("job_report: failed to chain fit_report: %s", exc, exc_info=True)
 
 
 def _mark_failed(env: TaskEnvelope, *, error_code: str, message: str) -> None:

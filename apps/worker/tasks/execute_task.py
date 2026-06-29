@@ -69,7 +69,16 @@ def execute_task(self, *, envelope: dict) -> dict:
     lock = WorkspaceLock()
     lock_owner = f"task:{env.task_id}"
 
-    with lock.held(env.workspace_id, env.task_type, owner=lock_owner) as acquired:
+    # Per-job lock for job_report/fit_report; per-workspace lock for everything else.
+    lock_scope = env.task_type
+    if env.task_type in ("job_report", "fit_report"):
+        with get_session() as _ls:
+            _run = RunRepository(_ls).get(env.run_id)
+            _job_id = (_run.input_snapshot_json or {}).get("job_id") if _run else None
+        if _job_id:
+            lock_scope = f"{env.task_type}:{_job_id}"
+
+    with lock.held(env.workspace_id, lock_scope, owner=lock_owner) as acquired:
         if not acquired:
             logger.warning(
                 "Lock conflict: workspace=%s task_type=%s already running, failing task %s",

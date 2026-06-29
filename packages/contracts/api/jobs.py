@@ -56,3 +56,38 @@ class JobRead(BaseModel):
 class JobList(BaseModel):
     items: list[JobRead]
     total: int
+
+
+class JobImportRequest(BaseModel):
+    """Import a single job by URL."""
+
+    url: str
+
+    model_config = {"json_schema_extra": {"examples": [{"url": "https://boards.greenhouse.io/acme/jobs/123"}]}}
+
+
+class JobImportResponse(BaseModel):
+    """Result of a job import."""
+
+    job: JobRead
+    created: bool
+    jd_fetched: bool
+
+
+class BatchArchiveRequest(BaseModel):
+    job_ids: list[str]
+
+
+class BatchArchiveResponse(BaseModel):
+    archived_count: int
+
+
+class BatchAnalyzeRequest(BaseModel):
+    job_ids: list[str]
+    profile_id: Optional[str] = None
+
+
+class BatchAnalyzeResponse(BaseModel):
+    run_ids: list[str]
+    skipped: list[str]
+    report_first: list[str] = []

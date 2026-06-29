@@ -49,7 +49,7 @@ export function JobFitCell({ jobId, jobReportId, hasProfile, fitReport }: JobFit
       <div className="flex flex-col items-end gap-1">
         <FitScoreBadge fitReportId={fitReport.id} score={fitReport.score} />
         {fitReport.recommended_next_action && (
-          <span className="text-[10px] text-zinc-400 max-w-[120px] text-right leading-tight">
+          <span className="text-[11px] text-zinc-400 max-w-[130px] text-right leading-tight">
             {actionLabel(fitReport.recommended_next_action)}
           </span>
         )}
@@ -78,7 +78,7 @@ export function JobFitCell({ jobId, jobReportId, hasProfile, fitReport }: JobFit
         variant="outline"
         label="Analyze fit"
       />
-      <span className="text-[10px] text-zinc-400">Needs report</span>
+      <span className="text-[11px] text-zinc-400">Needs report</span>
     </div>
   );
 }
