@@ -529,6 +529,27 @@ class FitReport(Base):
     superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class JobFavorite(Base):
+    """Workspace-private bookmark on a job. Mirrors the FitReport split: Job is
+    global/shared, favorited-ness is per-workspace preference data."""
+
+    __tablename__ = "job_favorites"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "job_id", name="uq_job_favorites_workspace_job"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class CandidateProfile(Base):
     """Workspace-private career profile — single source of truth for both Discovery and FitReport.
 

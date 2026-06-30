@@ -157,12 +157,21 @@ export async function getLatestJobReport(jobId: string, token?: string | null): 
 // ---------------------------------------------------------------------------
 
 export async function listJobs(
-  params?: { status?: string; include_report_summary?: boolean },
+  params?: {
+    status?: string;
+    include_report_summary?: boolean;
+    favorites_only?: boolean;
+    limit?: number;
+    offset?: number;
+  },
   token?: string | null,
 ): Promise<JobList> {
   const qs = new URLSearchParams();
   if (params?.status) qs.set("status", params.status);
   if (params?.include_report_summary) qs.set("include_report_summary", "true");
+  if (params?.favorites_only) qs.set("favorites_only", "true");
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();
   return req<JobList>(`/api/app/jobs${query ? `?${query}` : ""}`, undefined, token);
 }
@@ -173,6 +182,28 @@ export async function getJob(jobId: string, token?: string | null): Promise<JobR
 
 export async function archiveJob(jobId: string, token?: string | null): Promise<void> {
   await req<void>(`/api/app/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }, token);
+}
+
+export async function favoriteJob(
+  jobId: string,
+  token?: string | null,
+): Promise<{ favorited: boolean }> {
+  return req<{ favorited: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/favorite`,
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function unfavoriteJob(
+  jobId: string,
+  token?: string | null,
+): Promise<{ favorited: boolean }> {
+  return req<{ favorited: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/favorite`,
+    { method: "DELETE" },
+    token,
+  );
 }
 
 export async function batchArchiveJobs(

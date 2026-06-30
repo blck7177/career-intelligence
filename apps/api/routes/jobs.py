@@ -1,11 +1,13 @@
 """
-Jobs API — read, archive, and import job records.
+Jobs API — read, archive, import, and favorite job records.
 
 Contract:
-  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=  → JobList
+  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=&favorites_only=  → JobList
   GET    /api/app/jobs/{job_id}                → JobRead
   POST   /api/app/jobs/import                  → JobImportResponse
   DELETE /api/app/jobs/{job_id}                → 204 (soft-delete: sets status to "archived")
+  POST   /api/app/jobs/{job_id}/favorite       → FavoriteResponse
+  DELETE /api/app/jobs/{job_id}/favorite       → FavoriteResponse
 
 Results are always scoped to the authenticated user's workspace.
 """
@@ -26,14 +28,16 @@ from packages.contracts.api.jobs import (
     BatchAnalyzeResponse,
     BatchArchiveRequest,
     BatchArchiveResponse,
+    FavoriteResponse,
     JDStructured,
     JobImportRequest,
     JobImportResponse,
     JobList,
     JobRead,
 )
-from packages.infrastructure.db.models import Workspace
+from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
+    JobFavoriteRepository,
     JobRepository,
     JobReportRepository,
     RunRepository,
@@ -70,7 +74,20 @@ def _infer_seniority_from_title(title: str) -> Optional[str]:
     return None
 
 
-def _job_read(job, report=None, include_jd_structured: bool = False) -> JobRead:
+def _get_workspace_job(db: Session, workspace: Workspace, job_id: str) -> Job:
+    """Fetch a job and verify it belongs to a run in the current workspace."""
+    job = JobRepository(db).get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
+    if not job.discovered_run_id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    run = RunRepository(db).get(job.discovered_run_id)
+    if run is None or run.workspace_id != workspace.id:
+        raise HTTPException(status_code=403, detail="Access denied.")
+    return job
+
+
+def _job_read(job, report=None, include_jd_structured: bool = False, is_favorited: bool = False) -> JobRead:
     data = {
         "id": job.id,
         "canonical_url": job.canonical_url,
@@ -84,6 +101,7 @@ def _job_read(job, report=None, include_jd_structured: bool = False) -> JobRead:
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "last_seen_at": job.last_seen_at,
+        "is_favorited": is_favorited,
     }
     if report:
         data["latest_job_report_id"] = report.id
@@ -110,6 +128,7 @@ def list_jobs(
         False,
         description="Join latest active job report for role category/seniority/confidence fields",
     ),
+    favorites_only: bool = Query(False, description="Only return jobs bookmarked in this workspace"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -121,9 +140,12 @@ def list_jobs(
     if not run_ids:
         return JobList(items=[], total=0)
 
+    favorited_ids = JobFavoriteRepository(db).list_job_ids_for_workspace(workspace.id)
+
     items, total = JobRepository(db).list(
         run_ids=run_ids,
         status=status,
+        job_ids=favorited_ids if favorites_only else None,
         limit=limit,
         offset=offset,
     )
@@ -134,7 +156,7 @@ def list_jobs(
         report_map = JobReportRepository(db).get_latest_active_map(job_ids)
 
     return JobList(
-        items=[_job_read(j, report_map.get(j.id)) for j in items],
+        items=[_job_read(j, report_map.get(j.id), is_favorited=j.id in favorited_ids) for j in items],
         total=total,
     )
 
@@ -439,21 +461,14 @@ def get_job(
     workspace: Workspace = Depends(get_current_workspace),
 ) -> JobRead:
     """Fetch a single job record by ID, verified to belong to the current workspace."""
-    job = JobRepository(db).get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
-
-    if not job.discovered_run_id:
-        raise HTTPException(status_code=403, detail="Access denied.")
-    run = RunRepository(db).get(job.discovered_run_id)
-    if run is None or run.workspace_id != workspace.id:
-        raise HTTPException(status_code=403, detail="Access denied.")
+    job = _get_workspace_job(db, workspace, job_id)
 
     report = None
     if include_report_summary:
         report = JobReportRepository(db).get_latest_active(job_id)
 
-    return _job_read(job, report, include_jd_structured=True)
+    is_favorited = JobFavoriteRepository(db).is_favorited(workspace.id, job_id)
+    return _job_read(job, report, include_jd_structured=True, is_favorited=is_favorited)
 
 
 @router.delete("/{job_id}", status_code=204)
@@ -463,15 +478,35 @@ def archive_job(
     workspace: Workspace = Depends(get_current_workspace),
 ):
     """Soft-delete a job by setting its status to 'archived'."""
-    job = JobRepository(db).get(job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id!r} not found.")
-
-    if not job.discovered_run_id:
-        raise HTTPException(status_code=403, detail="Access denied.")
-    run = RunRepository(db).get(job.discovered_run_id)
-    if run is None or run.workspace_id != workspace.id:
-        raise HTTPException(status_code=403, detail="Access denied.")
+    _get_workspace_job(db, workspace, job_id)
 
     JobRepository(db).set_status(job_id, "archived")
     db.commit()
+
+
+@router.post("/{job_id}/favorite", response_model=FavoriteResponse)
+def favorite_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> FavoriteResponse:
+    """Bookmark a job in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobFavoriteRepository(db).add(workspace.id, job_id)
+    db.commit()
+    return FavoriteResponse(favorited=True)
+
+
+@router.delete("/{job_id}/favorite", response_model=FavoriteResponse)
+def unfavorite_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> FavoriteResponse:
+    """Remove a job bookmark in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobFavoriteRepository(db).remove(workspace.id, job_id)
+    db.commit()
+    return FavoriteResponse(favorited=False)

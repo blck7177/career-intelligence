@@ -44,6 +44,10 @@ function relativeTime(iso: string): string {
   return `${days} days ago`;
 }
 
+// Backend caps `limit` at 500; Top picks/company-distribution need the full
+// job set in memory to rank correctly, not just the most recently created page.
+const FETCH_LIMIT = 500;
+
 export default async function HomePage() {
   const token = await getServerToken();
 
@@ -55,7 +59,7 @@ export default async function HomePage() {
 
   try {
     const [jobList, runList, profile] = await Promise.all([
-      listJobs({ include_report_summary: true }, token),
+      listJobs({ include_report_summary: true, limit: FETCH_LIMIT }, token),
       listRuns(token).catch(() => ({ items: [] as RunRead[] })),
       getProfile(token).catch(() => null),
     ]);
@@ -109,6 +113,16 @@ export default async function HomePage() {
 
   const unreviewedCount = jobs.filter((j) => j.status === "discovered").length;
   const recentSearches = discoveryRuns.slice(0, 3);
+
+  const TOP_PICKS_COUNT = 8;
+  const topPicks = jobs.slice(0, TOP_PICKS_COUNT);
+
+  const companyCounts = new Map<string, number>();
+  for (const j of jobs) {
+    companyCounts.set(j.company, (companyCounts.get(j.company) ?? 0) + 1);
+  }
+  const topCompanies = [...companyCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const maxCompanyCount = topCompanies[0]?.[1] ?? 1;
 
   return (
     <>
@@ -200,7 +214,7 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {/* Role cards */}
+          {/* Top picks */}
           {jobs.length === 0 && !fetchError ? (
             <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
               <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No roles in your inbox yet.</p>
@@ -213,8 +227,23 @@ export default async function HomePage() {
               </Link>
             </div>
           ) : (
-            <div className="flex flex-col gap-2.5">
-              {jobs.map((job) => {
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-[12.5px] font-semibold" style={{ color: "oklch(38% 0.012 275)" }}>
+                  {profileId ? "Top picks for you" : "Recent roles"}
+                </span>
+                {total > topPicks.length && (
+                  <Link
+                    href="/jobs"
+                    className="text-[12.5px] font-medium hover:underline"
+                    style={{ color: "var(--primary)" }}
+                  >
+                    View all {total} roles →
+                  </Link>
+                )}
+              </div>
+              <div className="flex flex-col gap-2.5">
+              {topPicks.map((job) => {
                 const fr = fitMap.get(job.id);
                 const score = fr?.overall_match_score;
                 const match = matchLabel(score);
@@ -303,7 +332,8 @@ export default async function HomePage() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            </>
           )}
 
           <div className="h-9" />
@@ -422,6 +452,37 @@ export default async function HomePage() {
               </p>
             )}
           </div>
+
+          {/* Top companies */}
+          {topCompanies.length > 0 && (
+            <div>
+              <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
+                Top companies
+              </div>
+              <div className="flex flex-col gap-2">
+                {topCompanies.map(([company, count]) => (
+                  <div key={company} className="flex items-center gap-2.5">
+                    <span
+                      className="text-[12.5px] truncate flex-1"
+                      style={{ color: "oklch(36% 0.012 275)" }}
+                      title={company}
+                    >
+                      {company}
+                    </span>
+                    <div className="w-16 h-1.5 rounded-full shrink-0" style={{ background: "oklch(94% 0.01 275)" }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${(count / maxCompanyCount) * 100}%`, background: "var(--primary)" }}
+                      />
+                    </div>
+                    <span className="text-[11.5px] w-4 text-right shrink-0" style={{ color: "oklch(56% 0.01 275)" }}>
+                      {count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>

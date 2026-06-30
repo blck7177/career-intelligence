@@ -26,6 +26,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
       } else {
         params.delete(key);
       }
+      params.delete("page");
       router.push(`/jobs?${params.toString()}`);
     },
     [router, sp],

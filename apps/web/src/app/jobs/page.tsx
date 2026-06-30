@@ -10,6 +10,12 @@ export const dynamic = "force-dynamic";
 
 type StatusFilter = "all" | "discovered" | "reportable" | "stale" | "invalid";
 
+const PAGE_SIZE = 20;
+// Backend caps `limit` at 500; filters below run client-side over this
+// fetched batch, so jobs beyond this count won't be visible until we
+// move filtering server-side.
+const FETCH_LIMIT = 500;
+
 interface PageProps {
   searchParams: Promise<{
     profile_id?: string;
@@ -20,7 +26,23 @@ interface PageProps {
     status?: string;
     q?: string;
     sort?: string;
+    page?: string;
+    favorites?: string;
   }>;
+}
+
+function pageNumbers(current: number, total: number): (number | "ellipsis")[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const pages = new Set([1, 2, total - 1, total, current - 1, current, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const result: (number | "ellipsis")[] = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (prev && p - prev > 1) result.push("ellipsis");
+    result.push(p);
+    prev = p;
+  }
+  return result;
 }
 
 const SAVED_VIEWS: { label: string; status: StatusFilter }[] = [
@@ -67,12 +89,15 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   const statusFilter = (params.status as StatusFilter) || "all";
   const profileId = params.profile_id;
+  const favoritesOnly = params.favorites === "1";
 
   const [jobList, profile] = await Promise.all([
     listJobs(
       {
         status: statusFilter !== "all" ? statusFilter : undefined,
         include_report_summary: true,
+        favorites_only: favoritesOnly,
+        limit: FETCH_LIMIT,
       },
       token,
     ).catch(() => ({ items: [] as JobRead[], total: 0 })),
@@ -162,6 +187,10 @@ export default async function JobsPage({ searchParams }: PageProps) {
     params.q,
   ].filter(Boolean).length;
 
+  const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, Number(params.page) || 1), totalPages);
+  const pagedJobs = jobs.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   // Serialize fitMap to plain object for client component
   const fitMapObj: Record<string, { id: string; score: number; recommended_next_action?: string | null }> = {};
   for (const [jobId, fr] of fitMap) {
@@ -208,7 +237,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
             return (
               <Link
                 key={status}
-                href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status })}`}
+                href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status, page: undefined })}`}
                 className="py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
                 style={
                   active
@@ -220,6 +249,23 @@ export default async function JobsPage({ searchParams }: PageProps) {
               </Link>
             );
           })}
+
+          <div className="w-px self-stretch bg-zinc-200 mx-1" />
+
+          <Link
+            href={`/jobs${buildQuery(params, { favorites: favoritesOnly ? undefined : "1", page: undefined })}`}
+            className="flex items-center gap-1.5 py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
+            style={
+              favoritesOnly
+                ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
+            }
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill={favoritesOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+              <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Favorites
+          </Link>
         </div>
 
         <Suspense fallback={null}>
@@ -240,7 +286,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
         ) : (
           <div className="mt-4">
             <JobListClient
-              jobs={jobs.map((j) => ({
+              jobs={pagedJobs.map((j) => ({
                 id: j.id,
                 title: j.title,
                 company: j.company,
@@ -249,11 +295,64 @@ export default async function JobsPage({ searchParams }: PageProps) {
                 seniority_inferred: j.seniority_inferred,
                 created_at: j.created_at.toString(),
                 latest_job_report_id: j.latest_job_report_id,
+                is_favorited: j.is_favorited,
               }))}
               fitMap={fitMapObj}
               hasProfile={!!activeProfileId}
               profileId={activeProfileId}
+              favoritesOnly={favoritesOnly}
             />
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-1.5 mt-6">
+                <Link
+                  href={`/jobs${buildQuery(params, { page: currentPage > 1 ? String(currentPage - 1) : undefined })}`}
+                  aria-disabled={currentPage === 1}
+                  className="h-8 px-3 rounded-md text-[13px] font-medium flex items-center"
+                  style={
+                    currentPage === 1
+                      ? { color: "var(--muted-foreground)", pointerEvents: "none", opacity: 0.4 }
+                      : { color: "var(--foreground)", border: "1px solid var(--border)" }
+                  }
+                >
+                  ← Prev
+                </Link>
+
+                {pageNumbers(currentPage, totalPages).map((p, idx) =>
+                  p === "ellipsis" ? (
+                    <span key={`e${idx}`} className="px-1.5 text-[13px]" style={{ color: "var(--muted-foreground)" }}>
+                      …
+                    </span>
+                  ) : (
+                    <Link
+                      key={p}
+                      href={`/jobs${buildQuery(params, { page: p === 1 ? undefined : String(p) })}`}
+                      className="h-8 w-8 rounded-md text-[13px] font-medium flex items-center justify-center"
+                      style={
+                        p === currentPage
+                          ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                          : { color: "var(--foreground)", border: "1px solid var(--border)" }
+                      }
+                    >
+                      {p}
+                    </Link>
+                  ),
+                )}
+
+                <Link
+                  href={`/jobs${buildQuery(params, { page: currentPage < totalPages ? String(currentPage + 1) : undefined })}`}
+                  aria-disabled={currentPage === totalPages}
+                  className="h-8 px-3 rounded-md text-[13px] font-medium flex items-center"
+                  style={
+                    currentPage === totalPages
+                      ? { color: "var(--muted-foreground)", pointerEvents: "none", opacity: 0.4 }
+                      : { color: "var(--foreground)", border: "1px solid var(--border)" }
+                  }
+                >
+                  Next →
+                </Link>
+              </div>
+            )}
           </div>
         )}
       </div>

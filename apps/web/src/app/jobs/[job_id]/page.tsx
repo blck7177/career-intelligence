@@ -5,6 +5,7 @@ import type { JobRead, JobReportResponse, FitReportResponse, JDStructured, Profi
 import { getServerToken } from "@/lib/server-auth";
 import { Badge } from "@/components/ui/badge";
 import { fmtTs } from "@/lib/utils";
+import { FavoriteButton } from "./FavoriteButton";
 import { JobActions } from "./JobActions";
 import { JobDetailTabs } from "./JobDetailTabs";
 
@@ -95,6 +96,7 @@ export default async function JobDetailPage({ params }: PageProps) {
               </div>
             </div>
           </div>
+          <FavoriteButton jobId={job_id} initialFavorited={!!job.is_favorited} />
         </div>
       </header>
 

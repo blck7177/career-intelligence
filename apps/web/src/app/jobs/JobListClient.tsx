@@ -7,6 +7,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { batchArchiveJobs, batchAnalyzeJobs, importJob, getRun } from "@/api/client";
 import { fmtTs } from "@/lib/utils";
 import { ArchiveJobButton } from "./ArchiveJobButton";
+import { FavoriteStarButton } from "./FavoriteStarButton";
 import { JobFitCell } from "./JobFitCell";
 
 interface JobItem {
@@ -18,6 +19,7 @@ interface JobItem {
   seniority_inferred?: string | null;
   created_at: string;
   latest_job_report_id?: string | null;
+  is_favorited?: boolean;
 }
 
 interface FitData {
@@ -31,6 +33,7 @@ interface Props {
   fitMap: Record<string, FitData>;
   hasProfile: boolean;
   profileId?: string | null;
+  favoritesOnly?: boolean;
 }
 
 function matchStyle(score: number | undefined): "strong" | "good" | "partial" {
@@ -48,7 +51,7 @@ function matchBadge(style: "strong" | "good" | "partial"): { text: string; class
   return { text: "Partial", classes: "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]" };
 }
 
-export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
+export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOnly }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
@@ -57,9 +60,29 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
   const [showImportInput, setShowImportInput] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const [unfavoritedIds, setUnfavoritedIds] = useState<Set<string>>(new Set());
   const getToken = useApiToken();
   const router = useRouter();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Reset whenever the server gives us a fresh job list (new page/filter).
+  useEffect(() => {
+    setUnfavoritedIds(new Set());
+  }, [jobs]);
+
+  // In the favorites-only view, unfavoriting a card removes it from view immediately.
+  const visibleJobs = favoritesOnly ? jobs.filter((j) => !unfavoritedIds.has(j.id)) : jobs;
+
+  function handleFavoriteToggled(jobId: string, favorited: boolean) {
+    if (favorited || !favoritesOnly) return;
+    setUnfavoritedIds((prev) => new Set(prev).add(jobId));
+    setSelected((prev) => {
+      if (!prev.has(jobId)) return prev;
+      const next = new Set(prev);
+      next.delete(jobId);
+      return next;
+    });
+  }
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -101,7 +124,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
     return stopPolling;
   }, [pendingRunIds, getToken, router, stopPolling]);
 
-  const allSelected = jobs.length > 0 && selected.size === jobs.length;
+  const allSelected = visibleJobs.length > 0 && selected.size === visibleJobs.length;
 
   function toggleOne(id: string) {
     setSelected((prev) => {
@@ -116,7 +139,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
     if (allSelected) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(jobs.map((j) => j.id)));
+      setSelected(new Set(visibleJobs.map((j) => j.id)));
     }
   }
 
@@ -251,7 +274,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
       </div>
 
       {/* Select all toggle */}
-      {jobs.length > 0 && (
+      {visibleJobs.length > 0 && (
         <div className="flex items-center gap-2 mb-2">
           <label className="flex items-center gap-2 cursor-pointer text-[13px] text-zinc-500 hover:text-zinc-700">
             <input
@@ -271,8 +294,13 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
       )}
 
       {/* Job cards */}
+      {visibleJobs.length === 0 && jobs.length > 0 && (
+        <div className="rounded-xl border border-dashed py-10 text-center" style={{ borderColor: "var(--border)" }}>
+          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No favorites left on this page.</p>
+        </div>
+      )}
       <div className="flex flex-col gap-2.5">
-        {jobs.map((job) => {
+        {visibleJobs.map((job) => {
           const fr = fitMap[job.id];
           const score = fr?.score;
           const ms = matchStyle(score);
@@ -326,6 +354,11 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId }: Props) {
                       fitReport={fr ? { id: fr.id, score: fr.score, recommended_next_action: fr.recommended_next_action } : undefined}
                     />
                   )}
+                  <FavoriteStarButton
+                    jobId={job.id}
+                    initialFavorited={!!job.is_favorited}
+                    onToggled={(favorited) => handleFavoriteToggled(job.id, favorited)}
+                  />
                 </div>
               </div>
 

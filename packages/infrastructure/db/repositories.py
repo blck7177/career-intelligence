@@ -23,6 +23,7 @@ from packages.infrastructure.db.models import (
     CompanySource,
     FitReport,
     Job,
+    JobFavorite,
     JobReport,
     LLMUsageEvent,
     Run,
@@ -582,10 +583,12 @@ class JobRepository:
         run_ids: Optional[list[str]] = None,
         status: Optional[str] = None,
         include_archived: bool = False,
+        job_ids: Optional[set[str]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[Job], int]:
-        """List jobs, optionally filtered by run_ids and/or status."""
+        """List jobs, optionally filtered by run_ids, status, and/or an explicit job_id set
+        (the latter used for favorites_only)."""
         from sqlalchemy import select, func
         stmt = select(Job)
         if run_ids is not None:
@@ -594,6 +597,8 @@ class JobRepository:
             stmt = stmt.where(Job.status == status)
         elif not include_archived:
             stmt = stmt.where(Job.status != "archived")
+        if job_ids is not None:
+            stmt = stmt.where(Job.id.in_(job_ids))
         stmt = stmt.order_by(Job.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = self._s.execute(count_stmt).scalar_one()
@@ -646,6 +651,47 @@ class JobRepository:
         job = self.get_or_raise(job_id)
         job.jd_text = jd_text
         job.jd_hash = jd_hash
+        self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# JobFavorite — workspace-private bookmark on a (global) job
+# ---------------------------------------------------------------------------
+
+
+class JobFavoriteRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def is_favorited(self, workspace_id: str, job_id: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(JobFavorite.id).where(
+            JobFavorite.workspace_id == workspace_id,
+            JobFavorite.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        from sqlalchemy import select
+
+        stmt = select(JobFavorite.job_id).where(JobFavorite.workspace_id == workspace_id)
+        return set(self._s.execute(stmt).scalars().all())
+
+    def add(self, workspace_id: str, job_id: str) -> None:
+        if self.is_favorited(workspace_id, job_id):
+            return
+        self._s.add(JobFavorite(workspace_id=workspace_id, job_id=job_id))
+        self._s.flush()
+
+    def remove(self, workspace_id: str, job_id: str) -> None:
+        from sqlalchemy import delete
+
+        stmt = delete(JobFavorite).where(
+            JobFavorite.workspace_id == workspace_id,
+            JobFavorite.job_id == job_id,
+        )
+        self._s.execute(stmt)
         self._s.flush()
 
 

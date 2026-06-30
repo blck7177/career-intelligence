@@ -49,6 +49,8 @@ class JobRead(BaseModel):
     role_category_confidence: Optional[str] = None  # high | medium | low
     # Structured JD extraction (from discovery-time LLM call)
     jd_structured: Optional[JDStructured] = None
+    # Whether the current workspace has bookmarked this job
+    is_favorited: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +58,10 @@ class JobRead(BaseModel):
 class JobList(BaseModel):
     items: list[JobRead]
     total: int
+
+
+class FavoriteResponse(BaseModel):
+    favorited: bool
 
 
 class JobImportRequest(BaseModel):
