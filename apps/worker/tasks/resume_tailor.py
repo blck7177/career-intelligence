@@ -4,15 +4,25 @@ Handler for resume_tailor tasks.
 Execution mode: DETERMINISTIC
 Purpose: Generate a strategically tailored resume for a target job.
 
-Pipeline (7 LLM calls):
+Pipeline (9 LLM calls, plus up to 1 bounded repair pass):
   1.  Load all data (Job, JobReport, FitReport, Profile + StructuredResume)
-  2.  (parallel) Workstream analysis — JobReport → evidence requirements
-  3a. (parallel) Experience story reconstruction — bullets + role context → rich narratives
+  1.5 (parallel) Role capability inference — raw material: capabilities the
+      role implies but the JD never states, independently inferred from
+      business_context + daily_workflow + full JD text (not from
+      underlying_skill_demands, to avoid anchoring on a finished list)
+  2.  Workstream analysis (runs after 1.5) — JobReport + inferred capabilities
+      → evidence requirements, each tagged provenance=stated|inferred
+  3a. (parallel with 1.5) Experience story reconstruction — bullets + role context → rich narratives
   3b. Fact atom extraction — stories → structured fact atoms
   4.  Evidence matching — requirements ↔ fact atoms (informed by stories)
-  5.  Bullet planning — claim + evidence + framing + edit decision per bullet
+  4.5 Resume strategy — the free-thinking step: overall fit, resume thesis,
+      a foreground/bridge/omit decision per capability, section space budget
+  5.  Bullet planning — executes resume_strategy: claim + evidence + framing per bullet
   6.  Constrained writing — write bullets from plan + stories
-  7.  Audit
+  7.  Audit — if critical issues are found, one repair pass re-runs the
+      earliest affected step (bullet_planning or writing) with the audit's
+      findings as feedback, then re-audits once. The repair result is
+      accepted either way — this is a single bounded pass, not a loop.
 
 Input (from run.input_snapshot_json):
   { "job_id": str, "candidate_profile_id": str | None, "preferences": dict | None }
@@ -31,11 +41,16 @@ from pydantic import ValidationError
 
 from packages.contracts.api.runs import ResumeTailorInput
 from packages.contracts.reports.resume_tailor import (
+    BREADTH_NO_JD_MATCH,
+    AuditIssue,
     AuditResult,
+    CapabilityStrategy,
     EvidenceMatch,
     EvidenceRequirement,
     ExperienceStory,
     FactAtom,
+    RoleCapabilityInference,
+    ResumeStrategy,
     ResumeTailorDraft,
     SectionPlan,
     WorkstreamAnalysis,
@@ -156,20 +171,28 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
             )
 
     # ------------------------------------------------------------------
-    # Steps 2 & 3a: Parallel — workstream analysis + story reconstruction
+    # Steps 1.5 & 3a: Parallel — role capability inference + story reconstruction
     # ------------------------------------------------------------------
     with ThreadPoolExecutor(max_workers=2) as pool:
-        future_ws = pool.submit(
-            _step_workstream_analysis, llm, jd_text, job_report_structured
+        future_inference = pool.submit(
+            _step_role_capability_inference, llm, jd_text, job_report_structured
         )
         future_stories = pool.submit(
             _step_story_reconstruction, llm, experiences, experience_summary
         )
-        workstream_analysis = future_ws.result()
+        role_capability_inference = future_inference.result()
         experience_stories = future_stories.result()
 
-    _save_step("workstream_analysis", workstream_analysis)
+    _save_step("role_capability_inference", role_capability_inference)
     _save_step("experience_stories", experience_stories)
+
+    # ------------------------------------------------------------------
+    # Step 2: Workstream analysis — depends on Step1.5's output
+    # ------------------------------------------------------------------
+    workstream_analysis = _step_workstream_analysis(
+        llm, jd_text, job_report_structured, role_capability_inference,
+    )
+    _save_step("workstream_analysis", workstream_analysis)
 
     # ------------------------------------------------------------------
     # Step 3b: Extract structured fact atoms from stories
@@ -186,35 +209,67 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
     _save_step("evidence_matches", evidence_matches)
 
     # ------------------------------------------------------------------
-    # Step 5: Bullet planning — claim + evidence + framing per bullet
+    # Step 4.5: Resume strategy — free-thinking step, decides what to do
+    # with the evidence before anyone writes a bullet
+    # ------------------------------------------------------------------
+    resume_strategy = _step_resume_strategy(
+        llm, workstream_analysis, evidence_matches, experience_stories, fit_structured
+    )
+    _save_step("resume_strategy", resume_strategy)
+
+    # ------------------------------------------------------------------
+    # Step 5: Bullet planning — executes resume_strategy bullet by bullet
     # ------------------------------------------------------------------
     section_plans = _step_bullet_planning(
         llm, workstream_analysis, evidence_matches, fact_atoms,
-        experience_stories, experiences, inp.preferences,
+        experience_stories, experiences, inp.preferences, resume_strategy,
     )
     _save_step("bullet_plans", section_plans)
 
     # ------------------------------------------------------------------
     # Step 6: Constrained writing — write bullets from plan + stories
     # ------------------------------------------------------------------
-    revised_markdown = _step_write_bullets(
+    revised_markdown, unresolved_assembly = _step_write_bullets(
         llm, section_plans, experience_stories, structured_resume
     )
     _save_step("revised_markdown", {"markdown": revised_markdown})
+    if unresolved_assembly:
+        _save_step("assembly_unresolved", {"unresolved": unresolved_assembly})
 
     # ------------------------------------------------------------------
-    # Step 7: Audit
+    # Step 7: Audit (+ one bounded repair pass if it finds critical issues)
     # ------------------------------------------------------------------
     audit = _step_audit(
-        llm, structured_resume, revised_markdown, section_plans, workstream_analysis
+        llm, structured_resume, revised_markdown, section_plans, workstream_analysis,
+        fact_atoms, resume_strategy, unresolved_assembly,
     )
     _save_step("audit", audit)
 
+    repaired = False
+    if not audit.passed:
+        repair_result = _attempt_repair(
+            llm, audit, workstream_analysis, evidence_matches, fact_atoms,
+            experience_stories, experiences, inp.preferences, resume_strategy,
+            structured_resume, section_plans,
+        )
+        if repair_result is not None:
+            repaired = True
+            section_plans, revised_markdown, audit = repair_result
+            _save_step("bullet_plans_repaired", section_plans)
+            _save_step("revised_markdown_repaired", {"markdown": revised_markdown})
+            _save_step("audit_repaired", audit)
+            logger.info(
+                "resume_tailor: repair pass complete, audit now passed=%s",
+                audit.passed,
+            )
+
     draft = ResumeTailorDraft(
+        role_capability_inference=role_capability_inference,
         workstream_analysis=workstream_analysis,
         experience_stories=experience_stories,
         fact_atoms=fact_atoms,
         evidence_matches=evidence_matches,
+        resume_strategy=resume_strategy,
         section_plans=section_plans,
         revised_resume_markdown=revised_markdown,
         audit=audit,
@@ -249,7 +304,9 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
             "validation_status": "passed",
             "job_id": inp.job_id,
             "profile_id": resolved_profile_id,
+            "overall_fit": resume_strategy.overall_fit,
             "bullet_plans_count": bullet_count,
+            "repair_attempted": repaired,
             "audit_passed": audit.passed,
             "audit_issues": len(audit.issues),
             "draft": draft.model_dump(),
@@ -258,7 +315,8 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
         event_repo.append(
             task_id=env.task_id, run_id=env.run_id,
             event_type="task_succeeded",
-            message=f"Resume tailored: {bullet_count} bullets planned, audit {'passed' if audit.passed else 'has issues'}",
+            message=f"Resume tailored: {bullet_count} bullets planned, audit {'passed' if audit.passed else 'has issues'}"
+                    f"{' (after repair pass)' if repaired else ''}",
         )
 
     logger.info("resume_tailor: task_id=%s succeeded", env.task_id)
@@ -268,6 +326,81 @@ def handle_resume_tailor(env: TaskEnvelope) -> dict:
 # ---------------------------------------------------------------------------
 # LLM step implementations
 # ---------------------------------------------------------------------------
+
+_ROLE_CAPABILITY_INFERENCE_PROMPT = """\
+You are inferring capabilities a role implicitly requires, beyond what the \
+job posting explicitly states.
+
+## Why this step exists
+
+A job posting never states everything an experienced hiring manager would \
+actually expect. Someone evaluating candidates for this type of role at \
+this type of company carries assumptions the JD writer didn't bother to \
+spell out — because to them, those things go without saying. Your job is \
+to surface those unstated assumptions.
+
+This is different from summarizing the JD. You are not extracting phrases — \
+you are reasoning from role archetype: "given what this role actually does \
+day to day and why it exists, what would someone experienced in this field \
+assume a strong candidate brings, even though the posting never said so?"
+
+## What you receive
+
+- business_context: why this role exists, what problem it solves
+- daily_workflow: the actual inputs, analyses, outputs, and stakeholders of \
+the day-to-day work
+- jd_text: the full job posting — read it for texture (company stage, team \
+size signals, tone, what's emphasized vs. mentioned in passing), not to \
+extract more explicit requirements. Explicit requirements are already \
+handled elsewhere; that is not your job here.
+
+You do NOT receive the role's already-extracted explicit skill list. This is \
+intentional — your job is to think independently, not to check a list for \
+gaps.
+
+## How to infer
+
+For each candidate capability, ask: "If I were screening resumes for this \
+role and this type of company, what would I silently expect, that this \
+posting never wrote down?" Sources of this kind of inference:
+
+- Industry/role-standard expectations (e.g. a role doing recurring SQL work \
+against production data almost always also needs query performance/data \
+quality judgment, even if the JD only says "write SQL")
+- Company-stage or team-size signals in the JD text (a small team implies \
+more end-to-end ownership than a JD's narrow task list suggests)
+- What the daily_workflow's inputs/outputs imply about adjacent skills \
+needed to actually produce them, even if not named
+
+## This is raw material — generate broadly, don't pre-filter
+
+List every plausible implicit capability you can think of, including ones \
+you're not fully sure about. Do not limit yourself to only the most obvious \
+or highest-confidence ones — compression and filtering happen in later \
+steps, which have more context (including the actual candidate's evidence) \
+to judge what's worth keeping. Your job is to not miss anything plausible, \
+not to decide what survives. Producing too few because you only wrote down \
+your safest guesses is a worse failure than producing a generous list with \
+honest confidence ratings.
+
+That said, every entry must have a real reasoning chain (industry pattern, \
+company-stage signal, or workflow implication) — do not invent capabilities \
+with no connection to the actual business_context/daily_workflow/JD texture \
+you were given. Return at most 20 capabilities — if you have more candidates \
+than that, keep the ones with the clearest reasoning.
+
+## Confidence and importance_hint are two separate judgments
+
+- confidence: how sure are you this is a genuine implicit expectation for \
+this role? "high" = near-universal for this role archetype. "medium" = \
+plausible, reasonably well-grounded. "low" = a real possibility but a real \
+guess.
+- importance_hint: IF this capability is genuinely needed, how central would \
+it be? This is independent of confidence — you can be very sure (high \
+confidence) that something is only a nice-to-have, or unsure (low \
+confidence) about something that would be core if true.
+
+Return valid JSON matching the schema."""
 
 _WORKSTREAM_PROMPT = """\
 You are transforming a pre-analyzed Job Intelligence Report into evidence \
@@ -279,7 +412,17 @@ A structured Job Intelligence Report that has already deeply analyzed this role:
 - business_context: why the role exists and what problem it solves
 - position_function: primary/secondary functions and their mix
 - daily_workflow: inputs, analyses, outputs, and stakeholders
-- underlying_skill_demands: each capability with demand type, importance, and evidence
+- underlying_skill_demands: each capability with demand type, importance, and \
+evidence — these are grounded in explicit JD phrases, treat them as established
+
+Also:
+- inferred_capabilities: additional candidate capabilities NOT explicitly \
+stated in the JD, independently inferred by a separate analysis step from \
+business_context, daily_workflow, and the full JD text. Each one is tagged \
+with confidence (how sure the inference is) and importance_hint (how central \
+it would be if real). These are raw material, not settled conclusions — you \
+decide which ones earn a place as an evidence_requirement. See the dedicated \
+section below for how to handle them.
 
 The Job Report is your PRIMARY SOURCE. Do not re-analyze the JD from scratch. \
 The JD text is provided only as reference for resolving ambiguity.
@@ -309,13 +452,67 @@ Not a workstream:
 - "Data analysis" (too vague — what data? what question? for whom?)
 
 For each workstream, attach the capabilities from underlying_skill_demands \
-that it primarily requires. Carry forward the demand_type and importance \
+that it primarily requires, plus any inferred_capabilities you've decided to \
+promote (see "Handling inferred_capabilities" below) that fit this \
+workstream. Carry forward the demand_type and importance \
 from the Job Report. A capability may serve multiple workstreams.
 
 ## Step 2: Derive evidence requirements
 
-This is the core reasoning step. For each capability, derive what evidence \
-must appear in a resume to prove the candidate has it.
+This is the core reasoning step. For each DISTINCT capability, derive what \
+evidence must appear in a resume to prove the candidate has it.
+
+### Canonicalize capabilities first (mandatory)
+
+A capability that serves multiple workstreams must produce exactly ONE \
+evidence_requirement, not one per workstream. Before writing any \
+evidence_requirement:
+
+1. List every capability that appears across all workstreams.
+2. Merge capabilities that are the same underlying ability worded slightly \
+differently (e.g. "write complex SQL" appearing under three workstreams is \
+ONE capability, not three).
+3. For each merged capability, pick the single workstream it is most \
+central to for the `workstream` field. If it genuinely serves several \
+workstreams equally, say so in the `reasoning` field instead of repeating \
+the evidence_requirement.
+
+Downstream steps match each evidence_requirement against the candidate's \
+evidence exactly once. If the same capability appears as multiple \
+evidence_requirement entries, downstream matching will judge it \
+independently each time and can produce contradictory verdicts (e.g. \
+"supporting" for one copy, "gap" for another) for what is really one \
+question. Producing duplicates is a correctness bug, not thoroughness.
+
+### Handling inferred_capabilities (mandatory)
+
+underlying_skill_demands are grounded in explicit JD phrases — treat them as \
+established without re-litigating whether the role actually needs them.
+
+inferred_capabilities are different: they are hypotheses from a separate \
+analysis step, not settled facts. For each one, decide whether it earns a \
+place as a full evidence_requirement:
+
+- Cross-check it against business_context and daily_workflow — does the \
+actual texture of this role support it, or is it a generic guess that could \
+apply to any role in this field?
+- A "high" confidence inference with clear daily_workflow support can be \
+promoted with importance up to its importance_hint.
+- A "low" confidence inference should only be promoted if you find \
+independent support in business_context/daily_workflow, and even then it \
+should rarely exceed "supporting" importance — do not promote a low-confidence \
+guess to "core" just because importance_hint said core. importance_hint is \
+the inference step's best guess, not a directive.
+- If an inferred capability has no support beyond the original guess, leave \
+it out entirely. inferred_capabilities are candidates to evaluate, not an \
+obligation to include — a long list of weak guesses padding out the \
+evidence_requirements is worse than leaving them out.
+
+Every evidence_requirement you produce must set `provenance`: "stated" if it \
+came from underlying_skill_demands, "inferred" if it came from \
+inferred_capabilities (even after you've corroborated it with \
+business_context/daily_workflow — the provenance reflects where the \
+capability was first identified, not how confident you ended up being in it).
 
 ### Reasoning method
 
@@ -379,6 +576,11 @@ Look for: problem definition, method design, and adoption/reuse by others.
 - Order checklist items to follow the natural work sequence
 - The reasoning field must explain what distinguishes real evidence from \
 surface-level keyword matches
+- No two evidence_requirements may have the same (or near-duplicate) \
+capability text. Before returning, scan your own evidence_requirements list \
+and merge any duplicates you find.
+- Every evidence_requirement must set provenance to "stated" or "inferred" \
+— never leave it at its default.
 
 Return valid JSON matching the schema."""
 
@@ -498,9 +700,25 @@ one piece of work the candidate did, broken into these fields:
 - **confidence**: stated / strongly_implied / inferred — carry forward from \
 the story claim that this fact is based on
 
+## Coverage requirement (mandatory)
+
+The input contains one or more experience stories, each tagged with its own \
+experience_index. Your fact_atoms output MUST include at least one atom for \
+EVERY experience_index present in the input. Do not skip an entire story \
+just because another story is richer or appears first — a thinner story \
+still needs its own fact atoms, even if that means producing only 1-2 atoms \
+marked "inferred" instead of 3-8.
+
+Before returning your answer, check: list every experience_index from the \
+input, and confirm each one appears in at least one fact atom's \
+experience_index field. If any are missing, go back and extract atoms for \
+them before finalizing.
+
 ## How to extract
 
-1. Work through each story's claims list
+1. Work through EACH story's claims list IN TURN, one story at a time — \
+finish extracting atoms for one experience_index before moving to the next, \
+so no story gets skipped
 2. For each claim (or group of related claims), produce one fact atom
 3. A single claim may produce one fact atom. Two closely related claims \
 may combine into one richer fact atom.
@@ -532,6 +750,8 @@ the evaluation/validation skill."
 - If reconstruction_confidence is "low", produce fewer fact atoms and mark \
 most as "inferred"
 - Every fact atom must trace back to at least one story claim
+- Every experience_index present in the input must appear in the output — \
+this is a hard requirement, not a suggestion
 
 Return valid JSON matching the schema."""
 
@@ -566,6 +786,22 @@ models" together prove full model lifecycle ownership)
 When multiple fact atoms from the same experience combine to prove a capability, \
 list ALL of them in sources. The combined evidence may be stronger than any \
 single atom.
+
+## How to cite sources
+
+Each entry in sources has fact_atom_index, experience_index, and contribution.
+
+- If the evidence is fact-atom-level, set fact_atom_index to that atom's index.
+- If the evidence is story-level only — the experience_story's narrative \
+demonstrates the capability but no individual fact_atom captures it (or \
+this experience has no fact_atoms at all) — set fact_atom_index to null \
+and use contribution to explain what in the narrative supports the match.
+- NEVER set fact_atom_index to an atom that belongs to a different \
+experience_index than the one you are citing. If you want to cite evidence \
+from experience_index 1 but the only fact_atoms available are from \
+experience_index 0, that is not valid fact-atom evidence — either use \
+story-level citation (fact_atom_index: null) or mark the capability "gap" \
+for that experience.
 
 ## How to judge evidence strength
 
@@ -620,6 +856,10 @@ A single fact atom may also contribute to multiple capabilities.
 these are needed by downstream claim design.
 - The reasoning field should explain WHY this strength level was chosen, \
 not just restate the conclusion.
+- Every source's fact_atom_index (when set) MUST belong to the same \
+experience_index as that source entry. A mismatched index is a fabricated \
+citation, not evidence — use fact_atom_index: null with a contribution \
+explanation instead.
 
 ## How to use the fit report
 
@@ -633,12 +873,139 @@ have missed bullet-level evidence that the decomposition step surfaced
 
 Return valid JSON matching the schema."""
 
+_RESUME_STRATEGY_PROMPT = """\
+You are the strategist deciding what argument this resume should make for \
+this candidate, for this role — before anyone writes a single bullet.
+
+## Why this step exists
+
+Evidence matching already told you, capability by capability, how strong \
+the candidate's evidence is. That is an analytical answer, not a plan. \
+Someone still has to decide, looking at ALL of it together: is this \
+candidate a good fit for this role at all? What's the one thing the resume \
+should make the reader believe? And for each capability, what do we \
+honestly DO with the evidence we have — lead with it, translate it, \
+mention it in passing, or leave it as an honest gap?
+
+If you skip this and let each bullet get decided independently later, the \
+writing step will default to describing whatever the candidate is already \
+strongest at, in their native domain — which reads fine on its own but \
+quietly stops being an argument for THIS role. Your job is to make that \
+argument once, explicitly, so every bullet downstream has something real \
+to execute.
+
+## What you receive
+
+- evidence_requirements: the canonical, deduplicated list of capabilities \
+this role needs, each with importance and an evidence_checklist
+- evidence_matches: how strong the candidate's evidence is for each \
+capability (direct / adjacent / supporting / weak / gap), with sources
+- experience_stories: the full reconstructed narratives — read these for \
+texture and judgment, not just the matches. A story's "gaps" field may \
+hint at relevant work that never made it into a fact atom or a bullet.
+- fit_report_context: a profile-level fit analysis, directional reference only
+
+## Step 1: Decide overall_fit
+
+Look at the evidence_matches in aggregate, weighted by importance:
+- strong_fit: most core capabilities are direct or adjacent
+- viable_fit: a mix — real strengths exist, but several core capabilities \
+are gaps that an honest resume will have to leave visible
+- stretch_fit: core capabilities are mostly adjacent/supporting at best, \
+the resume will lean heavily on bridging and transferable framing
+- weak_fit: most core capabilities are gaps; there isn't enough real \
+evidence to build a credible argument for this specific role
+
+Do not soften this judgment to be encouraging. An honest weak_fit call is \
+more useful than a flattering one — it tells the candidate where they \
+actually stand.
+
+## Step 2: Write resume_thesis
+
+One to three sentences: "After reading this resume, the hiring manager \
+should believe ___." This is the single idea every downstream bullet \
+exists to support. It must be grounded in real, strong evidence — not \
+aspirational.
+
+## Step 3: Decide a strategy per capability
+
+For EVERY evidence_requirement, make one decision:
+
+- **foreground**: direct (or strong adjacent) evidence exists for a \
+core/supporting capability — this should anchor at least one bullet.
+- **bridge**: evidence is adjacent — the underlying capability transfers, \
+but the bullet must explicitly translate the domain difference. Say in \
+reasoning what the bridge actually is, not just "adjacent evidence exists."
+- **minimal_mention**: evidence is supporting/weak or the capability is \
+nice_to_have — worth a passing reference, not a dedicated bullet.
+- **omit_honest_gap**: no real evidence (strength is "gap" or "weak" with \
+no plausible bridge) — say so. Do not imply the capability through \
+adjacent wording. A resume that hides every gap is not more persuasive, \
+it's less trustworthy once a reader probes it.
+- **ask_candidate**: a story's narrative or gaps field suggests the \
+candidate plausibly has relevant experience that simply never made it into \
+fact atoms — note what to ask them, rather than fabricating it now or \
+silently treating it as a gap. This only applies when there's a genuine \
+textual hint, not as a way to avoid saying "gap."
+
+### Factor in provenance
+
+Each evidence_requirement carries a provenance field: "stated" means the JD \
+explicitly asked for this capability. "inferred" means a separate analysis \
+step guessed the role probably needs it even though the JD never said so — \
+it is a hypothesis that made it through one round of cross-checking, not a \
+confirmed requirement.
+
+For provenance="inferred" capabilities, be more conservative than the \
+evidence_matches strength alone would suggest: prefer "bridge" or \
+"minimal_mention" over "foreground", even when the candidate's evidence \
+looks strong, unless you have good reason to trust the inference (the \
+reasoning field should make that case explicit, not just restate the \
+evidence). The cost of under-using a real-but-unconfirmed requirement is \
+small — the resume just doesn't lead with something that might not matter. \
+The cost of foregrounding it on a guess is building part of the resume's \
+core argument on a requirement that may not actually exist.
+
+## Step 4: Plan the section space budget
+
+For each experience, decide how many bullets it should carry and what role \
+it plays in the overall argument (e.g. "identity + core capability", \
+"execution depth", "breadth / secondary evidence only"). This should follow \
+from which capabilities you just decided to foreground/bridge and which \
+experience's evidence supports them — not from how many bullets the \
+original resume happened to have.
+
+## Step 5: List forbidden_claims
+
+Anything the resume must NOT claim, stated plainly — pulled from fact \
+atoms' boundary fields and from capabilities you marked omit_honest_gap. \
+This is the resume-level version of a bullet's boundary field.
+
+## Rules
+
+- Every evidence_requirement must get exactly one capability_strategies entry.
+- Do not re-litigate evidence_matches' strength judgments — take them as \
+given. Your job is deciding what to DO with them, not re-grading them.
+- foreground/bridge decisions must be traceable to real strength ratings \
+(direct/adjacent) — do not foreground something evidence_matches rated gap.
+- Be specific in reasoning. "This is a good fit" is not reasoning. "The \
+candidate's challenger-model and backtesting work demonstrates the same \
+hypothesis-test-compare rigor the role's experimentation workstream needs, \
+even though the domain differs" is reasoning.
+
+Return valid JSON matching the schema."""
+
 _BULLET_PLANNING_PROMPT = """\
 You are designing the complete plan for each resume bullet — what it should \
 prove, what evidence to use, and how to frame it for the target role.
 
 ## What you receive
 
+- resume_strategy: the plan you must execute — resume_thesis (what the \
+reader should believe), capability_strategies (what to do with each \
+capability: foreground / bridge / minimal_mention / omit_honest_gap / \
+ask_candidate), section_space_budget (how many bullets each experience \
+gets and what role it plays), and forbidden_claims
 - evidence_requirements: what the role needs proven, with importance levels \
 and evidence_checklist
 - evidence_matches: which capabilities have evidence, at what strength, \
@@ -648,22 +1015,39 @@ with specific fact_atom sources
 actually did — use for context and for finding replacement material
 - original_experiences: the original resume structure (employer, title, bullets)
 
-## Your task
+## Your task: execute resume_strategy, don't re-decide it
+
+resume_strategy already decided, for the whole resume, which capabilities to \
+foreground, which to bridge, which to leave as honest gaps, and how much \
+space each experience gets. Your job here is narrower and more concrete: \
+turn those decisions into a section_plan for each experience.
+
+Do NOT re-litigate resume_strategy's decisions. If it marked a capability \
+"omit_honest_gap", no bullet in your plan may serve that capability, no \
+matter how the original bullet text reads. If it marked one "foreground", \
+some bullet must actually be built to prove it — don't quietly substitute \
+an easier, unrelated claim because it's more natural to write.
 
 For each experience section, produce:
-1. A story_arc — what the hiring manager should believe after reading this section
-2. A bullet_plan for each bullet position
+1. A story_arc — how resume_thesis plays out specifically in this section
+2. A bullet_plan for each bullet position, following section_space_budget's \
+bullet_count_target for that experience (a guideline, not absolute — deviate \
+only if the evidence genuinely doesn't support hitting the target, and say \
+so in story_arc)
 
 ## How to design a section story arc
 
 A section is not a list of random accomplishments. It is an evidence portfolio \
-that builds a specific impression.
+that builds a specific impression, and that impression must serve \
+resume_thesis specifically — not just be generically impressive.
 
-Design the arc to follow this progression:
+Use section_space_budget's role_in_argument for this experience as your \
+starting point, then sequence bullets to follow this progression where it \
+applies:
 1. **Identity**: First bullet establishes WHO this person is in this role — \
 their primary function and scope
-2. **Core capability**: Next 1-2 bullets prove the most important capabilities \
-the target role requires
+2. **Core capability**: Next 1-2 bullets prove the foregrounded/bridged \
+capabilities resume_strategy assigned to this experience
 3. **Execution/method**: Prove HOW they work — process, method, rigor
 4. **Impact/stakeholder**: Prove their work MATTERED — who used it, what \
 decisions it enabled
@@ -671,28 +1055,52 @@ decisions it enabled
 
 Check your arc:
 - Does the first bullet build the right identity for the target role?
-- Are core capabilities proven before secondary ones?
+- Are the capabilities resume_strategy foregrounded actually proven here?
 - Does each bullet prove something DIFFERENT?
-- Would the reader form the correct impression of this professional?
+- Would the reader form the impression resume_thesis describes?
 
 ## How to plan each bullet
 
 For each bullet position, make FIVE decisions:
 
-### 1. Claim: what should this bullet prove?
+### 1. Claim and serves_capability: what should this bullet prove, for which JD requirement?
 
-Start from the ROLE'S needs, not from the original bullet text.
-
-Look at evidence_matches:
-- Which capability should this bullet position serve?
-- Prioritize "core" capabilities over "supporting" or "nice_to_have"
-- Do NOT assign a claim for a capability with strength "gap" or "weak"
-- Do NOT duplicate claims across bullets
+Look at resume_strategy.capability_strategies, not evidence_matches \
+directly, to decide what this bullet should serve:
+- Which capability_strategies entries are "foreground" or "bridge" and \
+don't yet have a bullet covering them? Prioritize those, "foreground" first.
+- Never assign a claim to a capability resume_strategy marked \
+"omit_honest_gap" or "ask_candidate" — those must stay uncovered by design, \
+not by oversight.
+- Do NOT duplicate claims across bullets — once a capability has a bullet, \
+move to the next undone one.
 
 A claim is NOT a sentence. It is a capability statement:
   Good: "Can design automated analytical workflows that replace manual \
 processes and are adopted by multiple teams"
   Bad: "Automated reporting workflow"
+
+**serves_capability is mandatory and must be exact.** Set it to the literal \
+capability string copied character-for-character from \
+resume_strategy.capability_strategies (which matches evidence_requirements \
+exactly) — not a paraphrase, not the claim text. This is what lets \
+downstream steps verify the bullet actually executes the strategy instead \
+of silently describing whatever the candidate happens to be strongest at.
+
+If, after covering every foreground/bridge capability assigned to this \
+experience, you still have bullet positions left (per \
+section_space_budget), you may use them for identity or breadth — but you \
+MUST set serves_capability to the literal string "breadth_no_jd_match" \
+rather than inventing a claim about the candidate's native domain and \
+leaving serves_capability blank or pointed at something unrelated.
+
+**Do not silently overrule Step4 or resume_strategy.** If \
+resume_strategy marked this capability "bridge" (meaning evidence_matches \
+rated it "adjacent"), your evidence_strength must also be "adjacent" (not \
+upgraded to "direct"), and framing_guidance must explain the bridge — using \
+resume_strategy's reasoning for that capability as your starting point. \
+Re-labeling adjacent evidence as direct and dropping the bridging language \
+defeats the purpose of both Step4's matching and the strategy step's plan.
 
 ### 2. Evidence sources: what facts support this claim?
 
@@ -700,6 +1108,17 @@ Find the fact atoms that best prove this claim. Reference them by index.
 - Prefer fact atoms with confidence "stated" or "strongly_implied"
 - An "inferred" fact atom can support but should not be the primary evidence
 - Multiple fact atoms can combine to prove one claim
+- Only cite a fact_atom whose own experience_index matches the experience \
+you are planning this bullet for. Never reference a fact_atom that belongs \
+to a different experience, even if its index "looks right" or its content \
+seems loosely relevant — that is a fabricated citation, not evidence.
+- If fact_atoms contains NO entries for this experience_index at all, do \
+NOT invent indices. Leave evidence_source_indices empty, set \
+evidence_strength to "supporting" (never "direct" or "adjacent"), and base \
+the claim and framing_guidance directly on original_experiences text for \
+this bullet instead. State in boundary: "No fact-atom-level evidence \
+available for this experience — claim is derived directly from the \
+original bullet text only."
 
 ### 3. Framing guidance: the concrete writing instruction
 
@@ -778,11 +1197,32 @@ If a capability has evidence_match strength "gap":
 
 ## Rules
 
-- Every claim must be backed by at least one fact_atom
+- Every claim must be backed by at least one fact_atom from the SAME \
+experience_index, unless no such fact_atom exists at all — see the \
+no-evidence case in "Evidence sources" above
+- serves_capability must exactly match an evidence_requirements[].capability \
+string, or be the literal sentinel "breadth_no_jd_match" — never blank, \
+never a paraphrase
+- Never serve a capability resume_strategy marked "omit_honest_gap" or \
+"ask_candidate" — those decisions are final at this step
+- evidence_strength must never exceed what evidence_matches already \
+determined for serves_capability — you are applying Step4's verdict, not \
+re-deciding it
 - If evidence_strength is "adjacent", framing_guidance MUST explain how to \
 bridge the domain difference
 - boundary field: what the bullet must NOT claim, derived from fact atoms' boundaries
+- forbidden_claims from resume_strategy apply to every bullet in every section
 - Prefer fewer, stronger claims over many weak ones
+
+## If you are revising a previous attempt
+
+If the user message includes a <previous_attempt_feedback> block, an editor \
+already reviewed an earlier version of this plan and found real problems — \
+listed there with the editor's suggested_fix as advice, not a mandate. \
+Read each issue, understand what actually went wrong, and produce a \
+genuinely better plan. Don't just patch the literal complaint; reconsider \
+the affected bullet(s) properly, and don't introduce new problems while \
+fixing the old ones.
 
 Return valid JSON matching the schema."""
 
@@ -834,6 +1274,14 @@ feel genuinely different from the original — not a synonym swap
 Return a JSON object with revised_bullets: a list of strings, one per \
 bullet_plan, in the same order as the bullet_plans.
 
+## If you are revising a previous attempt
+
+If the user message includes a <previous_attempt_feedback> block, an editor \
+already reviewed an earlier version of this section's bullets and found \
+real problems, listed there with the editor's suggested_fix as advice, not \
+a mandate. Write a genuinely better version — don't just patch the literal \
+complaint, and don't introduce new problems while fixing the old ones.
+
 Return valid JSON matching the schema."""
 
 _AUDIT_PROMPT = """\
@@ -851,6 +1299,31 @@ Would the reader form the correct impression of their background?
 7. Gaps honesty: are capabilities with "gap" evidence left unaddressed \
 rather than implied?
 8. Layout: did bullet lengths stay within budget?
+9. Evidence integrity: for each bullet_plan, do its evidence_source_indices \
+actually point to entries in fact_atoms whose own experience_index matches \
+the bullet_plan's experience_index? An index that resolves to a DIFFERENT \
+experience is a fabricated citation — flag it as critical, not a wording \
+issue, even if the resulting bullet text itself reads as plausible.
+10. Coverage: does every experience present in original_resume have at \
+least one corresponding fact_atom and at least one bullet in the revised \
+resume? An experience that silently lost all its evidence or all its \
+bullets is critical, not a minor omission.
+11. Strategy execution: does the revised resume actually deliver \
+resume_strategy.resume_thesis? For each bullet_plan, is serves_capability \
+either a real capability from resume_strategy.capability_strategies or the \
+explicit "breadth_no_jd_match" marker? A bullet whose claim merely restates \
+what the candidate is already strongest at — fluent, factually grounded, \
+but not actually serving any capability the strategy decided to foreground \
+or bridge — is a rephrase wearing a claim's clothing. Flag this even when \
+nothing is fabricated and the writing reads well; the question is whether \
+the bullet argues for THIS role per the strategy, not whether it sounds \
+professional. Also check: when the strategy marked a capability "bridge" \
+(adjacent evidence), does the corresponding bullet's evidence_strength \
+still say "adjacent" with bridging language in framing_guidance, or was it \
+quietly upgraded to "direct" with the domain gap glossed over? And: does \
+any bullet claim a capability the strategy marked "omit_honest_gap" or \
+"ask_candidate" — i.e. does the resume quietly violate a gap the strategy \
+already decided to leave honest?
 
 Return passed=true only if no critical issues found.
 For each issue found, specify severity (critical/warning), the problem, \
@@ -859,7 +1332,37 @@ and which pipeline step should be revisited to fix it.
 Return valid JSON matching the schema."""
 
 
-def _step_workstream_analysis(llm, jd_text: str, job_report: dict) -> WorkstreamAnalysis:
+def _step_role_capability_inference(llm, jd_text: str, job_report: dict) -> RoleCapabilityInference:
+    business_ctx = job_report.get("business_context", {})
+    daily_workflow = job_report.get("daily_workflow", {})
+
+    user_msg = (
+        f"<business_context>\n"
+        f"Why this role exists: {business_ctx.get('problem_solved', '')}\n"
+        f"Summary: {business_ctx.get('summary', '')}\n"
+        f"</business_context>\n\n"
+        f"<daily_workflow>\n{json.dumps(daily_workflow, indent=2)}\n</daily_workflow>\n\n"
+        f"<jd_text>\n{jd_text[:8000]}\n</jd_text>"
+    )
+    result = llm.complete_structured(
+        system_prompt=_ROLE_CAPABILITY_INFERENCE_PROMPT,
+        user_prompt=user_msg,
+        response_schema=RoleCapabilityInference,
+        max_tokens=3072,
+        temperature=0.3,
+    )
+    if len(result.inferred_capabilities) > 20:
+        logger.warning(
+            "resume_tailor: role capability inference returned %d capabilities, "
+            "truncating to 20", len(result.inferred_capabilities),
+        )
+        result.inferred_capabilities = result.inferred_capabilities[:20]
+    return result
+
+
+def _step_workstream_analysis(
+    llm, jd_text: str, job_report: dict, inferred: RoleCapabilityInference,
+) -> WorkstreamAnalysis:
     business_ctx = job_report.get("business_context", {})
     position_fn = job_report.get("position_function", {})
     daily_workflow = job_report.get("daily_workflow", {})
@@ -876,15 +1379,100 @@ def _step_workstream_analysis(llm, jd_text: str, job_report: dict) -> Workstream
         f"</position_function>\n\n"
         f"<daily_workflow>\n{json.dumps(daily_workflow, indent=2)}\n</daily_workflow>\n\n"
         f"<underlying_skill_demands>\n{json.dumps(skill_demands, indent=2)}\n</underlying_skill_demands>\n\n"
+        f"<inferred_capabilities>\n{json.dumps([c.model_dump() for c in inferred.inferred_capabilities], indent=2)}\n</inferred_capabilities>\n\n"
         f"<jd_text_reference>\n{jd_text[:4000]}\n</jd_text_reference>"
     )
-    return llm.complete_structured(
+    result = llm.complete_structured(
         system_prompt=_WORKSTREAM_PROMPT,
         user_prompt=user_msg,
         response_schema=WorkstreamAnalysis,
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.2,
     )
+    _dedupe_workstream_analysis(result)
+    return result
+
+
+def _dedupe_workstream_analysis(analysis: WorkstreamAnalysis) -> None:
+    """Collapse evidence_requirements that repeat the same capability across
+    multiple workstreams into a single entry, and clean up the corresponding
+    duplication risk inside workstreams[].capabilities.
+
+    The prompt asks the model to canonicalize capabilities itself, but that's
+    not reliable on its own — when the same capability text gets emitted as
+    several separate evidence_requirements, downstream matching judges it
+    independently each time and can hand back contradictory verdicts (e.g.
+    "supporting" for one copy, "gap" for another) for what is really one
+    question. This is the deterministic backstop.
+    """
+    merged: dict[str, EvidenceRequirement] = {}
+    workstreams_by_key: dict[str, list[str]] = {}
+    importance_rank = {"core": 0, "supporting": 1, "nice_to_have": 2}
+
+    for req in analysis.evidence_requirements:
+        key = req.capability.strip().lower()
+        seen_workstreams = workstreams_by_key.setdefault(key, [])
+        if req.workstream and req.workstream not in seen_workstreams:
+            seen_workstreams.append(req.workstream)
+
+        if key not in merged:
+            merged[key] = req
+            continue
+
+        existing = merged[key]
+        for item in req.evidence_checklist:
+            if item not in existing.evidence_checklist:
+                existing.evidence_checklist.append(item)
+        if importance_rank.get(req.importance, 1) < importance_rank.get(existing.importance, 1):
+            existing.importance = req.importance
+        if existing.provenance == "inferred" and req.provenance == "stated":
+            # A capability that was independently confirmed by both an
+            # inferred guess and an explicit JD-grounded requirement is, at
+            # that point, explicitly grounded — keep the stronger provenance.
+            existing.provenance = "stated"
+        logger.warning(
+            "resume_tailor: merged duplicate evidence_requirement for "
+            "capability=%r (workstream=%r into existing workstream=%r)",
+            req.capability, req.workstream, existing.workstream,
+        )
+
+    for key, req in merged.items():
+        workstreams = workstreams_by_key.get(key, [])
+        if len(workstreams) > 1:
+            req.reasoning = (
+                f"{req.reasoning} (Serves multiple workstreams: "
+                f"{', '.join(workstreams)}.)"
+            ).strip()
+
+    analysis.evidence_requirements = list(merged.values())
+
+    # workstreams[].capabilities is a separate representation of the same
+    # capabilities, kept for display/context. A capability legitimately
+    # repeating ACROSS different workstreams' lists is correct (that's what
+    # "this capability serves multiple workstreams" means) — but two things
+    # are still bugs: the same capability appearing twice WITHIN one
+    # workstream's own list, and a workstream's copy of a capability's
+    # importance silently disagreeing with the canonical evidence_requirement
+    # for the same capability (which is the value everything downstream
+    # actually keys off). Both are fixed here, not re-judged.
+    canonical_importance = {key: req.importance for key, req in merged.items()}
+    for ws in analysis.workstreams:
+        seen_in_workstream: set[str] = set()
+        deduped_caps = []
+        for cap in ws.capabilities:
+            key = cap.capability.strip().lower()
+            if key in seen_in_workstream:
+                logger.warning(
+                    "resume_tailor: removed duplicate capability within "
+                    "workstream=%r: %r", ws.name, cap.capability,
+                )
+                continue
+            seen_in_workstream.add(key)
+            canonical = canonical_importance.get(key)
+            if canonical is not None and cap.importance != canonical:
+                cap.importance = canonical
+            deduped_caps.append(cap)
+        ws.capabilities = deduped_caps
 
 
 def _step_story_reconstruction(llm, experiences: list[dict], experience_summary: str) -> list[ExperienceStory]:
@@ -930,6 +1518,18 @@ def _step_fact_extraction(llm, stories: list[ExperienceStory]) -> list[FactAtom]
         max_tokens=6144,
         temperature=0.2,
     )
+
+    expected_indices = {s.experience_index for s in stories}
+    covered_indices = {f.experience_index for f in result.fact_atoms}
+    missing = expected_indices - covered_indices
+    if missing:
+        logger.warning(
+            "resume_tailor: fact extraction produced no fact_atoms for "
+            "experience_index(es) %s — downstream evidence matching and "
+            "bullet planning will have no real evidence for these experiences",
+            sorted(missing),
+        )
+
     return result.fact_atoms
 
 
@@ -975,16 +1575,113 @@ def _step_evidence_matching(
         system_prompt=_MATCH_PROMPT,
         user_prompt=user_msg,
         response_schema=MatchOutput,
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.2,
     )
+    _sanitize_evidence_sources(result.evidence_matches, facts)
     return result.evidence_matches
+
+
+def _sanitize_evidence_sources(matches: list[EvidenceMatch], facts: list[FactAtom]) -> None:
+    """Null out fact_atom_index on any source that doesn't belong to its
+    claimed experience_index, or is out of range — the same fabrication
+    failure mode as bullet planning, see _sanitize_evidence_citations."""
+    for match in matches:
+        for src in match.sources:
+            if src.fact_atom_index is None:
+                continue
+            idx = src.fact_atom_index
+            if not (0 <= idx < len(facts)) or facts[idx].experience_index != src.experience_index:
+                logger.warning(
+                    "resume_tailor: cleared fabricated fact_atom_index=%s for "
+                    "capability=%r experience_index=%s",
+                    idx, match.capability, src.experience_index,
+                )
+                src.fact_atom_index = None
+
+
+def _step_resume_strategy(
+    llm, workstream: WorkstreamAnalysis, matches: list[EvidenceMatch],
+    stories: list[ExperienceStory], fit_structured: dict,
+) -> ResumeStrategy:
+    stories_summary = [
+        {
+            "experience_index": s.experience_index,
+            "employer": s.employer,
+            "title": s.title,
+            "narrative": s.narrative,
+            "reconstruction_confidence": s.reconstruction_confidence,
+            "gaps": s.gaps,
+        }
+        for s in stories
+    ]
+
+    fit_summary = {}
+    if fit_structured:
+        fit_summary = {
+            "strong_matches": fit_structured.get("strong_matches", []),
+            "partial_matches": fit_structured.get("partial_matches", []),
+            "gaps": fit_structured.get("gaps", []),
+        }
+
+    user_msg = (
+        f"<evidence_requirements>\n{json.dumps([r.model_dump() for r in workstream.evidence_requirements], indent=2)}\n</evidence_requirements>\n\n"
+        f"<evidence_matches>\n{json.dumps([m.model_dump() for m in matches], indent=2)}\n</evidence_matches>\n\n"
+        f"<experience_stories>\n{json.dumps(stories_summary, indent=2)[:8000]}\n</experience_stories>\n\n"
+        f"<fit_report_context>\n{json.dumps(fit_summary, indent=2)[:3000]}\n</fit_report_context>"
+    )
+    strategy = llm.complete_structured(
+        system_prompt=_RESUME_STRATEGY_PROMPT,
+        user_prompt=user_msg,
+        response_schema=ResumeStrategy,
+        max_tokens=6144,
+        temperature=0.3,
+    )
+    _sanitize_capability_strategies(strategy, workstream.evidence_requirements)
+    return strategy
+
+
+def _sanitize_capability_strategies(
+    strategy: ResumeStrategy, requirements: list[EvidenceRequirement],
+) -> None:
+    """Make sure every evidence_requirement got a decision and no stray
+    capability strings were invented — pure coverage/integrity check, not a
+    re-judgment of which decision is right (that's the model's call)."""
+    required = {r.capability for r in requirements}
+    decided = {cs.capability for cs in strategy.capability_strategies}
+
+    missing = required - decided
+    for capability in missing:
+        logger.warning(
+            "resume_tailor: resume_strategy left capability=%r without a "
+            "decision — defaulting to omit_honest_gap",
+            capability,
+        )
+        strategy.capability_strategies.append(
+            CapabilityStrategy(
+                capability=capability,
+                decision="omit_honest_gap",
+                reasoning="No strategy decision was returned for this capability.",
+            )
+        )
+
+    stray = decided - required
+    if stray:
+        logger.warning(
+            "resume_tailor: resume_strategy referenced unknown capabilities "
+            "not in evidence_requirements: %s",
+            sorted(stray),
+        )
+        strategy.capability_strategies = [
+            cs for cs in strategy.capability_strategies if cs.capability in required
+        ]
 
 
 def _step_bullet_planning(
     llm, workstream: WorkstreamAnalysis, matches: list[EvidenceMatch],
     facts: list[FactAtom], stories: list[ExperienceStory],
     experiences: list[dict], preferences: dict | None,
+    strategy: ResumeStrategy, repair_feedback: list[AuditIssue] | None = None,
 ) -> list[SectionPlan]:
     from pydantic import BaseModel as _BM
 
@@ -1018,13 +1715,23 @@ def _step_bullet_planning(
     if preferences:
         pref_text = f"\n\n<preferences>\n{json.dumps(preferences, indent=2)}\n</preferences>"
 
+    feedback_text = ""
+    if repair_feedback:
+        feedback_text = (
+            f"\n\n<previous_attempt_feedback>\n"
+            f"{json.dumps([i.model_dump() for i in repair_feedback], indent=2)}\n"
+            f"</previous_attempt_feedback>"
+        )
+
     user_msg = (
+        f"<resume_strategy>\n{json.dumps(strategy.model_dump(), indent=2)}\n</resume_strategy>\n\n"
         f"<evidence_requirements>\n{json.dumps([r.model_dump() for r in workstream.evidence_requirements], indent=2)}\n</evidence_requirements>\n\n"
         f"<evidence_matches>\n{json.dumps([m.model_dump() for m in matches], indent=2)}\n</evidence_matches>\n\n"
         f"<fact_atoms>\n{json.dumps(indexed_facts, indent=2)[:10000]}\n</fact_atoms>\n\n"
         f"<experience_stories>\n{json.dumps(stories_summary, indent=2)[:6000]}\n</experience_stories>\n\n"
         f"<original_experiences>\n{json.dumps(original_with_bullets, indent=2)[:8000]}\n</original_experiences>"
         f"{pref_text}"
+        f"{feedback_text}"
     )
     result = llm.complete_structured(
         system_prompt=_BULLET_PLANNING_PROMPT,
@@ -1033,13 +1740,94 @@ def _step_bullet_planning(
         max_tokens=6144,
         temperature=0.3,
     )
+    _sanitize_evidence_citations(result.section_plans, facts)
+    _cap_evidence_strength_to_match(result.section_plans, matches)
     return result.section_plans
+
+
+def _cap_evidence_strength_to_match(plans: list[SectionPlan], matches: list[EvidenceMatch]) -> None:
+    """If a bullet declares which evidence_requirement it serves
+    (serves_capability), its evidence_strength must not exceed what Step4
+    already found for that capability.
+
+    The prompt asks the model to apply Step4's verdict rather than re-decide
+    it, but that's not reliable on its own — the model can quietly re-label
+    "adjacent" evidence as "direct" and drop the required domain-bridging
+    language (see patchcomment2.md). This is the deterministic backstop.
+    """
+    strength_rank = {"supporting": 0, "adjacent": 1, "direct": 2}
+    match_by_capability = {m.capability: m.strength for m in matches}
+
+    for plan in plans:
+        for bp in plan.bullet_plans:
+            cap = bp.serves_capability.strip()
+            if cap == BREADTH_NO_JD_MATCH or cap not in match_by_capability:
+                continue
+            ceiling = match_by_capability[cap]
+            if ceiling in ("gap", "weak"):
+                logger.warning(
+                    "resume_tailor: bullet exp_idx=%s bullet_idx=%s claims "
+                    "capability=%r which evidence_matches rated %r — this "
+                    "violates the 'do not design a bullet for gap/weak "
+                    "capabilities' rule; downgrading evidence_strength to "
+                    "supporting",
+                    bp.experience_index, bp.bullet_index, cap, ceiling,
+                )
+                bp.evidence_strength = "supporting"
+                continue
+            if strength_rank.get(bp.evidence_strength, 0) > strength_rank.get(ceiling, 0):
+                logger.warning(
+                    "resume_tailor: downgraded evidence_strength %r -> %r for "
+                    "exp_idx=%s bullet_idx=%s — evidence_matches only found "
+                    "%r evidence for capability=%r",
+                    bp.evidence_strength, ceiling, bp.experience_index,
+                    bp.bullet_index, ceiling, cap,
+                )
+                bp.evidence_strength = ceiling
+
+
+def _sanitize_evidence_citations(plans: list[SectionPlan], facts: list[FactAtom]) -> None:
+    """Strip evidence_source_indices that cite a fact_atom from a different
+    experience than the bullet they're attached to, or that are out of range.
+
+    The model can fabricate plausible-looking indices when no real fact_atom
+    exists for an experience (see the no-evidence case in
+    _BULLET_PLANNING_PROMPT) — this is the deterministic backstop for that
+    failure mode, since prompt wording alone doesn't reliably prevent it.
+    """
+    for plan in plans:
+        for bp in plan.bullet_plans:
+            valid = [
+                idx for idx in bp.evidence_source_indices
+                if 0 <= idx < len(facts) and facts[idx].experience_index == bp.experience_index
+            ]
+            if valid != bp.evidence_source_indices:
+                logger.warning(
+                    "resume_tailor: stripped fabricated evidence_source_indices "
+                    "%s for exp_idx=%s bullet_idx=%s (valid indices for this "
+                    "experience: %s)",
+                    bp.evidence_source_indices, bp.experience_index, bp.bullet_index, valid,
+                )
+                bp.evidence_source_indices = valid
+                if not valid:
+                    bp.evidence_strength = "supporting"
+                    note = (
+                        "No fact-atom-level evidence available for this "
+                        "experience — claim is derived directly from the "
+                        "original bullet text only."
+                    )
+                    if note not in bp.boundary:
+                        bp.boundary = f"{bp.boundary} {note}".strip()
 
 
 def _step_write_bullets(
     llm, plans: list[SectionPlan], stories: list[ExperienceStory],
-    structured_resume: dict,
-) -> str:
+    structured_resume: dict, repair_feedback: list[AuditIssue] | None = None,
+) -> tuple[str, list[str]]:
+    """Returns (markdown, unresolved) — unresolved lists bullet_plan
+    original_text values that could not be matched against the source
+    document during assembly. The caller MUST surface these, not just log
+    them — see _assemble_resume_markdown for why this matters."""
     from pydantic import BaseModel as _BM
 
     class SectionWriteOutput(_BM):
@@ -1047,6 +1835,14 @@ def _step_write_bullets(
 
     stories_by_idx = {s.experience_index: s for s in stories}
     all_revised: dict[int, list[tuple[str, str]]] = {}
+
+    feedback_text = ""
+    if repair_feedback:
+        feedback_text = (
+            f"\n\n<previous_attempt_feedback>\n"
+            f"{json.dumps([i.model_dump() for i in repair_feedback], indent=2)}\n"
+            f"</previous_attempt_feedback>"
+        )
 
     for plan in plans:
         story = stories_by_idx.get(plan.experience_index)
@@ -1059,6 +1855,7 @@ def _step_write_bullets(
         user_msg = (
             f"<section_plan>\n{json.dumps(plan.model_dump(), indent=2)}\n</section_plan>\n\n"
             f"<experience_story>\n{json.dumps(story_data, indent=2)}\n</experience_story>"
+            f"{feedback_text}"
         )
         result = llm.complete_structured(
             system_prompt=_SECTION_WRITING_PROMPT,
@@ -1078,52 +1875,321 @@ def _step_write_bullets(
 
 def _assemble_resume_markdown(
     structured_resume: dict, revised_sections: dict[int, list[tuple[str, str]]]
-) -> str:
+) -> tuple[str, list[str]]:
     """Replace experience bullets in original markdown with revised ones.
 
     Matches by each bullet_plan's original_text rather than list position:
     bullet_planning can skip or reorder original bullets (e.g. for "gap"
     capabilities), so revised_bullets is not positionally aligned with the
     experience's original bullets list.
+
+    bullet_planning is also allowed to plan fewer bullets than the experience
+    originally had (it drops weak/redundant ones on purpose). Any original
+    bullet that isn't referenced by a plan for an experience we touched is
+    deleted here — otherwise it survives untouched next to its replacement
+    and shows up as a near-duplicate bullet in the final resume.
+
+    Safety rule: if ANY replacement in an experience's section fails to match
+    (original_text isn't found verbatim in the document — e.g. the model
+    merged two original bullets into one and the merged text doesn't appear
+    as a literal substring), the deletion cleanup is skipped for that WHOLE
+    experience. We can no longer tell which raw bullets are genuinely
+    uncovered versus just textually mismatched with a failed plan, and a
+    wrong guess there means silently losing content — worse than the
+    near-duplicate a skipped cleanup might leave behind. Returns the list of
+    original_text values that failed to match, so the caller can surface
+    this as a real, visible problem rather than a log line nobody reads.
     """
     experiences = structured_resume.get("experiences", [])
     original_md = structured_resume.get("markdown", "")
 
     result_md = original_md
+    unresolved: list[str] = []
+
     for exp_idx, pairs in revised_sections.items():
         if exp_idx >= len(experiences):
             continue
 
+        covered_originals = set()
+        section_had_failure = False
         for orig_text, revised_text in pairs:
+            covered_originals.add(orig_text)
             if orig_text and orig_text in result_md:
                 result_md = result_md.replace(orig_text, revised_text, 1)
             else:
                 logger.warning(
                     "resume_tailor: could not locate original bullet text for "
-                    "exp_idx=%s during assembly; skipping replacement: %r",
+                    "exp_idx=%s during assembly; leaving original content in "
+                    "place rather than guessing: %r",
                     exp_idx, orig_text[:80],
                 )
+                unresolved.append(orig_text)
+                section_had_failure = True
 
-    return result_md
+        if section_had_failure:
+            continue
+
+        for bullet in experiences[exp_idx].get("bullets", []):
+            if bullet in covered_originals:
+                continue
+            new_md = _remove_bullet_line(result_md, bullet)
+            if new_md != result_md:
+                logger.info(
+                    "resume_tailor: removed original bullet not covered by any "
+                    "plan for exp_idx=%s: %r", exp_idx, bullet[:80],
+                )
+            result_md = new_md
+
+    return result_md, unresolved
+
+
+def _remove_bullet_line(markdown: str, bullet_text: str) -> str:
+    """Strip the markdown line(s) containing a bullet that bullet_planning
+    deliberately dropped, so it doesn't survive untouched in the final resume."""
+    if not bullet_text or bullet_text not in markdown:
+        return markdown
+    lines = markdown.split("\n")
+    kept = [line for line in lines if bullet_text not in line]
+    if len(kept) == len(lines):
+        return markdown
+    return "\n".join(kept)
 
 
 def _step_audit(
     llm, original_resume: dict, revised_markdown: str,
     plans: list[SectionPlan], workstream: WorkstreamAnalysis,
+    facts: list[FactAtom], strategy: ResumeStrategy,
+    unresolved_assembly: list[str] | None = None,
 ) -> AuditResult:
+    indexed_facts = [
+        {"index": i, "experience_index": f.experience_index, "context": f.context}
+        for i, f in enumerate(facts)
+    ]
+    experience_count = len(original_resume.get("experiences", []))
+
     user_msg = (
         f"<original_resume>\n{original_resume.get('markdown', '')[:8000]}\n</original_resume>\n\n"
         f"<revised_resume>\n{revised_markdown[:8000]}\n</revised_resume>\n\n"
-        f"<bullet_plans>\n{json.dumps([p.model_dump() for p in plans], indent=2)[:6000]}\n</bullet_plans>\n\n"
+        f"<bullet_plans>\n{json.dumps([p.model_dump() for p in plans], indent=2)[:18000]}\n</bullet_plans>\n\n"
+        f"<fact_atoms_index>\n{json.dumps(indexed_facts, indent=2)[:4000]}\n</fact_atoms_index>\n\n"
+        f"<original_experience_count>{experience_count}</original_experience_count>\n\n"
+        f"<resume_strategy>\n{json.dumps(strategy.model_dump(), indent=2)[:4000]}\n</resume_strategy>\n\n"
         f"<workstream_analysis>\n{json.dumps(workstream.model_dump(), indent=2)[:4000]}\n</workstream_analysis>"
     )
-    return llm.complete_structured(
+    result = llm.complete_structured(
         system_prompt=_AUDIT_PROMPT,
         user_prompt=user_msg,
         response_schema=AuditResult,
         max_tokens=2048,
         temperature=0.2,
     )
+
+    traceability_issues = _check_claim_traceability(plans, strategy)
+    assembly_issues = _check_assembly_failures(unresolved_assembly or [])
+    extra_issues = [*traceability_issues, *assembly_issues]
+    if extra_issues:
+        result.issues = [*result.issues, *extra_issues]
+        if any(issue.severity == "critical" for issue in extra_issues):
+            result.passed = False
+
+    return result
+
+
+def _check_assembly_failures(unresolved: list[str]) -> list[AuditIssue]:
+    """Deterministic check: did any bullet_plan's original_text fail to match
+    the source document during assembly?
+
+    When this happens, _assemble_resume_markdown leaves the original bullet
+    untouched rather than guessing whether it's safe to delete (see that
+    function's docstring) — which means the intended revision for that
+    bullet was silently discarded. A log warning is easy to miss; this turns
+    it into a critical issue the repair loop can actually act on.
+    """
+    return [
+        AuditIssue(
+            severity="critical",
+            issue=(
+                "A planned bullet's original_text did not match the source "
+                "document during assembly, so its revision was discarded and "
+                "the original bullet was left in place instead. This is often "
+                "caused by a plan that merges multiple original bullets into "
+                "one (the merged text never appears verbatim in the source) — "
+                f"the original_text in question: {orig_text[:200]!r}"
+            ),
+            affected_bullet=orig_text[:200],
+            suggested_fix=(
+                "Write an original_text that matches a single original bullet "
+                "exactly, verbatim. If the intent is to combine the evidence "
+                "from multiple original bullets into one stronger bullet, do "
+                "that through framing_guidance and claim — but original_text "
+                "must still point to just the one original bullet whose "
+                "position this plan is replacing."
+            ),
+            fix_step="bullet_planning",
+        )
+        for orig_text in unresolved
+    ]
+
+
+def _check_claim_traceability(
+    plans: list[SectionPlan], strategy: ResumeStrategy,
+) -> list[AuditIssue]:
+    """Deterministic check: did bullet planning actually execute
+    resume_strategy, instead of quietly re-deciding it?
+
+    An LLM-only audit isn't reliable here because nothing forces it to check
+    claim-to-strategy mapping specifically — see patchcomment2.md: Step5 can
+    quietly fall back to describing whatever the candidate is naturally
+    strongest at, in fluent language that reads fine on its own, with no
+    factual fabrication for the LLM audit to catch. This checks three
+    distinct failure modes:
+
+    1. A bullet claims a capability that isn't in the strategy at all
+       (not even marked breadth_no_jd_match) — untraceable.
+    2. A bullet claims a capability the strategy explicitly said NOT to
+       claim (omit_honest_gap / ask_candidate) — strategy violation.
+    3. A capability the strategy said to foreground/bridge has zero
+       bullets — strategy silently dropped.
+    """
+    issues: list[AuditIssue] = []
+    by_capability = {cs.capability: cs for cs in strategy.capability_strategies}
+    should_be_claimed = {
+        cs.capability for cs in strategy.capability_strategies
+        if cs.decision in ("foreground", "bridge")
+    }
+    should_not_be_claimed = {
+        cs.capability for cs in strategy.capability_strategies
+        if cs.decision in ("omit_honest_gap", "ask_candidate")
+    }
+    cited_capabilities: set[str] = set()
+
+    for plan in plans:
+        for bp in plan.bullet_plans:
+            cap = bp.serves_capability.strip()
+            if cap == BREADTH_NO_JD_MATCH:
+                continue
+            if cap in should_not_be_claimed:
+                decision = by_capability[cap].decision
+                issues.append(AuditIssue(
+                    severity="critical",
+                    issue=(
+                        f"Bullet claims capability {cap!r}, but resume_strategy "
+                        f"decided '{decision}' for it — this bullet contradicts "
+                        "a strategic decision that was already made, not a "
+                        "fresh judgment call."
+                    ),
+                    affected_bullet=bp.claim,
+                    suggested_fix=(
+                        f"Remove this claim or replace it with a capability "
+                        "resume_strategy marked 'foreground' or 'bridge' that "
+                        "doesn't yet have a bullet."
+                    ),
+                    fix_step="bullet_planning",
+                ))
+            elif cap not in by_capability:
+                issues.append(AuditIssue(
+                    severity="critical",
+                    issue=(
+                        f"Bullet claim does not trace to any capability in "
+                        f"resume_strategy and isn't marked '{BREADTH_NO_JD_MATCH}': "
+                        f"serves_capability={cap!r}, claim={bp.claim!r}. This "
+                        "bullet may be a rephrase of the original rather than "
+                        "evidence designed for this role."
+                    ),
+                    affected_bullet=bp.claim,
+                    suggested_fix=(
+                        "Set serves_capability to an exact capability string from "
+                        f"resume_strategy.capability_strategies, or to "
+                        f"'{BREADTH_NO_JD_MATCH}' if this bullet is intentionally "
+                        "not JD-targeted."
+                    ),
+                    fix_step="bullet_planning",
+                ))
+            else:
+                cited_capabilities.add(cap)
+
+    for capability in should_be_claimed - cited_capabilities:
+        decision = by_capability[capability].decision
+        issues.append(AuditIssue(
+            severity="critical",
+            issue=(
+                f"resume_strategy marked {capability!r} as '{decision}' but no "
+                "bullet claims it. The resume is silently dropping a capability "
+                "the strategy decided was worth foregrounding."
+            ),
+            affected_bullet=None,
+            suggested_fix=(
+                "Add a bullet that claims this capability per the strategy's "
+                "reasoning, or revisit the strategy if there genuinely isn't "
+                "evidence to support it."
+            ),
+            fix_step="bullet_planning",
+        ))
+
+    return issues
+
+
+def _attempt_repair(
+    llm, audit: AuditResult, workstream: WorkstreamAnalysis,
+    matches: list[EvidenceMatch], facts: list[FactAtom],
+    stories: list[ExperienceStory], experiences: list[dict],
+    preferences: dict | None, strategy: ResumeStrategy,
+    structured_resume: dict, section_plans: list[SectionPlan],
+) -> tuple[list[SectionPlan], str, AuditResult] | None:
+    """One bounded repair pass.
+
+    Re-runs the earliest pipeline step a critical audit issue points to, with
+    the audit's findings passed as feedback — not as a literal patch
+    instruction, the model re-decides how to fix it, the same way an editor
+    sends a draft back with comments rather than rewriting it themselves.
+    Then re-runs everything downstream of that step once and re-audits.
+
+    Runs at most once per resume_tailor invocation. If the second audit
+    still fails, that result is accepted and surfaced as-is — this is the
+    minimal-version scope, not an unbounded loop. Only fix_step in
+    {bullet_planning, writing} is handled here; issues whose fix_step points
+    further upstream (workstream / fact_extraction / evidence_matching /
+    strategy) are surfaced but not auto-repaired in this version.
+    """
+    critical = [i for i in audit.issues if i.severity == "critical"]
+    if not critical:
+        return None
+
+    fix_steps = {i.fix_step for i in critical}
+    repairable = {"bullet_planning", "writing"} & fix_steps
+    if not repairable:
+        logger.warning(
+            "resume_tailor: audit failed with fix_step(s) %s outside repair "
+            "loop scope (bullet_planning/writing only) — accepting result "
+            "without a repair attempt",
+            sorted(fix_steps),
+        )
+        return None
+
+    logger.info(
+        "resume_tailor: attempting one repair pass for fix_step(s) %s",
+        sorted(repairable),
+    )
+
+    if "bullet_planning" in repairable:
+        new_plans = _step_bullet_planning(
+            llm, workstream, matches, facts, stories, experiences,
+            preferences, strategy, repair_feedback=critical,
+        )
+        new_markdown, new_unresolved = _step_write_bullets(
+            llm, new_plans, stories, structured_resume,
+        )
+    else:
+        new_plans = section_plans
+        new_markdown, new_unresolved = _step_write_bullets(
+            llm, section_plans, stories, structured_resume, repair_feedback=critical,
+        )
+
+    new_audit = _step_audit(
+        llm, structured_resume, new_markdown, new_plans, workstream, facts, strategy,
+        new_unresolved,
+    )
+    return new_plans, new_markdown, new_audit
 
 
 # ---------------------------------------------------------------------------

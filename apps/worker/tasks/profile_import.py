@@ -45,6 +45,40 @@ preserving original section order, dates, locations, and bullet points verbatim.
 Do not summarize or compress.
 - clean_resume.experiences: list of dicts, each with keys like employer, title, \
 location, start_date, end_date, bullets. Preserve raw strings from the resume.
+
+### How to split bullets correctly (read this carefully)
+
+The raw resume text was extracted from a PDF/DOCX. Long bullets often wrap \
+onto a second or third line purely because the page is too narrow for the \
+sentence to fit — that line break is NOT a new bullet, it's the same \
+sentence continuing. You must tell the difference between a real new \
+bullet and a wrapped continuation of the previous one:
+
+- A new bullet starts a fresh, grammatically complete thought — typically \
+right after a bullet marker if the raw text preserved one (•, -, etc.), or \
+after the previous bullet ended with terminal punctuation (a period or \
+semicolon that closes a complete sentence).
+- A wrapped continuation does NOT start a new sentence — it picks up \
+mid-clause from the line before it. For example, if one extracted line \
+ends "...wholesale credit" and the very next line starts "rating \
+migration...", that is one bullet split across two lines, not two bullets.
+
+Read each candidate bullet the way a human would: does it stand alone as \
+one coherent accomplishment statement, or does splitting it at that line \
+break produce a sentence fragment? If it's a fragment, merge it with the \
+adjacent line(s) into a single bullet entry.
+
+**Each entry in `bullets` must be the exact, complete text of one logical \
+bullet — including any internal line breaks preserved from the original \
+wrapping — and must appear character-for-character as a substring of \
+clean_resume.markdown.** Downstream systems match `bullets[i]` against \
+`markdown` by exact substring to know which part of the document a given \
+bullet corresponds to; if a bullet is split differently between `bullets` \
+and `markdown` (e.g. merged in one but not the other), that matching \
+breaks and the bullet silently disappears from later processing. Build \
+`markdown` and `bullets` together so every bullet is represented \
+identically in both.
+
 - clean_resume.education: list of dicts, each with keys like institution, degree, \
 graduation_date, coursework.
 - clean_resume.skills: list of dicts, each with keys like category, items. \
