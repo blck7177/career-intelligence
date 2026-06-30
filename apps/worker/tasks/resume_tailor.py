@@ -1046,7 +1046,7 @@ def _step_write_bullets(
         revised_bullets: list[str] = []
 
     stories_by_idx = {s.experience_index: s for s in stories}
-    all_revised: dict[int, list[str]] = {}
+    all_revised: dict[int, list[tuple[str, str]]] = {}
 
     for plan in plans:
         story = stories_by_idx.get(plan.experience_index)
@@ -1067,27 +1067,42 @@ def _step_write_bullets(
             max_tokens=4096,
             temperature=0.3,
         )
-        all_revised[plan.experience_index] = result.revised_bullets
+        # revised_bullets is returned in the same order as plan.bullet_plans (per
+        # _SECTION_WRITING_PROMPT), not in original-bullet order — pair by the
+        # plan's own original_text rather than by position.
+        originals = [bp.original_text for bp in plan.bullet_plans]
+        all_revised[plan.experience_index] = list(zip(originals, result.revised_bullets))
 
     return _assemble_resume_markdown(structured_resume, all_revised)
 
 
 def _assemble_resume_markdown(
-    structured_resume: dict, revised_sections: dict[int, list[str]]
+    structured_resume: dict, revised_sections: dict[int, list[tuple[str, str]]]
 ) -> str:
-    """Replace experience bullets in original markdown with revised ones."""
+    """Replace experience bullets in original markdown with revised ones.
+
+    Matches by each bullet_plan's original_text rather than list position:
+    bullet_planning can skip or reorder original bullets (e.g. for "gap"
+    capabilities), so revised_bullets is not positionally aligned with the
+    experience's original bullets list.
+    """
     experiences = structured_resume.get("experiences", [])
     original_md = structured_resume.get("markdown", "")
 
     result_md = original_md
-    for exp_idx, revised_bullets in revised_sections.items():
+    for exp_idx, pairs in revised_sections.items():
         if exp_idx >= len(experiences):
             continue
-        original_bullets = experiences[exp_idx].get("bullets", [])
 
-        for i, orig_bullet in enumerate(original_bullets):
-            if i < len(revised_bullets):
-                result_md = result_md.replace(orig_bullet, revised_bullets[i], 1)
+        for orig_text, revised_text in pairs:
+            if orig_text and orig_text in result_md:
+                result_md = result_md.replace(orig_text, revised_text, 1)
+            else:
+                logger.warning(
+                    "resume_tailor: could not locate original bullet text for "
+                    "exp_idx=%s during assembly; skipping replacement: %r",
+                    exp_idx, orig_text[:80],
+                )
 
     return result_md
 
