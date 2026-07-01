@@ -412,8 +412,14 @@ A structured Job Intelligence Report that has already deeply analyzed this role:
 - business_context: why the role exists and what problem it solves
 - position_function: primary/secondary functions and their mix
 - daily_workflow: inputs, analyses, outputs, and stakeholders
-- underlying_skill_demands: each capability with demand type, importance, and \
-evidence — these are grounded in explicit JD phrases, treat them as established
+- underlying_skill_demands: each entry has a jd_phrase (the literal JD \
+wording — supporting evidence only, never a capability label itself) and an \
+underlying_capability (the synthesized, canonical capability name). \
+**Always use underlying_capability as the capability text. Never use \
+jd_phrase as if it were a separate capability** — treating both fields from \
+the same entry as two different capabilities is the most common way \
+duplicate evidence_requirements slip past deduplication, because the two \
+strings don't look alike even though they're the same requirement.
 
 Also:
 - inferred_capabilities: additional candidate capabilities NOT explicitly \
@@ -578,7 +584,9 @@ Look for: problem definition, method design, and adoption/reuse by others.
 surface-level keyword matches
 - No two evidence_requirements may have the same (or near-duplicate) \
 capability text. Before returning, scan your own evidence_requirements list \
-and merge any duplicates you find.
+and merge any duplicates you find — this includes checking whether you \
+accidentally used both a jd_phrase and its underlying_capability as if they \
+were two separate capabilities.
 - Every evidence_requirement must set provenance to "stated" or "inferred" \
 — never leave it at its default.
 
@@ -927,7 +935,22 @@ should believe ___." This is the single idea every downstream bullet \
 exists to support. It must be grounded in real, strong evidence — not \
 aspirational.
 
-## Step 3: Decide a strategy per capability
+## Step 3: Plan the section space budget — decide this BEFORE committing to capabilities
+
+For each experience, decide how many bullets it should carry and what role \
+it plays in the overall argument (e.g. "identity + core capability", \
+"execution depth", "breadth / secondary evidence only") — based on how much \
+real evidence that experience has, not on how many bullets the original \
+resume happened to have.
+
+Add up the bullet_count_target across all experiences. **This total is a \
+hard ceiling on how many capabilities you can decide to foreground or \
+bridge in Step 4.** Decide this number now, before you've looked at \
+individual capabilities one by one — that's the only way it reflects a \
+real constraint instead of being back-filled to justify whatever you \
+already decided to include.
+
+## Step 4: Decide a strategy per capability — within the budget you just set
 
 For EVERY evidence_requirement, make one decision:
 
@@ -948,6 +971,21 @@ fact atoms — note what to ask them, rather than fabricating it now or \
 silently treating it as a gap. This only applies when there's a genuine \
 textual hint, not as a way to avoid saying "gap."
 
+**foreground and bridge each claim one of the bullet slots from Step 3's \
+budget — minimal_mention, omit_honest_gap, and ask_candidate do not.** As \
+you go through the list, keep a running count of how many capabilities \
+you've marked foreground or bridge. If you reach the budget before you've \
+gone through every capability, every remaining one must be minimal_mention, \
+omit_honest_gap, or ask_candidate — you do not get to exceed the budget \
+because more capabilities deserve a bullet than you have room for. When \
+forced to choose which capabilities get the limited slots, prioritize in \
+this order: (1) core importance over supporting/nice_to_have, (2) stronger \
+evidence (direct over adjacent) over weaker, (3) provenance="stated" over \
+provenance="inferred". Before finalizing your output, count your \
+foreground+bridge entries again and confirm the total does not exceed the \
+Step 3 budget — if it does, downgrade the weakest entries by this same \
+priority order until it fits.
+
 ### Factor in provenance
 
 Each evidence_requirement carries a provenance field: "stated" means the JD \
@@ -964,16 +1002,9 @@ reasoning field should make that case explicit, not just restate the \
 evidence). The cost of under-using a real-but-unconfirmed requirement is \
 small — the resume just doesn't lead with something that might not matter. \
 The cost of foregrounding it on a guess is building part of the resume's \
-core argument on a requirement that may not actually exist.
-
-## Step 4: Plan the section space budget
-
-For each experience, decide how many bullets it should carry and what role \
-it plays in the overall argument (e.g. "identity + core capability", \
-"execution depth", "breadth / secondary evidence only"). This should follow \
-from which capabilities you just decided to foreground/bridge and which \
-experience's evidence supports them — not from how many bullets the \
-original resume happened to have.
+core argument on a requirement that may not actually exist. When the \
+budget forces cuts, an inferred capability should be one of the first \
+things downgraded, not one of the last.
 
 ## Step 5: List forbidden_claims
 
@@ -984,6 +1015,10 @@ This is the resume-level version of a bullet's boundary field.
 ## Rules
 
 - Every evidence_requirement must get exactly one capability_strategies entry.
+- The number of capability_strategies entries marked foreground or bridge \
+must not exceed the total bullet_count_target across section_space_budget. \
+This is checked after you respond — if it's violated, you'll be asked to \
+redo it, so get it right the first time rather than relying on a second pass.
 - Do not re-litigate evidence_matches' strength judgments — take them as \
 given. Your job is deciding what to DO with them, not re-grading them.
 - foreground/bridge decisions must be traceable to real strength ratings \
@@ -992,6 +1027,17 @@ given. Your job is deciding what to DO with them, not re-grading them.
 candidate's challenger-model and backtesting work demonstrates the same \
 hypothesis-test-compare rigor the role's experimentation workstream needs, \
 even though the domain differs" is reasoning.
+
+## If you are revising a previous attempt
+
+If the user message includes a <previous_attempt_feedback> block, your \
+prior attempt marked more capabilities foreground/bridge than your own \
+section_space_budget allows. Re-prioritize using the same order as above \
+(core > supporting/nice_to_have, direct > adjacent, stated > inferred) — \
+downgrade the weakest excess entries to minimal_mention or omit_honest_gap. \
+You may also widen the budget slightly if, on reflection, an experience \
+genuinely supports one more bullet than you first planned — but the count \
+must reconcile this time.
 
 Return valid JSON matching the schema."""
 
@@ -1638,7 +1684,63 @@ def _step_resume_strategy(
         temperature=0.3,
     )
     _sanitize_capability_strategies(strategy, workstream.evidence_requirements)
+
+    overflow = _capability_strategy_overflow(strategy)
+    if overflow > 0:
+        budget = sum(b.bullet_count_target for b in strategy.section_space_budget)
+        committed = budget + overflow
+        logger.warning(
+            "resume_tailor: resume_strategy committed %d capabilities to "
+            "foreground/bridge but only budgeted %d bullets total across "
+            "section_space_budget — retrying once with feedback before "
+            "this reaches bullet_planning",
+            committed, budget,
+        )
+        feedback_msg = (
+            f"{user_msg}\n\n"
+            f"<previous_attempt_feedback>\n"
+            f"Your previous attempt marked {committed} capabilities as "
+            f"foreground or bridge, but section_space_budget only totals "
+            f"{budget} bullets across all experiences. Re-prioritize: keep "
+            f"the strongest {budget} (core importance > supporting/"
+            f"nice_to_have, direct/strong-adjacent evidence > weaker, "
+            f"provenance=stated > provenance=inferred) and downgrade the "
+            f"rest to minimal_mention or omit_honest_gap.\n"
+            f"</previous_attempt_feedback>"
+        )
+        retried = llm.complete_structured(
+            system_prompt=_RESUME_STRATEGY_PROMPT,
+            user_prompt=feedback_msg,
+            response_schema=ResumeStrategy,
+            max_tokens=6144,
+            temperature=0.3,
+        )
+        _sanitize_capability_strategies(retried, workstream.evidence_requirements)
+        remaining = _capability_strategy_overflow(retried)
+        if remaining > 0:
+            retried_budget = sum(b.bullet_count_target for b in retried.section_space_budget)
+            logger.warning(
+                "resume_tailor: resume_strategy still over budget after one "
+                "retry (%d capabilities over a %d-bullet budget) — accepting "
+                "as-is; downstream audit will surface any uncovered "
+                "foreground/bridge capabilities as critical issues",
+                retried_budget + remaining, retried_budget,
+            )
+        strategy = retried
+
     return strategy
+
+
+def _capability_strategy_overflow(strategy: ResumeStrategy) -> int:
+    """How many capability_strategies entries marked foreground/bridge exceed
+    the total bullet_count_target across section_space_budget. <= 0 means
+    the strategy's own commitments fit within its own stated budget."""
+    budget = sum(b.bullet_count_target for b in strategy.section_space_budget)
+    committed = sum(
+        1 for cs in strategy.capability_strategies
+        if cs.decision in ("foreground", "bridge")
+    )
+    return committed - budget
 
 
 def _sanitize_capability_strategies(
@@ -1955,6 +2057,21 @@ def _remove_bullet_line(markdown: str, bullet_text: str) -> str:
     return "\n".join(kept)
 
 
+def _truncate_with_warning(label: str, text: str, limit: int) -> str:
+    """Truncate text for an LLM prompt block, logging when it actually cuts
+    content — silent truncation is how the audit ended up "blind" to most of
+    workstream_analysis/resume_strategy once Step1.5 grew the capability set
+    well past the budgets these were originally sized for."""
+    if len(text) > limit:
+        logger.warning(
+            "resume_tailor: audit input <%s> truncated from %d to %d chars "
+            "— audit will not see the full content",
+            label, len(text), limit,
+        )
+        return text[:limit]
+    return text
+
+
 def _step_audit(
     llm, original_resume: dict, revised_markdown: str,
     plans: list[SectionPlan], workstream: WorkstreamAnalysis,
@@ -1967,14 +2084,18 @@ def _step_audit(
     ]
     experience_count = len(original_resume.get("experiences", []))
 
+    bullet_plans_json = json.dumps([p.model_dump() for p in plans], indent=2)
+    strategy_json = json.dumps(strategy.model_dump(), indent=2)
+    workstream_json = json.dumps(workstream.model_dump(), indent=2)
+
     user_msg = (
         f"<original_resume>\n{original_resume.get('markdown', '')[:8000]}\n</original_resume>\n\n"
         f"<revised_resume>\n{revised_markdown[:8000]}\n</revised_resume>\n\n"
-        f"<bullet_plans>\n{json.dumps([p.model_dump() for p in plans], indent=2)[:18000]}\n</bullet_plans>\n\n"
+        f"<bullet_plans>\n{_truncate_with_warning('bullet_plans', bullet_plans_json, 18000)}\n</bullet_plans>\n\n"
         f"<fact_atoms_index>\n{json.dumps(indexed_facts, indent=2)[:4000]}\n</fact_atoms_index>\n\n"
         f"<original_experience_count>{experience_count}</original_experience_count>\n\n"
-        f"<resume_strategy>\n{json.dumps(strategy.model_dump(), indent=2)[:4000]}\n</resume_strategy>\n\n"
-        f"<workstream_analysis>\n{json.dumps(workstream.model_dump(), indent=2)[:4000]}\n</workstream_analysis>"
+        f"<resume_strategy>\n{_truncate_with_warning('resume_strategy', strategy_json, 16000)}\n</resume_strategy>\n\n"
+        f"<workstream_analysis>\n{_truncate_with_warning('workstream_analysis', workstream_json, 20000)}\n</workstream_analysis>"
     )
     result = llm.complete_structured(
         system_prompt=_AUDIT_PROMPT,
