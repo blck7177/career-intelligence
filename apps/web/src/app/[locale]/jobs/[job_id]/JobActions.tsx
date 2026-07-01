@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createRun, archiveJob } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
@@ -17,6 +18,9 @@ interface JobActionsProps {
 }
 
 export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }: JobActionsProps) {
+  const t = useTranslations("jobDetail");
+  const tJobs = useTranslations("jobs");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const getToken = useApiToken();
   const [reportLoading, setReportLoading] = useState(false);
@@ -55,7 +59,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
   const [archiving, setArchiving] = useState(false);
 
   async function handleArchive() {
-    if (!confirm("Remove this job from your saved roles?")) return;
+    if (!confirm(t("confirmRemove"))) return;
     setArchiving(true);
     try {
       const token = await getToken();
@@ -79,7 +83,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
         ) : (
           <FileText size={15} className="mr-1.5" />
         )}
-        {hasExistingReport ? "Refresh Report" : "Generate Report"}
+        {hasExistingReport ? t("refreshReport") : t("generateReport")}
       </Button>
       {reportError && <span className="text-xs text-rose-600">{reportError}</span>}
 
@@ -88,7 +92,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
         jobReportId={jobReportId}
         disabled={!hasExistingReport}
         variant={hasExistingReport ? "default" : "outline"}
-        label={hasExistingReport ? "Analyze Fit" : "Analyze Fit"}
+        label={tJobs("analyzeFit")}
         inline
       />
 
@@ -123,7 +127,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
           ) : (
             <PenLine size={15} className="mr-1.5" />
           )}
-          {tailorLoading ? "Tailoring…" : "Tailor Resume"}
+          {tailorLoading ? t("tailoring") : t("tailorResume")}
         </Button>
       )}
       {tailorError && <span className="text-xs text-rose-600">{tailorError}</span>}
@@ -136,7 +140,7 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
         className="text-zinc-400 hover:text-rose-500 hover:border-rose-300"
       >
         <Trash2 size={15} className="mr-1.5" />
-        {archiving ? "Removing…" : "Remove"}
+        {archiving ? tCommon("removing") : tCommon("remove")}
       </Button>
     </div>
   );

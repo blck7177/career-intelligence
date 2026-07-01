@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { FitReportResponse, JobRead, ProfileRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,11 +21,13 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function ScoreRing({ score }: { score: number }) {
+type T = ReturnType<typeof useTranslations>;
+
+function ScoreRing({ score, t }: { score: number; t: T }) {
   const color =
     score >= 70 ? "text-[var(--match-strong-fg)]" : score >= 50 ? "text-amber-600" : "text-rose-600";
   const label =
-    score >= 70 ? "Strong Match" : score >= 50 ? "Partial Match" : "Significant Gaps";
+    score >= 70 ? t("strongMatch") : score >= 50 ? t("partialMatch") : t("significantGaps");
   return (
     <div className="flex items-center gap-4">
       <div className={`text-5xl font-bold tabular-nums ${color}`}>{score}</div>
@@ -46,23 +49,23 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-function ActionBadge({ action }: { action: string }) {
+function ActionBadge({ action, t }: { action: string; t: T }) {
   const config: Record<string, { label: string; cls: string }> = {
-    "apply now": { label: "Apply Now", cls: "bg-emerald-100 text-emerald-800" },
-    "revise resume first": { label: "Revise Resume First", cls: "bg-amber-100 text-amber-800" },
-    "get more context": { label: "Get More Context", cls: "bg-blue-100 text-blue-800" },
-    skip: { label: "Skip", cls: "bg-zinc-100 text-zinc-700" },
+    "apply now": { label: t("applyNow"), cls: "bg-emerald-100 text-emerald-800" },
+    "revise resume first": { label: t("reviseResumeFirst"), cls: "bg-amber-100 text-amber-800" },
+    "get more context": { label: t("getMoreContext"), cls: "bg-blue-100 text-blue-800" },
+    skip: { label: t("skip"), cls: "bg-zinc-100 text-zinc-700" },
   };
   const c = config[action.toLowerCase()] ?? { label: action, cls: "bg-zinc-100 text-zinc-700" };
   return <Badge className={`${c.cls} border-0 text-xs font-semibold`}>{c.label}</Badge>;
 }
 
-function SeverityBadge({ severity }: { severity: string }) {
+function SeverityBadge({ severity, t }: { severity: string; t: T }) {
   if (severity === "blocking")
-    return <Badge className="bg-rose-100 text-rose-800 border-0 text-xs">Blocking</Badge>;
+    return <Badge className="bg-rose-100 text-rose-800 border-0 text-xs">{t("blocking")}</Badge>;
   if (severity === "significant")
-    return <Badge className="bg-amber-100 text-amber-800 border-0 text-xs">Significant</Badge>;
-  return <Badge className="bg-zinc-100 text-zinc-700 border-0 text-xs">Minor</Badge>;
+    return <Badge className="bg-amber-100 text-amber-800 border-0 text-xs">{t("significant")}</Badge>;
+  return <Badge className="bg-zinc-100 text-zinc-700 border-0 text-xs">{t("minor")}</Badge>;
 }
 
 function Section({
@@ -123,14 +126,15 @@ interface FitReportTabsProps {
 }
 
 export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
+  const t = useTranslations("fitReport");
   const [tab, setTab] = useState<"analysis" | "positioning">("analysis");
   const s = report.structured_json as Structured;
   const score = report.overall_match_score ?? s.overall_match_score ?? 0;
   const strategy = s.resume_rewrite_strategy;
 
   const tabs = [
-    { id: "analysis" as const, label: "Match Analysis" },
-    { id: "positioning" as const, label: "Resume Positioning" },
+    { id: "analysis" as const, label: t("matchAnalysisTab") },
+    { id: "positioning" as const, label: t("resumePositioningTab") },
   ];
 
   return (
@@ -140,11 +144,11 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
         <CardContent className="pt-6 pb-6">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="space-y-3">
-              <ScoreRing score={score} />
+              <ScoreRing score={score} t={t} />
               {s.recommended_next_action && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-zinc-500">Recommended action:</span>
-                  <ActionBadge action={s.recommended_next_action} />
+                  <span className="text-xs text-zinc-500">{t("recommendedAction")}</span>
+                  <ActionBadge action={s.recommended_next_action} t={t} />
                 </div>
               )}
             </div>
@@ -162,11 +166,11 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
               </span>
             )}
             {profile && profile.years_experience != null && (
-              <span>{profile.years_experience}y experience</span>
+              <span>{t("yearsExperience", { count: profile.years_experience })}</span>
             )}
             {s.analyzed_at && <span>{new Date(s.analyzed_at).toLocaleDateString()}</span>}
             <span>
-              Report: <code className="bg-zinc-100 px-1 rounded">{report.id}</code>
+              {t("reportIdLabel")}<code className="bg-zinc-100 px-1 rounded">{report.id}</code>
             </span>
           </div>
         </CardContent>
@@ -174,18 +178,18 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-zinc-200">
-        {tabs.map((t) => (
+        {tabs.map((tabItem) => (
           <button
-            key={t.id}
+            key={tabItem.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(tabItem.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.id
+              tab === tabItem.id
                 ? "border-[var(--primary)] text-[var(--secondary-foreground)]"
                 : "border-transparent text-zinc-500 hover:text-zinc-800"
             }`}
           >
-            {t.label}
+            {tabItem.label}
           </button>
         ))}
       </div>
@@ -193,7 +197,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
       {tab === "analysis" && (
         <div className="space-y-4">
           {(s.strong_matches?.length ?? 0) > 0 && (
-            <Section icon={CheckCircle2} title="Strong Matches" count={s.strong_matches!.length}>
+            <Section icon={CheckCircle2} title={t("strongMatches")} count={s.strong_matches!.length}>
               <div className="space-y-3">
                 {s.strong_matches!.map((m, i) => (
                   <div key={i} className="border rounded-md p-3 bg-emerald-50/40">
@@ -208,7 +212,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           )}
 
           {(s.partial_matches?.length ?? 0) > 0 && (
-            <Section icon={AlertTriangle} title="Partial Matches" count={s.partial_matches!.length}>
+            <Section icon={AlertTriangle} title={t("partialMatches")} count={s.partial_matches!.length}>
               <div className="space-y-3">
                 {s.partial_matches!.map((m, i) => (
                   <div key={i} className="border rounded-md p-3 bg-amber-50/40">
@@ -223,13 +227,13 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           )}
 
           {(s.gaps?.length ?? 0) > 0 && (
-            <Section icon={XCircle} title="Gaps" count={s.gaps!.length}>
+            <Section icon={XCircle} title={t("gaps")} count={s.gaps!.length}>
               <div className="space-y-3">
                 {s.gaps!.map((g, i) => (
                   <div key={i} className="border rounded-md p-3 bg-rose-50/30">
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-medium text-rose-900">{g.demand}</p>
-                      <SeverityBadge severity={g.severity} />
+                      <SeverityBadge severity={g.severity} t={t} />
                     </div>
                     {g.gap_description && (
                       <p className="text-xs text-zinc-500 mt-1 leading-relaxed">{g.gap_description}</p>
@@ -241,7 +245,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           )}
 
           {(s.risk_flags?.length ?? 0) > 0 && (
-            <Section icon={Flag} title="Risk Flags" count={s.risk_flags!.length}>
+            <Section icon={Flag} title={t("riskFlags")} count={s.risk_flags!.length}>
               <ul className="space-y-2">
                 {s.risk_flags!.map((flag, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm text-rose-700">
@@ -254,7 +258,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           )}
 
           {(s.interview_talking_points?.length ?? 0) > 0 && (
-            <Section icon={MessageSquare} title="Interview Talking Points">
+            <Section icon={MessageSquare} title={t("interviewTalkingPoints")}>
               <ol className="space-y-2 list-none">
                 {s.interview_talking_points!.map((point, i) => (
                   <li key={i} className="flex items-start gap-3 text-sm">
@@ -274,14 +278,14 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
         <div className="space-y-4">
           {strategy?.positioning ? (
             <>
-              <Section icon={FileEdit} title="Resume Positioning Guidance">
+              <Section icon={FileEdit} title={t("resumePositioningGuidance")}>
                 <p className="text-sm leading-relaxed text-zinc-800">{strategy.positioning}</p>
               </Section>
 
               {(strategy.keywords_to_add?.length ?? 0) > 0 && (
                 <Section
                   icon={Tags}
-                  title="Keywords to Add"
+                  title={t("keywordsToAdd")}
                   count={strategy.keywords_to_add!.length}
                 >
                   <div className="flex flex-wrap gap-2">
@@ -295,7 +299,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
               )}
 
               {(strategy.evidence_to_surface?.length ?? 0) > 0 && (
-                <Section icon={Lightbulb} title="Evidence to Surface">
+                <Section icon={Lightbulb} title={t("evidenceToSurface")}>
                   <ul className="space-y-2">
                     {strategy.evidence_to_surface!.map((item, i) => (
                       <li key={i} className="flex items-start gap-2 text-sm">
@@ -308,7 +312,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
               )}
             </>
           ) : (
-            <p className="text-sm text-zinc-500">No positioning guidance available.</p>
+            <p className="text-sm text-zinc-500">{t("noPositioningGuidance")}</p>
           )}
         </div>
       )}

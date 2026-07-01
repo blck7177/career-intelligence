@@ -1,26 +1,38 @@
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import type { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { listJobs, listRuns, getProfile, listFitReports } from "@/api/client";
 import type { JobRead, RunRead, FitReportSummary } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { fmtTs } from "@/lib/utils";
-import { JobFitCell } from "@/app/jobs/JobFitCell";
+import { JobFitCell } from "@/app/[locale]/jobs/JobFitCell";
 
 export const dynamic = "force-dynamic";
 
-function matchLabel(score: number | undefined): { text: string; style: "strong" | "good" | "partial" } {
-  if (score === undefined) return { text: "New role", style: "partial" };
-  if (score >= 75) return { text: "Strong match", style: "strong" };
-  if (score >= 50) return { text: "Good fit", style: "good" };
-  return { text: "Partial match", style: "partial" };
+type MatchKey = "matchNewRole" | "matchStrong" | "matchGood" | "matchPartial";
+type MatchStyle = "strong" | "good" | "partial" | "unanalyzed";
+
+function matchKey(score: number | undefined): MatchKey {
+  if (score === undefined) return "matchNewRole";
+  if (score >= 75) return "matchStrong";
+  if (score >= 50) return "matchGood";
+  return "matchPartial";
 }
 
-function matchBadgeClass(style: "strong" | "good" | "partial"): string {
+function matchStyle(score: number | undefined): MatchStyle {
+  if (score === undefined) return "unanalyzed";
+  if (score >= 75) return "strong";
+  if (score >= 50) return "good";
+  return "partial";
+}
+
+function matchBadgeClass(style: MatchStyle): string {
   if (style === "strong") return "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]";
   if (style === "good") return "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]";
-  return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
+  if (style === "partial") return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
+  return "bg-zinc-100 text-zinc-500";
 }
 
-function whyMatchText(job: JobRead, score: number | undefined): string | null {
+function whyMatchPhrase(job: JobRead, score: number | undefined): string | null {
   if (score === undefined) return null;
   const parts: string[] = [];
   if (job.primary_role_category && job.primary_role_category !== "unknown") {
@@ -30,18 +42,20 @@ function whyMatchText(job: JobRead, score: number | undefined): string | null {
     parts.push(`${job.seniority_inferred}-level`);
   }
   if (parts.length === 0) return null;
-  return `${parts.join(", ")} role${job.location ? ` in ${job.location}` : ""} aligns with your profile.`;
+  return `${parts.join(", ")} role${job.location ? ` in ${job.location}` : ""}`;
 }
 
-function relativeTime(iso: string): string {
+type TCommon = ReturnType<typeof useTranslations>;
+
+function relativeTime(iso: string, t: TCommon): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return t("minutesAgo", { count: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
+  if (hrs < 24) return t("hoursAgo", { count: hrs });
   const days = Math.floor(hrs / 24);
-  if (days === 1) return "Yesterday";
-  return `${days} days ago`;
+  if (days === 1) return t("yesterday");
+  return t("daysAgo", { count: days });
 }
 
 // Backend caps `limit` at 500; Top picks/company-distribution need the full
@@ -50,6 +64,8 @@ const FETCH_LIMIT = 500;
 
 export default async function HomePage() {
   const token = await getServerToken();
+  const t = await getTranslations("home");
+  const tCommon = await getTranslations("common");
 
   let jobs: JobRead[] = [];
   let runs: RunRead[] = [];
@@ -102,14 +118,18 @@ export default async function HomePage() {
     const s = fitMap.get(j.id)?.overall_match_score;
     return s !== undefined && s >= 50 && s < 75;
   }).length;
-  const partialCount = total - strongCount - goodCount;
+  const partialCount = jobs.filter((j) => {
+    const s = fitMap.get(j.id)?.overall_match_score;
+    return s !== undefined && s < 50;
+  }).length;
+  const unanalyzedCount = total - strongCount - goodCount - partialCount;
 
   const discoveryRuns = runs
     .filter((r) => r.run_type === "job_discovery")
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const lastSearch = discoveryRuns[0];
-  const lastSearchTime = lastSearch ? relativeTime(lastSearch.created_at) : null;
+  const lastSearchTime = lastSearch ? relativeTime(lastSearch.created_at, tCommon) : null;
 
   const unreviewedCount = jobs.filter((j) => j.status === "discovered").length;
   const recentSearches = discoveryRuns.slice(0, 3);
@@ -124,6 +144,10 @@ export default async function HomePage() {
   const topCompanies = [...companyCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxCompanyCount = topCompanies[0]?.[1] ?? 1;
 
+  const truncatedSummary = profileSummary
+    ? profileSummary.slice(0, 60).trim() + (profileSummary.length > 60 ? "…" : "")
+    : "";
+
   return (
     <>
       {/* Header bar */}
@@ -132,7 +156,7 @@ export default async function HomePage() {
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-          Role Inbox
+          {t("title")}
         </span>
         <div className="flex-1" />
         <Link
@@ -144,7 +168,7 @@ export default async function HomePage() {
             <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
             <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
-          New Search
+          {t("newSearch")}
         </Link>
       </header>
 
@@ -171,28 +195,26 @@ export default async function HomePage() {
             <div className="flex items-center gap-[7px] mb-2.5">
               <div className="w-[7px] h-[7px] rounded-full" style={{ background: "var(--primary)" }} />
               <span className="text-xs font-medium" style={{ color: "var(--primary)" }}>
-                {lastSearchTime ? `Searched ${lastSearchTime}` : "No searches yet"}
+                {lastSearchTime ? t("searchedAgo", { time: lastSearchTime }) : t("noSearchesYet")}
               </span>
             </div>
             <h2 className="text-[22px] font-semibold mb-[7px] leading-tight" style={{ color: "oklch(16% 0.015 275)" }}>
-              {total} role{total !== 1 ? "s" : ""} found for you
+              {t("rolesFound", { count: total })}
             </h2>
             <p className="text-sm mb-[18px] leading-relaxed" style={{ color: "oklch(52% 0.01 275)" }}>
-              {profileSummary
-                ? `Based on your ${profileSummary.slice(0, 60).trim()}${profileSummary.length > 60 ? "…" : ""} profile.`
-                : "Set up your profile to get personalized match scores."}
-              {strongCount > 0 && ` ${strongCount} ${strongCount === 1 ? "is a" : "are"} strong match${strongCount !== 1 ? "es" : ""} — a good place to start reviewing.`}
+              {profileSummary ? t("basedOnProfile", { summary: truncatedSummary }) : t("setUpProfile")}
+              {strongCount > 0 && ` ${t("strongMatchNote", { count: strongCount })}`}
             </p>
             <div className="flex gap-1.5 flex-wrap">
               <span className="py-[5px] px-3.5 rounded-full text-white text-[12.5px] font-medium" style={{ background: "oklch(20% 0.02 275)" }}>
-                All · {total}
+                {t("filterAll", { count: total })}
               </span>
               {strongCount > 0 && (
                 <span
                   className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
                   style={{ background: "var(--match-strong-bg)", color: "var(--match-strong-fg)", border: "1px solid var(--match-strong-border)" }}
                 >
-                  Strong · {strongCount}
+                  {t("filterStrong", { count: strongCount })}
                 </span>
               )}
               {goodCount > 0 && (
@@ -200,7 +222,7 @@ export default async function HomePage() {
                   className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
                   style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)", border: "1px solid var(--match-good-border)" }}
                 >
-                  Good fit · {goodCount}
+                  {t("filterGood", { count: goodCount })}
                 </span>
               )}
               {partialCount > 0 && (
@@ -208,7 +230,15 @@ export default async function HomePage() {
                   className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
                   style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)", border: "1px solid var(--match-partial-border)" }}
                 >
-                  Partial · {partialCount}
+                  {t("filterPartial", { count: partialCount })}
+                </span>
+              )}
+              {unanalyzedCount > 0 && (
+                <span
+                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
+                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
+                >
+                  {t("filterUnanalyzed", { count: unanalyzedCount })}
                 </span>
               )}
             </div>
@@ -217,20 +247,20 @@ export default async function HomePage() {
           {/* Top picks */}
           {jobs.length === 0 && !fetchError ? (
             <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
-              <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No roles in your inbox yet.</p>
+              <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("emptyState")}</p>
               <Link
                 href="/workspace"
                 className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium hover:underline"
                 style={{ color: "var(--primary)" }}
               >
-                Start your first search →
+                {t("startFirstSearch")}
               </Link>
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between mb-3">
                 <span className="text-[12.5px] font-semibold" style={{ color: "oklch(38% 0.012 275)" }}>
-                  {profileId ? "Top picks for you" : "Recent roles"}
+                  {profileId ? t("topPicksForYou") : t("recentRoles")}
                 </span>
                 {total > topPicks.length && (
                   <Link
@@ -238,7 +268,7 @@ export default async function HomePage() {
                     className="text-[12.5px] font-medium hover:underline"
                     style={{ color: "var(--primary)" }}
                   >
-                    View all {total} roles →
+                    {t("viewAllRoles", { count: total })}
                   </Link>
                 )}
               </div>
@@ -246,9 +276,10 @@ export default async function HomePage() {
               {topPicks.map((job) => {
                 const fr = fitMap.get(job.id);
                 const score = fr?.overall_match_score;
-                const match = matchLabel(score);
-                const isPartial = match.style === "partial";
-                const why = whyMatchText(job, score);
+                const style = matchStyle(score);
+                const isPartial = style === "partial" || style === "unanalyzed";
+                const whyPhrase = whyMatchPhrase(job, score);
+                const why = whyPhrase ? t("matchesProfile", { phrase: whyPhrase }) : null;
 
                 return (
                   <div
@@ -262,8 +293,8 @@ export default async function HomePage() {
                   >
                     {/* Top row: badge + actions */}
                     <div className="flex items-center gap-2.5 mb-3">
-                      <span className={`py-[3px] px-2.5 rounded text-xs font-medium ${matchBadgeClass(match.style)}`}>
-                        {match.text}
+                      <span className={`py-[3px] px-2.5 rounded text-xs font-medium ${matchBadgeClass(style)}`}>
+                        {t(matchKey(score))}
                       </span>
                       <div className="flex-1" />
                       <div className="flex items-center gap-2 shrink-0">
@@ -304,7 +335,7 @@ export default async function HomePage() {
                       <div className="pt-3.5 flex items-start justify-between gap-5" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
                         <p className="text-[13px] leading-relaxed" style={{ color: "oklch(50% 0.01 275)" }}>
                           <span className="font-medium" style={{ color: isPartial ? "oklch(62% 0.01 275)" : "oklch(50% 0.2 285)" }}>
-                            Why this matches —{" "}
+                            {t("whyThisMatches")}
                           </span>
                           {why}
                         </p>
@@ -313,7 +344,7 @@ export default async function HomePage() {
                           className="text-[12.5px] font-medium whitespace-nowrap shrink-0 mt-[1px] hover:underline"
                           style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
                         >
-                          View role →
+                          {tCommon("viewRole")}
                         </Link>
                       </div>
                     )}
@@ -325,7 +356,7 @@ export default async function HomePage() {
                           className="text-[12.5px] font-medium whitespace-nowrap hover:underline"
                           style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
                         >
-                          View role →
+                          {tCommon("viewRole")}
                         </Link>
                       </div>
                     )}
@@ -347,7 +378,7 @@ export default async function HomePage() {
           {/* This search */}
           <div>
             <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
-              This search
+              {t("thisSearch")}
             </div>
             <div
               className="rounded-lg p-[14px_16px]"
@@ -355,15 +386,15 @@ export default async function HomePage() {
             >
               <div className="flex flex-col gap-2.5 mb-3.5">
                 <div>
-                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>Profile</div>
+                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>{t("profileLabel")}</div>
                   <div className="text-[13px] font-medium" style={{ color: "oklch(22% 0.015 275)" }}>
-                    {profileSummary ? profileSummary.slice(0, 40).trim() + (profileSummary.length > 40 ? "…" : "") : "Not set up"}
+                    {truncatedSummary || t("notSetUp")}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>Last searched</div>
+                  <div className="text-[11.5px] mb-0.5" style={{ color: "oklch(62% 0.01 275)" }}>{t("lastSearched")}</div>
                   <div className="text-[13px]" style={{ color: "oklch(32% 0.012 275)" }}>
-                    {lastSearchTime ?? "Never"}
+                    {lastSearchTime ?? tCommon("never")}
                   </div>
                 </div>
               </div>
@@ -372,7 +403,7 @@ export default async function HomePage() {
                 className="w-full h-8 flex items-center justify-center rounded-md text-[13px] font-medium text-white transition-opacity hover:opacity-90"
                 style={{ background: "var(--primary)" }}
               >
-                Search again
+                {t("searchAgain")}
               </Link>
             </div>
           </div>
@@ -380,7 +411,7 @@ export default async function HomePage() {
           {/* Up next */}
           <div>
             <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
-              Up next
+              {t("upNext")}
             </div>
             <div className="flex flex-col gap-2">
               {unreviewedCount > 0 && (
@@ -391,7 +422,7 @@ export default async function HomePage() {
                 >
                   <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "var(--primary)" }} />
                   <span className="flex-1 text-[13px] font-medium" style={{ color: "oklch(36% 0.015 275)" }}>
-                    {unreviewedCount} role{unreviewedCount !== 1 ? "s" : ""} to review
+                    {t("rolesToReview", { count: unreviewedCount })}
                   </span>
                   <span className="text-[13px]" style={{ color: "var(--primary)" }}>→</span>
                 </Link>
@@ -403,7 +434,7 @@ export default async function HomePage() {
               >
                 <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "oklch(86% 0.01 275)" }} />
                 <span className="flex-1 text-[13px]" style={{ color: "oklch(48% 0.01 275)" }}>
-                  Start new search
+                  {t("startNewSearch")}
                 </span>
                 <span className="text-[13px]" style={{ color: "oklch(64% 0.01 275)" }}>→</span>
               </Link>
@@ -413,7 +444,7 @@ export default async function HomePage() {
           {/* Recent searches */}
           <div>
             <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
-              Recent searches
+              {t("recentSearches")}
             </div>
             {recentSearches.length > 0 ? (
               <>
@@ -428,10 +459,10 @@ export default async function HomePage() {
                       }}
                     >
                       <span className="flex-1 text-[13px]" style={{ color: i === 0 ? "oklch(30% 0.015 275)" : "oklch(48% 0.01 275)" }}>
-                        Discovery Run
+                        {t("discoveryRun")}
                       </span>
                       <span className="text-xs" style={{ color: "oklch(66% 0.008 275)" }}>
-                        {relativeTime(run.created_at)}
+                        {relativeTime(run.created_at, tCommon)}
                       </span>
                     </Link>
                   ))}
@@ -442,13 +473,13 @@ export default async function HomePage() {
                     className="text-[12.5px] font-medium hover:underline"
                     style={{ color: "var(--primary)" }}
                   >
-                    View all searches →
+                    {t("viewAllSearches")}
                   </Link>
                 </div>
               </>
             ) : (
               <p className="text-[13px]" style={{ color: "oklch(60% 0.01 275)" }}>
-                No searches yet.
+                {t("noSearchesPeriod")}
               </p>
             )}
           </div>
@@ -457,7 +488,7 @@ export default async function HomePage() {
           {topCompanies.length > 0 && (
             <div>
               <div className="text-[12.5px] font-semibold mb-3" style={{ color: "oklch(38% 0.012 275)" }}>
-                Top companies
+                {t("topCompanies")}
               </div>
               <div className="flex flex-col gap-2">
                 {topCompanies.map(([company, count]) => (

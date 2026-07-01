@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createRun, getProfile, listProfiles, listRuns, updateSearchDefaults } from "@/api/client";
 import type { ProfileRead, RunRead } from "@/api/client";
@@ -66,18 +66,14 @@ function csvToList(val: string): string[] {
     .filter(Boolean);
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  running: "In Progress",
-  succeeded: "Completed",
-  failed: "Failed",
-  needs_review: "Needs Review",
-  cancelled: "Cancelled",
+const STATUS_KEY_MAP: Record<string, string> = {
+  queued: "statusQueued",
+  running: "statusRunning",
+  succeeded: "statusSucceeded",
+  failed: "statusFailed",
+  needs_review: "statusNeedsReview",
+  cancelled: "statusCancelled",
 };
-
-function humanStatus(s: string) {
-  return STATUS_LABELS[s] ?? s.replace(/_/g, " ");
-}
 
 function statusBadgeClass(status: string): string {
   if (status === "succeeded") return "bg-emerald-100 text-emerald-700";
@@ -110,49 +106,49 @@ function resolveRawRequest(source: SearchSource, userRequest: string): string {
 const SOURCE_OPTIONS: Array<{
   id: SearchSource;
   icon: React.ReactNode;
-  title: string;
-  subtitle: string;
+  titleKey: string;
+  subtitleKey: string;
 }> = [
   {
     id: "instruction_plus_profile",
     icon: <Compass size={18} />,
-    title: "Criteria + profile",
-    subtitle: "Your direction leads; profile enriches search lanes",
+    titleKey: "sourceCriteriaProfileTitle",
+    subtitleKey: "sourceCriteriaProfileSubtitle",
   },
   {
     id: "instruction_only",
     icon: <Sliders size={18} />,
-    title: "Criteria only",
-    subtitle: "Search from your written criteria",
+    titleKey: "sourceCriteriaOnlyTitle",
+    subtitleKey: "sourceCriteriaOnlySubtitle",
   },
   {
     id: "profile_only",
     icon: <BookUser size={18} />,
-    title: "Profile only",
-    subtitle: "Explore roles aligned with your saved profile",
+    titleKey: "sourceProfileOnlyTitle",
+    subtitleKey: "sourceProfileOnlySubtitle",
   },
 ];
 
 const HOW_IT_WORKS = [
   {
     icon: <Search size={16} className="text-[var(--primary)]" />,
-    title: "Choose your search source",
-    desc: "Pick profile-guided, criteria-only, or a combination based on how you want to search.",
+    titleKey: "step1HowTitle",
+    descKey: "step1HowDesc",
   },
   {
     icon: <Sparkles size={16} className="text-amber-500" />,
-    title: "Run discovery",
-    desc: "The career-search agent browses job boards and company career pages.",
+    titleKey: "step2HowTitle",
+    descKey: "step2HowDesc",
   },
   {
     icon: <Inbox size={16} className="text-emerald-500" />,
-    title: "Review Role Inbox",
-    desc: "Verified candidates land in your inbox — sort and analyze fit from there.",
+    titleKey: "step3HowTitle",
+    descKey: "step3HowDesc",
   },
   {
     icon: <FileText size={16} className="text-blue-500" />,
-    title: "Analyze fit",
-    desc: "Generate Job Intelligence Reports and Fit Reports for decision-making.",
+    titleKey: "step4HowTitle",
+    descKey: "step4HowDesc",
   },
 ];
 
@@ -161,6 +157,8 @@ const HOW_IT_WORKS = [
 // ---------------------------------------------------------------------------
 
 export function SearchSetupShell() {
+  const t = useTranslations("searchSetup");
+  const tRuns = useTranslations("runs");
   const router = useRouter();
   const getToken = useApiToken();
 
@@ -279,21 +277,21 @@ export function SearchSetupShell() {
 
   async function handleStartDiscovery() {
     if (!profile?.id) {
-      setError("Set up your profile before starting discovery.");
+      setError(t("setProfileBeforeStarting"));
       setPhase("error");
       return;
     }
 
     const request = resolveRawRequest(searchSource, rawUserRequest);
     if (request.length < 5) {
-      setError("Please describe what you're looking for (at least 5 characters).");
+      setError(t("describeWhatLooking"));
       return;
     }
 
     setLoading(true);
     setError(null);
     setPhase("polling");
-    setPollStatus("Starting discovery…");
+    setPollStatus(t("startingDiscoveryEllipsis"));
 
     try {
       const token = await getToken();
@@ -324,7 +322,7 @@ export function SearchSetupShell() {
         token,
       );
 
-      setPollStatus("Searching for roles…");
+      setPollStatus(t("searchingForRoles"));
       const finished = await pollRunUntilDone(run.id, getToken);
 
       if (finished.status !== "succeeded") {
@@ -343,7 +341,7 @@ export function SearchSetupShell() {
       setPhase("done");
       loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start discovery run");
+      setError(err instanceof Error ? err.message : t("failedToStartDiscovery"));
       setPhase("error");
     } finally {
       setLoading(false);
@@ -373,9 +371,9 @@ export function SearchSetupShell() {
     if (!profile) {
       return (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 space-y-3">
-          <p className="text-sm text-amber-800">No profile found. Set up your candidate profile first.</p>
+          <p className="text-sm text-amber-800">{t("noProfileFound")}</p>
           <Link href="/profile">
-            <Button size="sm">Set up Profile</Button>
+            <Button size="sm">{t("setUpProfile")}</Button>
           </Link>
         </div>
       );
@@ -387,7 +385,7 @@ export function SearchSetupShell() {
           <Loader2 size={28} className="animate-spin text-[var(--primary)] mx-auto" />
           <div>
             <p className="text-sm font-medium text-zinc-800">{pollStatus}</p>
-            <p className="text-xs text-zinc-500 mt-1">This may take a few minutes.</p>
+            <p className="text-xs text-zinc-500 mt-1">{t("thisMayTakeAFewMinutes")}</p>
           </div>
         </div>
       );
@@ -398,19 +396,19 @@ export function SearchSetupShell() {
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={20} className="text-emerald-600" />
-            <p className="text-sm font-semibold text-emerald-900">Discovery complete</p>
+            <p className="text-sm font-semibold text-emerald-900">{t("discoveryComplete")}</p>
           </div>
           <p className="text-sm text-emerald-800">
             {candidateCount != null
-              ? `${candidateCount} role${candidateCount === 1 ? "" : "s"} added to your Role Inbox.`
-              : "New roles have been added to your Role Inbox."}
+              ? t("rolesAdded", { count: candidateCount })
+              : t("newRolesAdded")}
           </p>
           <div className="flex gap-2 flex-wrap">
             <Button size="sm" onClick={() => router.push("/jobs")}>
-              Go to Role Inbox
+              {t("goToRoleInbox")}
             </Button>
             <Button size="sm" variant="outline" onClick={resetWizard}>
-              Start another search
+              {t("startAnotherSearch")}
             </Button>
           </div>
         </div>
@@ -420,9 +418,9 @@ export function SearchSetupShell() {
     if (phase === "error") {
       return (
         <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 space-y-4">
-          <p className="text-sm text-rose-800">{error ?? "Something went wrong."}</p>
+          <p className="text-sm text-rose-800">{error ?? t("somethingWentWrong")}</p>
           <Button size="sm" variant="outline" onClick={resetWizard}>
-            Try again
+            {t("tryAgain")}
           </Button>
         </div>
       );
@@ -432,27 +430,27 @@ export function SearchSetupShell() {
       return (
         <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-800">Step 1 — Search source</h2>
-            <p className="text-xs text-zinc-500 mt-1">What should drive this discovery run?</p>
+            <h2 className="text-sm font-semibold text-zinc-800">{t("step1Title")}</h2>
+            <p className="text-xs text-zinc-500 mt-1">{t("step1Subtitle")}</p>
           </div>
 
           {profileNeedsSetup && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              Your profile still looks like the default template.{" "}
+              {t("profileDefaultWarning")}{" "}
               <Link href="/profile" className="font-medium underline">
-                Personalize it
+                {t("personalizeIt")}
               </Link>{" "}
-              for better profile-guided results.
+              {t("forBetterResults")}
             </div>
           )}
 
           <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-600 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <span className="font-medium text-zinc-700">
-                {allProfiles.length > 1 ? "Selected profile:" : "Your profile:"}
+                {allProfiles.length > 1 ? t("selectedProfile") : t("yourProfile")}
               </span>
               <Link href="/profile" className="text-[var(--primary)] hover:underline">
-                Edit
+                {t("edit")}
               </Link>
             </div>
             {allProfiles.length > 1 && (
@@ -469,7 +467,7 @@ export function SearchSetupShell() {
               >
                 {allProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.label || `Profile (${p.id.slice(0, 8)})`}
+                    {p.label || t("profileFallback", { id: p.id.slice(0, 8) })}
                     {p.summary ? ` — ${p.summary.slice(0, 50)}` : ""}
                   </option>
                 ))}
@@ -500,8 +498,8 @@ export function SearchSetupShell() {
                   {opt.icon}
                 </span>
                 <span>
-                  <span className="block text-sm font-medium text-zinc-800">{opt.title}</span>
-                  <span className="block text-xs text-zinc-500 mt-0.5">{opt.subtitle}</span>
+                  <span className="block text-sm font-medium text-zinc-800">{t(opt.titleKey)}</span>
+                  <span className="block text-xs text-zinc-500 mt-0.5">{t(opt.subtitleKey)}</span>
                 </span>
               </button>
             ))}
@@ -511,7 +509,7 @@ export function SearchSetupShell() {
             className="w-full"
             onClick={() => setPhase(needsCriteria ? "criteria" : "depth-submit")}
           >
-            Continue
+            {t("continueBtn")}
             <ChevronRight size={14} className="ml-1" />
           </Button>
         </div>
@@ -522,32 +520,32 @@ export function SearchSetupShell() {
       return (
         <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-800">Step 2 — Search criteria</h2>
-            <p className="text-xs text-zinc-500 mt-1">Describe the roles you want to find.</p>
+            <h2 className="text-sm font-semibold text-zinc-800">{t("step2Title")}</h2>
+            <p className="text-xs text-zinc-500 mt-1">{t("step2Subtitle")}</p>
           </div>
 
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-zinc-700">
-              What are you looking for?{" "}
-              <span className="text-rose-400 font-normal">required</span>
+              {t("whatLookingFor")}{" "}
+              <span className="text-rose-400 font-normal">{t("required")}</span>
             </label>
             <textarea
               rows={4}
-              placeholder="e.g. Market risk VP roles at mid-size banks in NYC, quantitative background preferred..."
+              placeholder={t("criteriaPlaceholder")}
               value={rawUserRequest}
               onChange={(e) => setRawUserRequest(e.target.value)}
               className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
             />
             <p className="text-xs text-zinc-400">
               {rawUserRequest.trim().length < 5
-                ? `${5 - rawUserRequest.trim().length} more characters needed`
-                : `${rawUserRequest.trim().length} characters`}
+                ? t("moreCharsNeeded", { count: 5 - rawUserRequest.trim().length })
+                : t("charsCount", { count: rawUserRequest.trim().length })}
             </p>
           </div>
 
           {searchSource === "instruction_only" && (
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-700">Search style</label>
+              <label className="text-sm font-medium text-zinc-700">{t("searchStyle")}</label>
               <div className="grid grid-cols-2 gap-2">
                 {(["direct", "exploratory"] as const).map((mode) => (
                   <button
@@ -561,14 +559,14 @@ export function SearchSetupShell() {
                         : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
                     ].join(" ")}
                   >
-                    <span className="block font-medium capitalize">{mode}</span>
+                    <span className="block font-medium">{mode === "direct" ? t("modeDirectLabel") : t("modeExploratoryLabel")}</span>
                     <span
                       className={[
                         "block text-[11px] mt-0.5",
                         criteriaMode === mode ? "text-white/60" : "text-zinc-400",
                       ].join(" ")}
                     >
-                      {mode === "direct" ? "Exact match" : "Broader search"}
+                      {mode === "direct" ? t("exactMatch") : t("broaderSearch")}
                     </span>
                   </button>
                 ))}
@@ -582,14 +580,14 @@ export function SearchSetupShell() {
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setPhase("source-select")}>
               <ChevronLeft size={14} className="mr-1" />
-              Back
+              {t("back")}
             </Button>
             <Button
               className="flex-1"
               disabled={!canProceedCriteria}
               onClick={() => setPhase("depth-submit")}
             >
-              Continue
+              {t("continueBtn")}
               <ChevronRight size={14} className="ml-1" />
             </Button>
           </div>
@@ -601,20 +599,20 @@ export function SearchSetupShell() {
     return (
       <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-800">Step 3 — Depth & launch</h2>
-          <p className="text-xs text-zinc-500 mt-1">How thoroughly should the agent search?</p>
+          <h2 className="text-sm font-semibold text-zinc-800">{t("step3Title")}</h2>
+          <p className="text-xs text-zinc-500 mt-1">{t("step3Subtitle")}</p>
         </div>
 
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-zinc-700">Search Depth</label>
+          <label className="text-sm font-medium text-zinc-700">{t("searchDepthLabel")}</label>
           <div className="grid grid-cols-3 gap-2">
             {(
               [
-                { val: "quick" as const, hint: "~20 candidates" },
-                { val: "standard" as const, hint: "~50 candidates" },
-                { val: "deep" as const, hint: "~100 candidates" },
+                { val: "quick" as const, labelKey: "depthQuickLabel", hintKey: "depthQuickHint" },
+                { val: "standard" as const, labelKey: "depthStandardLabel", hintKey: "depthStandardHint" },
+                { val: "deep" as const, labelKey: "depthDeepLabel", hintKey: "depthDeepHint" },
               ] as const
-            ).map(({ val, hint }) => (
+            ).map(({ val, labelKey, hintKey }) => (
               <button
                 key={val}
                 type="button"
@@ -626,14 +624,14 @@ export function SearchSetupShell() {
                     : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
                 ].join(" ")}
               >
-                <span className="block font-medium capitalize">{val}</span>
+                <span className="block font-medium">{t(labelKey)}</span>
                 <span
                   className={[
                     "block text-[11px] mt-0.5",
                     searchDepth === val ? "text-white/60" : "text-zinc-400",
                   ].join(" ")}
                 >
-                  {hint}
+                  {t(hintKey)}
                 </span>
               </button>
             ))}
@@ -660,18 +658,18 @@ export function SearchSetupShell() {
             onClick={() => setPhase(needsCriteria ? "criteria" : "source-select")}
           >
             <ChevronLeft size={14} className="mr-1" />
-            Back
+            {t("back")}
           </Button>
           <Button className="flex-1" disabled={loading} onClick={handleStartDiscovery}>
             {loading ? (
               <>
                 <Loader2 size={14} className="animate-spin mr-2" />
-                Starting…
+                {t("starting")}
               </>
             ) : (
               <>
                 <Play size={14} className="mr-2" />
-                Start Discovery
+                {t("startDiscovery")}
               </>
             )}
           </Button>
@@ -688,9 +686,9 @@ export function SearchSetupShell() {
           onClick={() => setConstraintsOpen((o) => !o)}
           className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
         >
-          <span>Hard Constraints</span>
+          <span>{t("hardConstraints")}</span>
           <span className="flex items-center gap-1 text-xs text-zinc-400">
-            {constraintsOpen ? "hide" : "show"}
+            {constraintsOpen ? t("hide") : t("show")}
             {constraintsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
@@ -699,55 +697,55 @@ export function SearchSetupShell() {
           <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 bg-zinc-50">
             <div className="grid grid-cols-2 gap-3 pt-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Location</label>
+                <label className="text-xs font-medium text-zinc-500">{t("location")}</label>
                 <input
                   className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="NYC, remote US..."
+                  placeholder={t("locationPlaceholder")}
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Work Arrangement</label>
+                <label className="text-xs font-medium text-zinc-500">{t("workArrangement")}</label>
                 <select
                   value={workArrangement}
                   onChange={(e) => setWorkArrangement(e.target.value as WorkArrangement)}
                   className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 >
-                  <option value="">No preference</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="remote">Remote</option>
-                  <option value="onsite">Onsite</option>
-                  <option value="any">Any</option>
+                  <option value="">{t("noPreference")}</option>
+                  <option value="hybrid">{t("hybrid")}</option>
+                  <option value="remote">{t("remote")}</option>
+                  <option value="onsite">{t("onsite")}</option>
+                  <option value="any">{t("any")}</option>
                 </select>
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Seniority (comma-separated)</label>
+              <label className="text-xs font-medium text-zinc-500">{t("seniorityCsv")}</label>
               <input
                 className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="analyst, associate, avp, vp"
+                placeholder={t("seniorityPlaceholder")}
                 value={seniority}
                 onChange={(e) => setSeniority(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Must include keywords</label>
+              <label className="text-xs font-medium text-zinc-500">{t("mustIncludeKeywords")}</label>
               <input
                 className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="market risk, quantitative"
+                placeholder={t("mustIncludePlaceholder")}
                 value={mustIncludeKeywords}
                 onChange={(e) => setMustIncludeKeywords(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Exclude role types</label>
+              <label className="text-xs font-medium text-zinc-500">{t("excludeRoleTypes")}</label>
               <input
                 className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="model_validation, pure_audit"
+                placeholder={t("excludePlaceholder")}
                 value={excludeRoleTypes}
                 onChange={(e) => setExcludeRoleTypes(e.target.value)}
               />
@@ -755,19 +753,19 @@ export function SearchSetupShell() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Compensation range</label>
+                <label className="text-xs font-medium text-zinc-500">{t("compensationRange")}</label>
                 <input
                   className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="$120k–$160k"
+                  placeholder={t("compensationPlaceholder")}
                   value={compensationRange}
                   onChange={(e) => setCompensationRange(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Visa note</label>
+                <label className="text-xs font-medium text-zinc-500">{t("visaNote")}</label>
                 <input
                   className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="H1B transfer only"
+                  placeholder={t("visaPlaceholder")}
                   value={visaNote}
                   onChange={(e) => setVisaNote(e.target.value)}
                 />
@@ -787,9 +785,9 @@ export function SearchSetupShell() {
           onClick={() => setSoftPreferencesOpen((o) => !o)}
           className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
         >
-          <span>Soft Preferences</span>
+          <span>{t("softPreferences")}</span>
           <span className="flex items-center gap-1 text-xs text-zinc-400">
-            {softPreferencesOpen ? "hide" : "show"}
+            {softPreferencesOpen ? t("hide") : t("show")}
             {softPreferencesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
@@ -798,17 +796,16 @@ export function SearchSetupShell() {
           <div className="px-4 pb-4 space-y-2 border-t border-zinc-100 bg-zinc-50 pt-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-zinc-500">
-                Soft preferences (prefer / ideally)
+                {t("softPreferencesLabel")}
               </label>
               <input
                 className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="prefer buy-side, market-facing analytics, automation-heavy workflow"
+                placeholder={t("softPreferencesPlaceholder")}
                 value={softPreferences}
                 onChange={(e) => setSoftPreferences(e.target.value)}
               />
               <p className="text-[11px] text-zinc-400">
-                Influence ranking and expansion; do not exclude jobs. Use &quot;Exclude role
-                types&quot; for hard exclusions.
+                {t("softPreferencesHint")}
               </p>
             </div>
           </div>
@@ -820,16 +817,16 @@ export function SearchSetupShell() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-10">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900">Search Setup</h1>
+        <h1 className="text-2xl font-bold text-zinc-900">{t("title")}</h1>
         <p className="text-zinc-500 text-sm mt-1">
-          Choose a profile, set your direction, and launch discovery into your Role Inbox.
+          {t("subtitle")}
         </p>
       </div>
 
       {renderWizardCard()}
 
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">How it works</h2>
+        <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">{t("howItWorks")}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {HOW_IT_WORKS.map((step, i) => (
             <div
@@ -844,9 +841,9 @@ export function SearchSetupShell() {
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
                     {i + 1}
                   </span>
-                  <p className="text-sm font-medium text-zinc-800">{step.title}</p>
+                  <p className="text-sm font-medium text-zinc-800">{t(step.titleKey)}</p>
                 </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">{step.desc}</p>
+                <p className="text-xs text-zinc-500 leading-relaxed">{t(step.descKey)}</p>
               </div>
             </div>
           ))}
@@ -855,9 +852,9 @@ export function SearchSetupShell() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">Recent Searches</h2>
+          <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">{t("recentSearches")}</h2>
           <Link href="/runs" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">
-            View all →
+            {t("viewAll")}
           </Link>
         </div>
 
@@ -871,7 +868,7 @@ export function SearchSetupShell() {
 
         {!runsLoading && recentRuns.length === 0 && (
           <div className="rounded-lg border border-dashed border-zinc-200 py-8 text-center">
-            <p className="text-xs text-zinc-400">No discovery runs yet. Start your first search above.</p>
+            <p className="text-xs text-zinc-400">{t("noDiscoveryRunsYet")}</p>
           </div>
         )}
 
@@ -886,13 +883,13 @@ export function SearchSetupShell() {
                 <div className="flex items-center gap-2.5 min-w-0">
                   <StatusIcon status={run.status} />
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-zinc-700 truncate">Discovery Run</p>
+                    <p className="text-xs font-medium text-zinc-700 truncate">{t("discoveryRun")}</p>
                     <p className="text-[10px] text-zinc-400">{fmtTs(run.created_at)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge className={statusBadgeClass(run.status) + " text-[10px]"}>
-                    {humanStatus(run.status)}
+                    {tRuns(STATUS_KEY_MAP[run.status] ?? "statusQueued")}
                   </Badge>
                   <ChevronRight size={13} className="text-zinc-300" />
                 </div>
@@ -906,9 +903,9 @@ export function SearchSetupShell() {
         <div className="flex items-center gap-2">
           <Star size={13} className="text-zinc-400 shrink-0" />
           <p className="text-xs text-zinc-500">
-            After discovery, review roles in{" "}
+            {t("afterDiscoveryPrefix")}{" "}
             <Link href="/jobs" className="font-medium text-[var(--primary)] hover:underline">
-              Role Inbox
+              {t("roleInboxLink")}
             </Link>
             .
           </p>

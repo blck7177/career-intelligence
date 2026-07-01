@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
 import {
   createRun,
@@ -106,6 +107,7 @@ function draftToFields(d: ProfileDraft, currentLabel: string): FieldState {
 }
 
 export default function ProfilePage() {
+  const t = useTranslations("profile");
   const getToken = useApiToken();
   const [fields, setFields] = useState<FieldState>(EMPTY_FIELDS);
   const [allProfiles, setAllProfiles] = useState<ProfileRead[]>([]);
@@ -149,12 +151,12 @@ export default function ProfilePage() {
       ) {
         // No profiles yet
       } else {
-        setErrorMsg("Failed to load profiles.");
+        setErrorMsg(t("failedToLoadProfiles"));
       }
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, [getToken, t]);
 
   useEffect(() => {
     loadProfiles();
@@ -197,7 +199,7 @@ export default function ProfilePage() {
       await loadProfiles(updated.id);
     } catch (err: unknown) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Save failed.");
+      setErrorMsg(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -214,7 +216,7 @@ export default function ProfilePage() {
       setStatus("idle");
     } catch (err: unknown) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Failed to create profile.");
+      setErrorMsg(err instanceof Error ? err.message : t("failedToCreateProfile"));
     } finally {
       setSaving(false);
     }
@@ -232,7 +234,7 @@ export default function ProfilePage() {
       setStatus("idle");
     } catch (err: unknown) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Delete failed.");
+      setErrorMsg(err instanceof Error ? err.message : t("deleteFailed"));
     } finally {
       setSaving(false);
     }
@@ -251,7 +253,7 @@ export default function ProfilePage() {
       setResumeText(result.resume_text);
       setShowImport(true);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Upload failed.";
+      const msg = err instanceof Error ? err.message : t("uploadFailed");
       try {
         const parsed = JSON.parse(msg);
         setUploadError(parsed.detail ?? msg);
@@ -295,7 +297,7 @@ export default function ProfilePage() {
 
       if (!draft) {
         setImportStatus("error");
-        setImportError("No profile draft returned.");
+        setImportError(t("noProfileDraft"));
         return;
       }
 
@@ -306,7 +308,7 @@ export default function ProfilePage() {
       setImportStatus("ready");
     } catch (err: unknown) {
       setImportStatus("error");
-      setImportError(err instanceof Error ? err.message : "Import failed.");
+      setImportError(err instanceof Error ? err.message : t("importFailedPeriod"));
     }
   };
 
@@ -335,7 +337,7 @@ export default function ProfilePage() {
       await loadProfiles(updated.id);
     } catch (err: unknown) {
       setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Save failed.");
+      setErrorMsg(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -343,7 +345,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-10 text-sm" style={{ color: "var(--muted-foreground)" }}>Loading profile...</div>
+      <div className="max-w-2xl mx-auto px-4 py-10 text-sm" style={{ color: "var(--muted-foreground)" }}>{t("loadingProfile")}</div>
     );
   }
 
@@ -364,9 +366,9 @@ export default function ProfilePage() {
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold" style={{ color: "oklch(16% 0.015 275)" }}>Candidate Profile</h1>
+            <h1 className="text-xl font-semibold" style={{ color: "oklch(16% 0.015 275)" }}>{t("title")}</h1>
             <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground)" }}>
-              Your job-search persona — powers profile-guided discovery and fit analysis for every role.
+              {t("subtitle")}
             </p>
           </div>
           <button
@@ -375,7 +377,7 @@ export default function ProfilePage() {
             className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors hover:bg-zinc-50 disabled:opacity-50"
             style={{ borderColor: "var(--border)", color: "var(--primary)" }}
           >
-            + New Profile
+            {t("newProfile")}
           </button>
         </div>
 
@@ -384,7 +386,7 @@ export default function ProfilePage() {
           <div className="flex gap-1 mt-4 flex-wrap">
             {allProfiles.map((p) => {
               const active = serverProfile?.id === p.id;
-              const displayLabel = p.label || `Profile ${allProfiles.indexOf(p) + 1}`;
+              const displayLabel = p.label || t("profileTabFallback", { n: allProfiles.indexOf(p) + 1 });
               return (
                 <button
                   key={p.id}
@@ -408,7 +410,7 @@ export default function ProfilePage() {
       {hasProfileData && (
         <div className="mb-8 rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid var(--border)" }}>
           <div className="flex items-start justify-between gap-2">
-            <h2 className="text-sm font-semibold" style={{ color: "oklch(38% 0.012 275)" }}>Profile Overview</h2>
+            <h2 className="text-sm font-semibold" style={{ color: "oklch(38% 0.012 275)" }}>{t("profileOverview")}</h2>
             {profileHash && (
               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ color: "oklch(60% 0.01 275)", background: "var(--muted)" }}>
                 {profileHash.slice(0, 8)}
@@ -418,14 +420,14 @@ export default function ProfilePage() {
 
           {fields.years_experience && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>Experience</span>
-              <span className="font-semibold" style={{ color: "oklch(22% 0.015 275)" }}>{fields.years_experience} years</span>
+              <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>{t("experience")}</span>
+              <span className="font-semibold" style={{ color: "oklch(22% 0.015 275)" }}>{t("years", { count: fields.years_experience })}</span>
             </div>
           )}
 
           {subjectAreaList.length > 0 && (
             <div>
-              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>Subject areas</p>
+              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>{t("subjectAreas")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {subjectAreaList.map((d) => (
                   <span
@@ -442,7 +444,7 @@ export default function ProfilePage() {
 
           {skillList.length > 0 && (
             <div>
-              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>Technical Skills</p>
+              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>{t("technicalSkills")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {skillList.map((s) => (
                   <span
@@ -463,9 +465,9 @@ export default function ProfilePage() {
       <div className="mb-8">
         <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 mb-1">Import from Resume</h2>
+            <h2 className="text-sm font-semibold text-zinc-700 mb-1">{t("importFromResume")}</h2>
             <p className="text-xs text-zinc-400">
-              Upload a PDF or DOCX file, or paste resume text below.
+              {t("importHint")}
             </p>
           </div>
 
@@ -486,9 +488,9 @@ export default function ProfilePage() {
                 className="hidden"
               />
               {uploadingFile ? (
-                <span>Parsing file...</span>
+                <span>{t("parsingFile")}</span>
               ) : (
-                <span>Click to upload resume (PDF, DOCX)</span>
+                <span>{t("clickToUpload")}</span>
               )}
             </label>
             {uploadError && (
@@ -502,7 +504,7 @@ export default function ProfilePage() {
             className="text-xs font-medium transition-colors hover:opacity-80"
             style={{ color: "var(--primary)" }}
           >
-            {showImport ? "Hide text input" : "Or paste resume text manually"}
+            {showImport ? t("hideTextInput") : t("pasteManually")}
           </button>
 
           {showImport && (
@@ -511,7 +513,7 @@ export default function ProfilePage() {
                 rows={8}
                 value={resumeText}
                 onChange={(e) => setResumeText(e.target.value)}
-                placeholder="Paste resume text here..."
+                placeholder={t("pastePlaceholder")}
                 disabled={importStatus === "generating"}
                 className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y disabled:opacity-50"
               />
@@ -526,20 +528,20 @@ export default function ProfilePage() {
                 className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
                 style={{ background: "var(--primary)" }}
               >
-                {importStatus === "generating" ? "Generating..." : "Generate profile draft"}
+                {importStatus === "generating" ? t("generating") : t("generateDraft")}
               </button>
 
               <span className="text-xs text-zinc-400">
-                {resumeText.trim().length.toLocaleString()} chars
+                {t("charsCount", { count: resumeText.trim().length.toLocaleString() })}
               </span>
 
               {importStatus === "ready" && (
                 <span className="text-sm text-emerald-600">
-                  Draft loaded into form below. Review and save.
+                  {t("draftLoaded")}
                 </span>
               )}
               {importStatus === "error" && (
-                <span className="text-sm text-rose-600">{importError ?? "Import failed."}</span>
+                <span className="text-sm text-rose-600">{importError ?? t("importFailedPeriod")}</span>
               )}
             </div>
           )}
@@ -548,7 +550,7 @@ export default function ProfilePage() {
           {cleanResume?.markdown && (
             <details className="rounded-md border border-zinc-200 bg-zinc-50">
               <summary className="px-3 py-2 text-xs font-medium text-zinc-500 cursor-pointer hover:text-zinc-700">
-                View reconstructed resume
+                {t("viewReconstructed")}
               </summary>
               <pre className="px-3 py-2 text-xs text-zinc-600 whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-zinc-200">
                 {cleanResume.markdown}
@@ -561,19 +563,19 @@ export default function ProfilePage() {
             <div className="space-y-2">
               {(parseNotes.assumptions ?? []).length > 0 && (
                 <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
-                  <span className="font-medium">Assumptions: </span>
+                  <span className="font-medium">{t("assumptions")}</span>
                   {parseNotes.assumptions!.join(" | ")}
                 </div>
               )}
               {(parseNotes.missing_information ?? []).length > 0 && (
                 <div className="text-xs text-zinc-500 bg-zinc-50 rounded-md px-3 py-2">
-                  <span className="font-medium">Not found in resume: </span>
+                  <span className="font-medium">{t("notFoundInResume")}</span>
                   {parseNotes.missing_information!.join(" | ")}
                 </div>
               )}
               {(parseNotes.low_confidence_items ?? []).length > 0 && (
                 <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
-                  <span className="font-medium">Low confidence: </span>
+                  <span className="font-medium">{t("lowConfidence")}</span>
                   {parseNotes.low_confidence_items!.join(" | ")}
                 </div>
               )}
@@ -584,13 +586,13 @@ export default function ProfilePage() {
           {draftProjects && draftProjects.length > 0 && (
             <div>
               <p className="text-xs text-zinc-500 mb-2 font-medium">
-                Extracted projects ({draftProjects.length}) — will be saved with profile
+                {t("extractedProjects", { count: draftProjects.length })}
               </p>
               <div className="space-y-1.5">
                 {(draftProjects as Array<{ title?: string; description?: string }>).map(
                   (p, i) => (
                     <div key={i} className="text-xs text-zinc-600 bg-zinc-50 rounded px-3 py-2">
-                      <span className="font-medium">{p.title || `Project ${i + 1}`}</span>
+                      <span className="font-medium">{p.title || t("projectFallback", { n: i + 1 })}</span>
                       {p.description && (
                         <span className="text-zinc-400"> — {p.description.slice(0, 120)}</span>
                       )}
@@ -605,77 +607,77 @@ export default function ProfilePage() {
 
       {/* Edit form */}
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="text-sm font-semibold text-zinc-700">Edit Profile</h2>
+        <h2 className="text-sm font-semibold text-zinc-700">{t("editProfile")}</h2>
         {allProfiles.length > 1 && (
           <button
             onClick={handleDeleteProfile}
             disabled={saving}
             className="text-xs text-rose-500 hover:text-rose-700 disabled:opacity-50"
           >
-            Delete this profile
+            {t("deleteThisProfile")}
           </button>
         )}
       </div>
 
       <div className="space-y-5">
         <TextInput
-          label="Profile Label"
-          hint="A short name to distinguish this profile (e.g. &quot;Quant Risk&quot;, &quot;Data Science&quot;)"
+          label={t("labelLabel")}
+          hint={t("labelHint")}
           value={fields.label}
           onChange={handleChange("label")}
         />
 
         <Field
-          label="Professional Summary"
-          hint="e.g. Risk analytics professional with 4 years in model validation and market risk"
+          label={t("summaryLabel")}
+          hint={t("summaryHint")}
           value={fields.summary}
           onChange={handleChange("summary")}
           rows={3}
         />
 
         <Field
-          label="Experience Summary"
-          hint="Brief narrative of work history most relevant to job discovery"
+          label={t("experienceSummaryLabel")}
+          hint={t("experienceSummaryHint")}
           value={fields.experience_summary}
           onChange={handleChange("experience_summary")}
           rows={4}
         />
 
         <Field
-          label="Education"
-          hint="e.g. BS Computer Science, Stanford University"
+          label={t("educationLabel")}
+          hint={t("educationHint")}
           value={fields.education_summary}
           onChange={handleChange("education_summary")}
           rows={2}
         />
 
         <TextInput
-          label="Years of Experience"
-          hint="Total years of professional experience"
+          label={t("yearsLabel")}
+          hint={t("yearsHint")}
           type="number"
           value={fields.years_experience}
           onChange={handleChange("years_experience")}
         />
 
         <Field
-          label="Technical Skills"
-          hint="Comma-separated — e.g. Python, SQL, forecasting, experimentation, API integration"
+          label={t("technicalSkills")}
+          hint={t("skillsHint")}
           value={fields.technical_skills}
           onChange={handleChange("technical_skills")}
           rows={2}
         />
 
         <Field
-          label="Subject areas"
-          hint="Comma-separated — e.g. product management, market risk, clinical trials, fixed income"
+          label={t("subjectAreas")}
+          hint={t("subjectAreasHint")}
           value={fields.subject_areas}
           onChange={handleChange("subject_areas")}
           rows={2}
         />
 
         <Field
-          label="Tools"
-          hint="Comma-separated — e.g. Jira, Salesforce, Figma, Tableau, GitHub, Excel"
+          label={t("toolsLabel")}
+          hint={t("toolsHint")}
           value={fields.tools}
           onChange={handleChange("tools")}
           rows={2}
@@ -689,13 +691,13 @@ export default function ProfilePage() {
           className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
           style={{ background: "var(--primary)" }}
         >
-          {saving ? "Saving..." : "Save Profile"}
+          {saving ? t("saving") : t("saveProfile")}
         </button>
         {status === "saved" && (
-          <span className="text-sm text-emerald-600">Profile saved.</span>
+          <span className="text-sm text-emerald-600">{t("profileSaved")}</span>
         )}
         {status === "error" && (
-          <span className="text-sm text-rose-600">{errorMsg ?? "Save failed."}</span>
+          <span className="text-sm text-rose-600">{errorMsg ?? t("saveFailed")}</span>
         )}
       </div>
       </div>

@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { getFitReport, getJob, getProfile } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { FitReportTabs } from "@/components/FitReportTabs";
@@ -13,6 +14,7 @@ interface PageProps {
 export default async function FitReportPage({ params }: PageProps) {
   const { fit_report_id } = await params;
   const token = await getServerToken();
+  const t = await getTranslations("fitReport");
 
   const report = await getFitReport(fit_report_id, token).catch(() => null);
   if (!report) notFound();
@@ -33,7 +35,7 @@ export default async function FitReportPage({ params }: PageProps) {
           className="text-[13px] hover:underline"
           style={{ color: "var(--primary)" }}
         >
-          ← Back to {job ? "Job Detail" : "Inbox"}
+          {job ? t("backToJobDetail") : t("backToInboxShort")}
         </Link>
       </header>
 
@@ -41,7 +43,7 @@ export default async function FitReportPage({ params }: PageProps) {
         <div className="max-w-4xl space-y-6">
           <div className="space-y-1">
             <h1 className="text-lg font-semibold" style={{ color: "oklch(16% 0.015 275)" }}>
-              Candidate Fit Report
+              {t("title")}
             </h1>
             {job && (
               <p className="text-sm" style={{ color: "oklch(52% 0.01 275)" }}>

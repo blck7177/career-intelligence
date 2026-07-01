@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { Button } from "@/components/ui/button";
 import { createRun, type RunCreate } from "@/api/client";
 import { Plus, Loader2, X, ChevronDown } from "lucide-react";
 
 type FormMode = "none" | "job_report" | "fit_report" | "discovery";
+type T = ReturnType<typeof useTranslations>;
 
 // ---------------------------------------------------------------------------
 // Sub-forms
@@ -17,10 +19,12 @@ function JobReportForm({
   onSubmit,
   onCancel,
   loading,
+  t,
 }: {
   onSubmit: (body: RunCreate) => void;
   onCancel: () => void;
   loading: boolean;
+  t: T;
 }) {
   const [jobId, setJobId] = useState("");
   const [useResearch, setUseResearch] = useState(false);
@@ -46,14 +50,14 @@ function JobReportForm({
   return (
     <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <p className="font-medium text-zinc-700">Generate Job Intelligence Report</p>
+        <p className="font-medium text-zinc-700">{t("generateJobReport")}</p>
         <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-zinc-600">
           <X size={14} />
         </button>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500">Job ID *</label>
+        <label className="text-xs text-zinc-500">{t("jobIdRequired")}</label>
         <input
           className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
           placeholder="job_abc123"
@@ -71,7 +75,7 @@ function JobReportForm({
             onChange={(e) => setUseResearch(e.target.checked)}
             className="rounded"
           />
-          Use research
+          {t("useResearch")}
         </label>
         <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
           <input
@@ -80,13 +84,13 @@ function JobReportForm({
             onChange={(e) => setForceRefresh(e.target.checked)}
             className="rounded"
           />
-          Force refresh
+          {t("forceRefresh")}
         </label>
       </div>
 
       {useResearch && (
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">Research Artifact ID *</label>
+          <label className="text-xs text-zinc-500">{t("researchArtifactIdRequired")}</label>
           <input
             className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
             placeholder="art_abc123"
@@ -94,11 +98,11 @@ function JobReportForm({
             onChange={(e) => setResearchArtifactId(e.target.value)}
           />
           <p className="text-xs text-zinc-400">
-            Find artifact IDs in the Events log of a completed research run.
+            {t("researchArtifactHint")}
           </p>
           {researchBlocked && (
             <p className="text-xs text-rose-600">
-              Research artifact ID is required when &ldquo;Use research&rdquo; is checked.
+              {t("researchArtifactRequiredError")}
             </p>
           )}
         </div>
@@ -106,7 +110,7 @@ function JobReportForm({
 
       <Button type="submit" disabled={loading || !jobId.trim() || researchBlocked} size="sm" className="w-full">
         {loading ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Plus size={13} className="mr-1.5" />}
-        Start Job Report Run
+        {t("startJobReportRun")}
       </Button>
     </form>
   );
@@ -116,10 +120,12 @@ function FitReportForm({
   onSubmit,
   onCancel,
   loading,
+  t,
 }: {
   onSubmit: (body: RunCreate) => void;
   onCancel: () => void;
   loading: boolean;
+  t: T;
 }) {
   const [jobId, setJobId] = useState("");
   const [jobReportId, setJobReportId] = useState("");
@@ -141,20 +147,20 @@ function FitReportForm({
   return (
     <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <p className="font-medium text-zinc-700">Generate Candidate Fit Report</p>
+        <p className="font-medium text-zinc-700">{t("generateFitReport")}</p>
         <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-zinc-600">
           <X size={14} />
         </button>
       </div>
 
       <p className="text-xs text-zinc-500">
-        Uses your saved candidate profile.{" "}
-        <a href="/profile" className="underline text-zinc-400 hover:text-zinc-600">Edit profile →</a>
+        {t("usesSavedProfile")}{" "}
+        <a href="/profile" className="underline text-zinc-400 hover:text-zinc-600">{t("editProfileLink")}</a>
       </p>
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">Job ID *</label>
+          <label className="text-xs text-zinc-500">{t("jobIdRequired")}</label>
           <input
             className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
             placeholder="job_abc123"
@@ -164,10 +170,10 @@ function FitReportForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">Job Report ID (optional)</label>
+          <label className="text-xs text-zinc-500">{t("jobReportIdOptional")}</label>
           <input
             className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
-            placeholder="use latest active"
+            placeholder={t("useLatestActive")}
             value={jobReportId}
             onChange={(e) => setJobReportId(e.target.value)}
           />
@@ -181,12 +187,12 @@ function FitReportForm({
           onChange={(e) => setForceRefresh(e.target.checked)}
           className="rounded"
         />
-        Force refresh
+        {t("forceRefresh")}
       </label>
 
       <Button type="submit" disabled={loading || !jobId.trim()} size="sm" className="w-full">
         {loading ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Plus size={13} className="mr-1.5" />}
-        Start Fit Report Run
+        {t("startFitReportRun")}
       </Button>
     </form>
   );
@@ -197,6 +203,7 @@ function FitReportForm({
 // ---------------------------------------------------------------------------
 
 export function StartRunButton() {
+  const t = useTranslations("runs");
   const router = useRouter();
   const getToken = useApiToken();
   const [loading, setLoading] = useState(false);
@@ -213,7 +220,7 @@ export function StartRunButton() {
       setFormMode("none");
       router.push(`/runs/${run.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start run");
+      setError(err instanceof Error ? err.message : t("failedToStartRun"));
       setLoading(false);
     }
   }
@@ -234,7 +241,7 @@ export function StartRunButton() {
           size="sm"
         >
           <Plus size={14} className="mr-1.5" />
-          New Run
+          {t("newRun")}
         </Button>
         <Button
           variant="outline"
@@ -242,7 +249,7 @@ export function StartRunButton() {
           onClick={() => setMenuOpen((o) => !o)}
           disabled={loading}
           className="px-2"
-          aria-label="Run type menu"
+          aria-label={t("runTypeMenu")}
         >
           <ChevronDown size={14} />
         </Button>
@@ -255,19 +262,19 @@ export function StartRunButton() {
             className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 rounded-t-lg"
             onClick={() => { router.push("/workspace"); setMenuOpen(false); }}
           >
-            Discovery Run
+            {t("runDiscovery")}
           </button>
           <button
             className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
             onClick={() => openForm("job_report")}
           >
-            Job Intelligence Report
+            {t("runJobReport")}
           </button>
           <button
             className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 rounded-b-lg"
             onClick={() => openForm("fit_report")}
           >
-            Candidate Fit Report
+            {t("candidateFitReport")}
           </button>
         </div>
       )}
@@ -278,6 +285,7 @@ export function StartRunButton() {
           loading={loading}
           onCancel={() => { setFormMode("none"); setError(null); }}
           onSubmit={(body) => startRun(body)}
+          t={t}
         />
       )}
       {formMode === "fit_report" && (
@@ -285,6 +293,7 @@ export function StartRunButton() {
           loading={loading}
           onCancel={() => { setFormMode("none"); setError(null); }}
           onSubmit={(body) => startRun(body)}
+          t={t}
         />
       )}
 

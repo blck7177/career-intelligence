@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import { useJobFavorite } from "@/hooks/useJobFavorite";
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function FavoriteStarButton({ jobId, initialFavorited, onToggled }: Props) {
+  const t = useTranslations("favoriteButton");
   const { favorited, loading, toggle } = useJobFavorite(jobId, initialFavorited, onToggled);
 
   return (
@@ -16,7 +18,7 @@ export function FavoriteStarButton({ jobId, initialFavorited, onToggled }: Props
       onClick={toggle}
       disabled={loading}
       aria-pressed={favorited}
-      aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+      aria-label={favorited ? t("remove") : t("add")}
       className="flex items-center justify-center w-7 h-7 rounded-md transition-colors disabled:opacity-50 shrink-0 hover:bg-zinc-100"
       style={{ color: favorited ? "oklch(60% 0.15 80)" : "oklch(72% 0.01 275)" }}
     >

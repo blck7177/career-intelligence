@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { getJob, getLatestJobReport, getProfile, listFitReports, getFitReport } from "@/api/client";
 import type { JobRead, JobReportResponse, FitReportResponse, JDStructured, ProfileRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
@@ -22,19 +23,18 @@ function jobStatusBg(status: string): string {
   return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
 }
 
-function jobStatusLabel(status: string): string {
-  const MAP: Record<string, string> = {
-    reportable: "Report Ready",
-    discovered: "Needs Report",
-    stale: "Stale",
-    invalid: "Invalid",
-  };
-  return MAP[status] ?? status;
-}
+const STATUS_KEY_MAP: Record<string, string> = {
+  reportable: "reportable",
+  discovered: "discovered",
+  stale: "stale",
+  invalid: "invalid",
+  archived: "archived",
+};
 
 export default async function JobDetailPage({ params }: PageProps) {
   const { job_id } = await params;
   const token = await getServerToken();
+  const t = await getTranslations("jobDetail");
 
   let job: JobRead;
   try {
@@ -69,7 +69,7 @@ export default async function JobDetailPage({ params }: PageProps) {
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <Link href="/" className="text-[13px] hover:underline shrink-0" style={{ color: "var(--primary)" }}>
-              ← Inbox
+              {t("backToInbox")}
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -77,7 +77,7 @@ export default async function JobDetailPage({ params }: PageProps) {
                   {job.title}
                 </h1>
                 <Badge className={jobStatusBg(job.status) + " text-[11px] shrink-0"}>
-                  {jobStatusLabel(job.status)}
+                  {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
                 </Badge>
               </div>
               <div className="flex items-center gap-2.5 text-[13px] mt-1" style={{ color: "oklch(52% 0.01 275)" }}>
@@ -91,7 +91,7 @@ export default async function JobDetailPage({ params }: PageProps) {
                   className="hover:underline"
                   style={{ color: "var(--primary)" }}
                 >
-                  View posting →
+                  {t("viewPosting")}
                 </a>
               </div>
             </div>

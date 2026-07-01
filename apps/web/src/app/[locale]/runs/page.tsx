@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
@@ -7,28 +8,20 @@ import { fmtTs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-const RUN_TYPE_LABELS: Record<string, string> = {
-  job_discovery: "Discovery Run",
-  job_report: "Job Intelligence Report",
-  fit_report: "Fit Analysis",
+const RUN_TYPE_KEYS: Record<string, string> = {
+  job_discovery: "runDiscovery",
+  job_report: "runJobReport",
+  fit_report: "runFitReport",
 };
 
-function runTypeLabel(runType: string): string {
-  return RUN_TYPE_LABELS[runType] ?? runType.replace(/_/g, " ");
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  running: "In Progress",
-  succeeded: "Completed",
-  failed: "Failed",
-  needs_review: "Needs Review",
-  cancelled: "Cancelled",
+const STATUS_KEYS: Record<string, string> = {
+  queued: "statusQueued",
+  running: "statusRunning",
+  succeeded: "statusSucceeded",
+  failed: "statusFailed",
+  needs_review: "statusNeedsReview",
+  cancelled: "statusCancelled",
 };
-
-function humanStatus(status: string): string {
-  return STATUS_LABELS[status] ?? status.replace(/_/g, " ");
-}
 
 function statusDotColor(status: string): string {
   if (status === "succeeded") return "oklch(52% 0.18 155)";
@@ -46,7 +39,7 @@ function statusBadgeStyle(status: string): { bg: string; fg: string } {
   return { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" };
 }
 
-function RunRow({ run }: { run: RunRead }) {
+function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
   const badge = statusBadgeStyle(run.status);
   return (
     <Link
@@ -61,7 +54,7 @@ function RunRow({ run }: { run: RunRead }) {
         />
         <div className="min-w-0">
           <p className="text-sm font-medium truncate" style={{ color: "oklch(22% 0.015 275)" }}>
-            {runTypeLabel(run.run_type)}
+            {t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery")}
           </p>
           <p className="text-xs mt-0.5" style={{ color: "oklch(60% 0.01 275)" }}>{fmtTs(run.created_at)}</p>
         </div>
@@ -70,13 +63,14 @@ function RunRow({ run }: { run: RunRead }) {
         className="text-xs font-medium px-2.5 py-1 rounded-full shrink-0"
         style={{ background: badge.bg, color: badge.fg }}
       >
-        {humanStatus(run.status)}
+        {t(STATUS_KEYS[run.status] ?? "statusQueued")}
       </span>
     </Link>
   );
 }
 
 export default async function RunsPage() {
+  const t = await getTranslations("runs");
   let runs: RunRead[] = [];
   let fetchError: string | null = null;
 
@@ -98,10 +92,10 @@ export default async function RunsPage() {
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-          Reports & Runs
+          {t("title")}
         </span>
         <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-          {runs.length} run{runs.length !== 1 ? "s" : ""}
+          {t("runCount", { count: runs.length })}
         </span>
         <div className="flex-1" />
         <StartRunButton />
@@ -117,9 +111,9 @@ export default async function RunsPage() {
 
         {runs.length === 0 && !fetchError && (
           <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
-            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No runs yet</p>
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noRunsYet")}</p>
             <p className="text-xs mt-1" style={{ color: "oklch(60% 0.01 275)" }}>
-              Start a Discovery Run from Searches to find matching roles.
+              {t("noRunsHint")}
             </p>
           </div>
         )}
@@ -127,10 +121,10 @@ export default async function RunsPage() {
         {discoveryRuns.length > 0 && (
           <div className="space-y-2 mb-6">
             <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
-              Discovery
+              {t("discoverySection")}
             </h2>
             {discoveryRuns.map((run) => (
-              <RunRow key={run.id} run={run} />
+              <RunRow key={run.id} run={run} t={t} />
             ))}
           </div>
         )}
@@ -138,10 +132,10 @@ export default async function RunsPage() {
         {reportRuns.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
-              Reports
+              {t("reportsSection")}
             </h2>
             {reportRuns.map((run) => (
-              <RunRow key={run.id} run={run} />
+              <RunRow key={run.id} run={run} t={t} />
             ))}
           </div>
         )}

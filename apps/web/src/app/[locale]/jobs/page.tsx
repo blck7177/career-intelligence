@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { Suspense } from "react";
+import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
 import { listJobs, listFitReports, getProfile } from "@/api/client";
 import type { FitReportSummary, JobRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
@@ -45,11 +46,11 @@ function pageNumbers(current: number, total: number): (number | "ellipsis")[] {
   return result;
 }
 
-const SAVED_VIEWS: { label: string; status: StatusFilter }[] = [
-  { label: "All", status: "all" },
-  { label: "Report Ready", status: "reportable" },
-  { label: "Needs Report", status: "discovered" },
-  { label: "Stale", status: "stale" },
+const SAVED_VIEWS: { key: string; status: StatusFilter }[] = [
+  { key: "viewAll", status: "all" },
+  { key: "reportReady", status: "reportable" },
+  { key: "needsReport", status: "discovered" },
+  { key: "stale", status: "stale" },
 ];
 
 function uniqueRoleCategories(jobs: JobRead[]): string[] {
@@ -86,6 +87,7 @@ function buildQuery(
 export default async function JobsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const token = await getServerToken();
+  const t = await getTranslations("jobs");
 
   const statusFilter = (params.status as StatusFilter) || "all";
   const profileId = params.profile_id;
@@ -175,7 +177,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
   const roleCategories = uniqueRoleCategories(jobList.items);
   const companies = uniqueCompanies(jobList.items);
   const profileOptions = profile
-    ? [{ id: profile.id, label: profile.summary?.slice(0, 40) ?? "Your Profile" }]
+    ? [{ id: profile.id, label: profile.summary?.slice(0, 40) ?? t("yourProfile") }]
     : [];
 
   const activeFilters = [
@@ -209,11 +211,11 @@ export default async function JobsPage({ searchParams }: PageProps) {
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <span className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
-          Saved Roles
+          {t("title")}
         </span>
         <span className="text-[13px]" style={{ color: "var(--muted-foreground)" }}>
-          {jobs.length} role{jobs.length !== 1 ? "s" : ""}
-          {activeFilters > 0 && ` · ${activeFilters} filter${activeFilters !== 1 ? "s" : ""}`}
+          {t("roleCount", { count: jobs.length })}
+          {activeFilters > 0 && ` · ${t("filterCount", { count: activeFilters })}`}
         </span>
         <div className="flex-1" />
         <Link
@@ -225,14 +227,14 @@ export default async function JobsPage({ searchParams }: PageProps) {
             <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="2" strokeLinecap="round" />
             <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          New Search
+          {t("newSearch")}
         </Link>
       </header>
 
       <div className="flex-1 overflow-y-auto px-7 py-6">
         {/* Status filter pills */}
         <div className="flex flex-wrap gap-2 mb-5">
-          {SAVED_VIEWS.map(({ label, status }) => {
+          {SAVED_VIEWS.map(({ key, status }) => {
             const active = statusFilter === status;
             return (
               <Link
@@ -245,7 +247,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                     : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
                 }
               >
-                {label}
+                {t(key)}
               </Link>
             );
           })}
@@ -264,7 +266,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
             <svg width="12" height="12" viewBox="0 0 24 24" fill={favoritesOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
               <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Favorites
+            {t("favorites")}
           </Link>
         </div>
 
@@ -274,13 +276,13 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
         {jobs.length === 0 ? (
           <div className="rounded-xl border border-dashed py-16 text-center mt-4" style={{ borderColor: "var(--border)" }}>
-            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No roles match the current filters.</p>
+            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("emptyTitle")}</p>
             <Link
               href="/workspace"
               className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium hover:underline"
               style={{ color: "var(--primary)" }}
             >
-              Start Discovery →
+              {t("startDiscovery")}
             </Link>
           </div>
         ) : (
@@ -315,7 +317,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                       : { color: "var(--foreground)", border: "1px solid var(--border)" }
                   }
                 >
-                  ← Prev
+                  {t("prev")}
                 </Link>
 
                 {pageNumbers(currentPage, totalPages).map((p, idx) =>
@@ -349,7 +351,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                       : { color: "var(--foreground)", border: "1px solid var(--border)" }
                   }
                 >
-                  Next →
+                  {t("next")}
                 </Link>
               </div>
             )}

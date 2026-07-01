@@ -1,19 +1,20 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { Link, usePathname } from "@/i18n/navigation";
 import { UserButton } from "@clerk/nextjs";
 import { Inbox, Bookmark, Search, FileText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-const NAV_ITEMS: { href: string; label: string; exact: boolean; icon: LucideIcon }[] = [
-  { href: "/", label: "Inbox", exact: true, icon: Inbox },
-  { href: "/jobs", label: "Saved", exact: false, icon: Bookmark },
-  { href: "/workspace", label: "Searches", exact: false, icon: Search },
-  { href: "/runs", label: "Reports", exact: false, icon: FileText },
+const NAV_ITEMS: { href: string; key: string; exact: boolean; icon: LucideIcon }[] = [
+  { href: "/", key: "inbox", exact: true, icon: Inbox },
+  { href: "/jobs", key: "saved", exact: false, icon: Bookmark },
+  { href: "/workspace", key: "searches", exact: false, icon: Search },
+  { href: "/runs", key: "reports", exact: false, icon: FileText },
 ];
 
 export function Nav() {
+  const t = useTranslations("nav");
   const pathname = usePathname();
 
   const isActive = (href: string, exact: boolean) =>
@@ -34,14 +35,14 @@ export function Nav() {
             <Search size={20} color="#fff" strokeWidth={2.2} />
           </div>
           <span className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
-            Career Agent
+            {t("brand")}
           </span>
         </Link>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 px-3 py-1">
-        {NAV_ITEMS.map(({ href, label, icon: Icon, exact }) => {
+        {NAV_ITEMS.map(({ href, key, icon: Icon, exact }) => {
           const active = isActive(href, exact);
           return (
             <Link
@@ -67,7 +68,7 @@ export function Nav() {
                 className="shrink-0"
                 style={{ color: active ? "var(--primary)" : "oklch(48% 0.008 275)" }}
               />
-              <span>{label}</span>
+              <span>{t(key)}</span>
             </Link>
           );
         })}
@@ -87,10 +88,10 @@ export function Nav() {
         />
         <Link href="/profile" className="min-w-0 group">
           <div className="text-[16px] font-medium group-hover:underline" style={{ color: "oklch(22% 0.015 275)" }}>
-            Profile
+            {t("profile")}
           </div>
           <div className="text-[13px]" style={{ color: "oklch(48% 0.01 275)" }}>
-            Edit profile
+            {t("editProfile")}
           </div>
         </Link>
       </div>

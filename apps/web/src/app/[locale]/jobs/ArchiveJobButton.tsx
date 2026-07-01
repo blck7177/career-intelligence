@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { archiveJob } from "@/api/client";
 
 export function ArchiveJobButton({ jobId }: { jobId: string }) {
+  const t = useTranslations("common");
   const getToken = useApiToken();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -31,13 +33,13 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
           disabled={loading}
           className="text-[13px] font-medium text-rose-600 hover:text-rose-800 disabled:opacity-50"
         >
-          {loading ? "Removing…" : "Confirm"}
+          {loading ? t("removing") : t("confirm")}
         </button>
         <button
           onClick={() => setConfirming(false)}
           className="text-[13px] text-zinc-400 hover:text-zinc-600"
         >
-          Cancel
+          {t("cancel")}
         </button>
       </span>
     );
@@ -48,7 +50,7 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
       onClick={() => setConfirming(true)}
       className="text-[13px] text-zinc-400 hover:text-rose-500 transition-colors"
     >
-      Remove
+      {t("remove")}
     </button>
   );
 }

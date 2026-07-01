@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { batchArchiveJobs, batchAnalyzeJobs, importJob, getRun } from "@/api/client";
 import { fmtTs } from "@/lib/utils";
@@ -36,22 +36,18 @@ interface Props {
   favoritesOnly?: boolean;
 }
 
-function matchStyle(score: number | undefined): "strong" | "good" | "partial" {
-  if (score === undefined) return "partial";
+type MatchStyle = "strong" | "good" | "partial" | "unanalyzed";
+
+function matchStyle(score: number | undefined): MatchStyle {
+  if (score === undefined) return "unanalyzed";
   if (score >= 75) return "strong";
   if (score >= 50) return "good";
   return "partial";
 }
 
-function matchBadge(style: "strong" | "good" | "partial"): { text: string; classes: string } {
-  if (style === "strong")
-    return { text: "Strong match", classes: "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]" };
-  if (style === "good")
-    return { text: "Good fit", classes: "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]" };
-  return { text: "Partial", classes: "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]" };
-}
-
 export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOnly }: Props) {
+  const t = useTranslations("jobs");
+  const tCommon = useTranslations("common");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
@@ -64,6 +60,16 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
   const getToken = useApiToken();
   const router = useRouter();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function matchBadge(style: MatchStyle): { text: string; classes: string } {
+    if (style === "strong")
+      return { text: t("matchStrong"), classes: "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]" };
+    if (style === "good")
+      return { text: t("matchGood"), classes: "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]" };
+    if (style === "partial")
+      return { text: t("matchPartial"), classes: "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]" };
+    return { text: t("matchUnanalyzed"), classes: "bg-zinc-100 text-zinc-500" };
+  }
 
   // Reset whenever the server gives us a fresh job list (new page/filter).
   useEffect(() => {
@@ -113,7 +119,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           stopPolling();
           setPendingRunIds([]);
           setAnalyzing(new Set());
-          showBanner("Fit analysis complete — refreshing results");
+          showBanner(t("fitAnalysisComplete"));
           router.refresh();
         }
       } catch {
@@ -122,7 +128,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
     }, 5000);
 
     return stopPolling;
-  }, [pendingRunIds, getToken, router, stopPolling]);
+  }, [pendingRunIds, getToken, router, stopPolling, t]);
 
   const allSelected = visibleJobs.length > 0 && selected.size === visibleJobs.length;
 
@@ -155,15 +161,20 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
     try {
       const token = await getToken();
       const result = await importJob(url, token);
-      const verb = result.created ? "Imported" : "Already exists";
-      const jd = result.jd_fetched ? " (JD fetched)" : " (no JD)";
-      showBanner(`${verb}: ${result.job.title} @ ${result.job.company}${jd}`);
+      const jd = result.jd_fetched ? t("jdFetched") : t("noJdSuffix");
+      showBanner(
+        t(result.created ? "importedMsg" : "existsMsg", {
+          title: result.job.title,
+          company: result.job.company,
+          jd,
+        }),
+      );
       setImportUrl("");
       setShowImportInput(false);
       router.refresh();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Import failed";
-      showBanner(`Import failed: ${msg}`);
+      showBanner(t("importFailedMsg", { msg }));
     } finally {
       setImporting(false);
     }
@@ -174,7 +185,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
     try {
       const token = await getToken();
       const result = await batchArchiveJobs([...selected], token);
-      showBanner(`${result.archived_count} job${result.archived_count !== 1 ? "s" : ""} archived`);
+      showBanner(t("archivedMsg", { count: result.archived_count }));
       setSelected(new Set());
       router.refresh();
     } finally {
@@ -190,7 +201,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
         (id) => jobs.find((j) => j.id === id)?.status !== "discovered",
       );
       if (submitted.length === 0) {
-        showBanner("All selected jobs are missing JD — cannot analyze");
+        showBanner(t("allMissingJD"));
         setLoading(null);
         return;
       }
@@ -199,9 +210,9 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
       const reportFirst = result.report_first?.length ?? 0;
       const skipped = result.skipped.length;
       const parts: string[] = [];
-      if (fitDirect > 0) parts.push(`${fitDirect} fit report${fitDirect !== 1 ? "s" : ""} queued`);
-      if (reportFirst > 0) parts.push(`${reportFirst} generating report first → auto fit`);
-      if (skipped > 0) parts.push(`${skipped} skipped`);
+      if (fitDirect > 0) parts.push(t("fitReportsQueued", { count: fitDirect }));
+      if (reportFirst > 0) parts.push(t("reportFirstQueued", { count: reportFirst }));
+      if (skipped > 0) parts.push(t("skippedCount", { count: skipped }));
       showBanner(parts.join(" · "));
 
       const analyzingIds = new Set(
@@ -226,7 +237,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           style={{ background: "oklch(96% 0.015 145)", color: "oklch(30% 0.08 145)", border: "1px solid oklch(88% 0.04 145)" }}
         >
           <span>{banner}</span>
-          <button onClick={() => setBanner(null)} className="text-[11px] opacity-60 hover:opacity-100">dismiss</button>
+          <button onClick={() => setBanner(null)} className="text-[11px] opacity-60 hover:opacity-100">{t("dismiss")}</button>
         </div>
       )}
 
@@ -239,7 +250,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               value={importUrl}
               onChange={(e) => setImportUrl(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleImportUrl()}
-              placeholder="Paste job posting URL (e.g. greenhouse.io/company/jobs/123)"
+              placeholder={t("importPlaceholder")}
               autoFocus
               className="flex-1 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
               style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
@@ -250,13 +261,13 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               className="h-9 px-4 rounded-lg text-sm font-medium text-white disabled:opacity-50"
               style={{ background: "var(--primary)" }}
             >
-              {importing ? "Importing…" : "Import"}
+              {importing ? t("importing") : t("import")}
             </button>
             <button
               onClick={() => { setShowImportInput(false); setImportUrl(""); }}
               className="h-9 px-3 rounded-lg text-sm text-zinc-400 hover:text-zinc-600"
             >
-              Cancel
+              {tCommon("cancel")}
             </button>
           </div>
         ) : (
@@ -268,7 +279,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <path d="M8 1v14M1 8h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
-            Import job by URL
+            {t("importByUrl")}
           </button>
         )}
       </div>
@@ -283,11 +294,11 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               onChange={toggleAll}
               className="w-4 h-4 rounded border-zinc-300 accent-[var(--primary)]"
             />
-            Select all
+            {t("selectAll")}
           </label>
           {selected.size > 0 && (
             <span className="text-[13px] text-zinc-400">
-              {selected.size} selected
+              {t("selectedCount", { count: selected.size })}
             </span>
           )}
         </div>
@@ -296,7 +307,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
       {/* Job cards */}
       {visibleJobs.length === 0 && jobs.length > 0 && (
         <div className="rounded-xl border border-dashed py-10 text-center" style={{ borderColor: "var(--border)" }}>
-          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No favorites left on this page.</p>
+          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noFavoritesLeft")}</p>
         </div>
       )}
       <div className="flex flex-col gap-2.5">
@@ -306,7 +317,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           const ms = matchStyle(score);
           const badge = matchBadge(ms);
           const isDiscovered = job.status === "discovered";
-          const isPartial = ms === "partial" || isDiscovered;
+          const isPartial = ms === "partial" || ms === "unanalyzed" || isDiscovered;
           const isSelected = selected.has(job.id);
 
           return (
@@ -333,7 +344,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
                 </span>
                 {isDiscovered && (
                   <span className="py-[3px] px-2.5 rounded text-xs font-medium bg-zinc-100 text-zinc-500">
-                    No JD
+                    {t("noJD")}
                   </span>
                 )}
                 <div className="flex-1" />
@@ -344,7 +355,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
                         <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
                         <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
                       </svg>
-                      Analyzing…
+                      {t("analyzing")}
                     </span>
                   ) : (
                     <JobFitCell
@@ -379,7 +390,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
                 <div className="flex items-center gap-4">
                   <span className="text-[13px]" style={{ color: "oklch(58% 0.01 275)" }}>
-                    Discovered {fmtTs(job.created_at.toString())}
+                    {t("discovered", { time: fmtTs(job.created_at.toString()) })}
                   </span>
                   <ArchiveJobButton jobId={job.id} />
                 </div>
@@ -388,7 +399,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
                   className="text-[13px] font-medium hover:underline"
                   style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
                 >
-                  View role →
+                  {tCommon("viewRole")}
                 </Link>
               </div>
             </div>
@@ -403,7 +414,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           style={{ border: "1px solid var(--border)" }}
         >
           <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-            {selected.size} selected
+            {t("selectedCount", { count: selected.size })}
           </span>
           <div className="w-px h-6 bg-zinc-200" />
           <button
@@ -411,7 +422,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
             disabled={!!loading}
             className="text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
           >
-            {loading === "archive" ? "Archiving…" : "Archive"}
+            {loading === "archive" ? t("archiving") : t("archive")}
           </button>
           {hasProfile && (
             <button
@@ -420,14 +431,14 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               className="text-sm font-medium px-4 py-2 rounded-lg transition-all hover:shadow-sm disabled:opacity-50"
               style={{ color: "white", background: "var(--primary)" }}
             >
-              {loading === "analyze" ? "Analyzing…" : "Analyze Fit"}
+              {loading === "analyze" ? t("analyzing") : t("analyzeFit")}
             </button>
           )}
           <button
             onClick={() => setSelected(new Set())}
             className="text-sm text-zinc-400 hover:text-zinc-600 px-3 py-2"
           >
-            Cancel
+            {tCommon("cancel")}
           </button>
         </div>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createRun, getRunReport } from "@/api/client";
 import { pollRunUntilDone, extractReportId } from "@/lib/pollRun";

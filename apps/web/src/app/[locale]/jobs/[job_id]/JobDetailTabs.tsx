@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type { JobRead, JobReportResponse, FitReportResponse, JDStructured, ProfileRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { FitReportTabs } from "@/components/FitReportTabs";
@@ -56,12 +57,14 @@ function TagList({ items }: { items: string[] }) {
 /* ── Left: JD Panel ── */
 
 function JDPanel({ jd }: { jd: JDStructured | null }) {
+  const t = useTranslations("jobDetail");
+
   if (!jd) {
     return (
       <div className="py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No structured JD data available.</p>
+        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noJdData")}</p>
         <p className="text-xs mt-1" style={{ color: "oklch(60% 0.01 275)" }}>
-          JD extraction runs during discovery. Older jobs may not have this data.
+          {t("noJdDataHint")}
         </p>
       </div>
     );
@@ -76,7 +79,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
   if (!hasContent) {
     return (
       <div className="py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No structured JD data extracted for this role.</p>
+        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noJdExtracted")}</p>
       </div>
     );
   }
@@ -85,7 +88,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
     <div className="space-y-6">
       {jd.inferred_team_context && (
         <div>
-          <SectionTitle>Team Context</SectionTitle>
+          <SectionTitle>{t("teamContext")}</SectionTitle>
           <p className="text-[13px] leading-relaxed" style={{ color: "oklch(36% 0.01 275)" }}>
             {jd.inferred_team_context}
           </p>
@@ -94,7 +97,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
 
       {jd.responsibilities.length > 0 && (
         <div>
-          <SectionTitle>Responsibilities</SectionTitle>
+          <SectionTitle>{t("responsibilities")}</SectionTitle>
           <BulletList items={jd.responsibilities} />
         </div>
       )}
@@ -103,13 +106,13 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
         <div className="grid grid-cols-2 gap-4">
           {jd.required_skills.length > 0 && (
             <div>
-              <SectionTitle>Required Skills</SectionTitle>
+              <SectionTitle>{t("requiredSkills")}</SectionTitle>
               <BulletList items={jd.required_skills} />
             </div>
           )}
           {jd.preferred_skills.length > 0 && (
             <div>
-              <SectionTitle>Preferred Skills</SectionTitle>
+              <SectionTitle>{t("preferredSkills")}</SectionTitle>
               <BulletList items={jd.preferred_skills} />
             </div>
           )}
@@ -120,13 +123,13 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
         <div className="grid grid-cols-2 gap-4">
           {jd.likely_tasks.length > 0 && (
             <div>
-              <SectionTitle>Likely Day-to-Day Tasks</SectionTitle>
+              <SectionTitle>{t("likelyTasks")}</SectionTitle>
               <BulletList items={jd.likely_tasks} />
             </div>
           )}
           {jd.likely_stakeholders.length > 0 && (
             <div>
-              <SectionTitle>Stakeholders</SectionTitle>
+              <SectionTitle>{t("stakeholders")}</SectionTitle>
               <BulletList items={jd.likely_stakeholders} />
             </div>
           )}
@@ -135,7 +138,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
 
       {jd.tools_mentioned.length > 0 && (
         <div>
-          <SectionTitle>Tools & Technologies</SectionTitle>
+          <SectionTitle>{t("toolsAndTech")}</SectionTitle>
           <TagList items={jd.tools_mentioned} />
         </div>
       )}
@@ -146,12 +149,14 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
 /* ── Right: Intelligence Report ── */
 
 function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
+  const t = useTranslations("jobDetail");
+
   if (!report) {
     return (
       <div className="py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No Job Intelligence Report yet.</p>
+        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noIntelligenceReport")}</p>
         <p className="text-xs mt-2" style={{ color: "oklch(60% 0.01 275)" }}>
-          Use "Generate Report" in the header to analyze this role.
+          {t("noIntelligenceReportHint")}
         </p>
       </div>
     );
@@ -171,7 +176,7 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
       <div className="flex items-center gap-3 flex-wrap">
         <Badge className="bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)] text-xs">{report.status}</Badge>
         {report.used_research && (
-          <Badge className="bg-[var(--match-good-bg)] text-[var(--match-good-fg)] text-xs">with research</Badge>
+          <Badge className="bg-[var(--match-good-bg)] text-[var(--match-good-fg)] text-xs">{t("withResearch")}</Badge>
         )}
         {primaryCategory && (
           <span className="text-sm font-medium" style={{ color: "oklch(36% 0.015 275)" }}>{primaryCategory}</span>
@@ -180,11 +185,11 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
       {bc?.summary && (
         <div>
-          <SectionTitle>Business Context</SectionTitle>
+          <SectionTitle>{t("businessContext")}</SectionTitle>
           <p className="text-[13px] leading-relaxed" style={{ color: "oklch(36% 0.01 275)" }}>{bc.summary}</p>
           {bc.problem_solved && (
             <p className="text-xs mt-2 leading-relaxed" style={{ color: "oklch(52% 0.01 275)" }}>
-              Problem solved: {bc.problem_solved}
+              {t("problemSolved", { text: bc.problem_solved })}
             </p>
           )}
         </div>
@@ -192,7 +197,7 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
       {pf?.primary_function && (
         <div>
-          <SectionTitle>Position Function</SectionTitle>
+          <SectionTitle>{t("positionFunction")}</SectionTitle>
           <p className="text-sm font-medium" style={{ color: "oklch(22% 0.015 275)" }}>{pf.primary_function}</p>
           {pf.function_mix_description && (
             <p className="text-[13px] mt-1 leading-relaxed" style={{ color: "oklch(52% 0.01 275)" }}>{pf.function_mix_description}</p>
@@ -202,16 +207,16 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
       {dw && (dw.likely_analyses?.length || dw.likely_outputs?.length) ? (
         <div>
-          <SectionTitle>Daily Workflow</SectionTitle>
+          <SectionTitle>{t("dailyWorkflow")}</SectionTitle>
           {dw.likely_analyses && dw.likely_analyses.length > 0 && (
             <div className="mb-3">
-              <p className="text-xs font-medium mb-1.5" style={{ color: "oklch(50% 0.01 275)" }}>Typical Analyses</p>
+              <p className="text-xs font-medium mb-1.5" style={{ color: "oklch(50% 0.01 275)" }}>{t("typicalAnalyses")}</p>
               <BulletList items={dw.likely_analyses} />
             </div>
           )}
           {dw.likely_outputs && dw.likely_outputs.length > 0 && (
             <div>
-              <p className="text-xs font-medium mb-1.5" style={{ color: "oklch(50% 0.01 275)" }}>Outputs</p>
+              <p className="text-xs font-medium mb-1.5" style={{ color: "oklch(50% 0.01 275)" }}>{t("outputs")}</p>
               <BulletList items={dw.likely_outputs} />
             </div>
           )}
@@ -220,7 +225,7 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
       {demands && demands.length > 0 && (
         <div>
-          <SectionTitle>Key Skill Demands</SectionTitle>
+          <SectionTitle>{t("keySkillDemands")}</SectionTitle>
           <div className="space-y-2">
             {demands.map((d, i) => (
               <div key={i} className="flex gap-2.5 items-start text-[13px]">
@@ -243,14 +248,14 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
       {analystNotes && (
         <div>
-          <SectionTitle>Analyst Notes</SectionTitle>
+          <SectionTitle>{t("analystNotes")}</SectionTitle>
           <p className="text-[13px] leading-relaxed" style={{ color: "oklch(40% 0.01 275)" }}>{analystNotes}</p>
         </div>
       )}
 
       {uncertaintyNotes && uncertaintyNotes.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-          <p className="text-xs font-semibold text-amber-700 mb-2">Uncertainty Notes</p>
+          <p className="text-xs font-semibold text-amber-700 mb-2">{t("uncertaintyNotes")}</p>
           <ul className="space-y-1.5">
             {uncertaintyNotes.map((n, i) => (
               <li key={i} className="text-[13px]">
@@ -268,12 +273,14 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 /* ── Right: Fit Panel ── */
 
 function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | null; job: JobRead; profile: ProfileRead | null }) {
+  const t = useTranslations("jobDetail");
+
   if (!fitReport) {
     return (
       <div className="py-16 text-center">
-        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>No Fit Analysis yet.</p>
+        <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noFitAnalysis")}</p>
         <p className="text-xs mt-2" style={{ color: "oklch(60% 0.01 275)" }}>
-          Generate a Job Report first, then use "Analyze Fit" to see how this role matches your profile.
+          {t("noFitAnalysisHint")}
         </p>
       </div>
     );
@@ -285,6 +292,7 @@ function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | 
 /* ── Main Component ── */
 
 export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions }: JobDetailTabsProps) {
+  const t = useTranslations("jobDetail");
   const [rightTab, setRightTab] = useState<RightTab>("intelligence");
 
   return (
@@ -292,7 +300,7 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
       {/* Left: JD — independent scroll */}
       <div className="w-[45%] shrink-0 overflow-y-auto p-6" style={{ borderRight: "1px solid var(--border)" }}>
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold" style={{ color: "oklch(22% 0.015 275)" }}>Job Description</h2>
+          <h2 className="text-sm font-semibold" style={{ color: "oklch(22% 0.015 275)" }}>{t("jobDescription")}</h2>
         </div>
         <JDPanel jd={jd} />
         <div className="h-8" />
@@ -313,10 +321,10 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
                   : { borderColor: "transparent", color: "oklch(56% 0.01 275)" }
               }
             >
-              Intelligence Report
+              {t("intelligenceReportTab")}
               {jobReport && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
-                  ready
+                  {t("ready")}
                 </span>
               )}
             </button>
@@ -330,7 +338,7 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
                   : { borderColor: "transparent", color: "oklch(56% 0.01 275)" }
               }
             >
-              Fit Analysis
+              {t("fitAnalysisTab")}
               {fitReport && (
                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
                   {fitReport.overall_match_score}%

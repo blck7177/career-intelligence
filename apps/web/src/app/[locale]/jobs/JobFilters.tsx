@@ -1,7 +1,9 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect } from "react";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 
 interface ProfileOption {
   id: string;
@@ -15,6 +17,7 @@ interface JobFiltersProps {
 }
 
 export function JobFilters({ profiles, roleCategories, companies }: JobFiltersProps) {
+  const t = useTranslations("jobFilters");
   const router = useRouter();
   const sp = useSearchParams();
 
@@ -52,28 +55,28 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
     <div className="flex flex-wrap gap-2.5 items-center">
       {/* Sort */}
       <div className="flex items-center gap-1.5">
-        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Sort:</span>
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("sort")}</span>
         <select
           value={sort}
           onChange={(e) => update("sort", e.target.value || null)}
           className={selectClass}
         >
-          <option value="">Newest</option>
-          <option value="oldest">Oldest</option>
-          <option value="company">Company A→Z</option>
-          {profileId && <option value="fit">Fit Score</option>}
+          <option value="">{t("sortNewest")}</option>
+          <option value="oldest">{t("sortOldest")}</option>
+          <option value="company">{t("sortCompany")}</option>
+          {profileId && <option value="fit">{t("sortFit")}</option>}
         </select>
       </div>
 
       {profiles.length > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Fit for:</span>
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("fitFor")}</span>
           <select
             value={profileId}
             onChange={(e) => update("profile_id", e.target.value || null)}
             className={selectClass}
           >
-            <option value="">— no profile —</option>
+            <option value="">{t("noProfile")}</option>
             {profiles.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
@@ -86,13 +89,13 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
       {/* Company */}
       {companies.length > 1 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Company:</span>
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("company")}</span>
           <select
             value={company}
             onChange={(e) => update("company", e.target.value || null)}
             className={`${selectClass} max-w-[180px]`}
           >
-            <option value="">All</option>
+            <option value="">{t("all")}</option>
             {companies.map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -104,13 +107,13 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
 
       {roleCategories.length > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-[13px] text-zinc-500 whitespace-nowrap">Role category:</span>
+          <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("roleCategory")}</span>
           <select
             value={roleCategory}
             onChange={(e) => update("role_category", e.target.value || null)}
             className={`${selectClass} max-w-[180px]`}
           >
-            <option value="">All</option>
+            <option value="">{t("all")}</option>
             {roleCategories.map((category) => (
               <option key={category} value={category}>
                 {category.split(" / ")[0]}
@@ -121,32 +124,32 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
       )}
 
       <div className="flex items-center gap-1.5">
-        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Seniority:</span>
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("seniority")}</span>
         <select
           value={seniority}
           onChange={(e) => update("seniority", e.target.value || null)}
           className={selectClass}
         >
-          <option value="">All</option>
-          <option value="junior">Junior</option>
-          <option value="mid">Mid</option>
-          <option value="senior">Senior</option>
-          <option value="lead">Lead / Principal</option>
-          <option value="director">Director+</option>
+          <option value="">{t("all")}</option>
+          <option value="junior">{t("seniorityJunior")}</option>
+          <option value="mid">{t("seniorityMid")}</option>
+          <option value="senior">{t("senioritySenior")}</option>
+          <option value="lead">{t("seniorityLead")}</option>
+          <option value="director">{t("seniorityDirector")}</option>
         </select>
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="text-[13px] text-zinc-500 whitespace-nowrap">Confidence:</span>
+        <span className="text-[13px] text-zinc-500 whitespace-nowrap">{t("confidence")}</span>
         <select
           value={confidence}
           onChange={(e) => update("confidence", e.target.value || null)}
           className={selectClass}
         >
-          <option value="">All</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
+          <option value="">{t("all")}</option>
+          <option value="high">{t("confidenceHigh")}</option>
+          <option value="medium">{t("confidenceMedium")}</option>
+          <option value="low">{t("confidenceLow")}</option>
         </select>
       </div>
 
@@ -156,7 +159,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
           onClick={() => router.push("/jobs")}
           className="text-[13px] text-zinc-500 hover:text-zinc-800 underline underline-offset-2"
         >
-          Clear filters
+          {t("clearFilters")}
         </button>
       )}
     </div>

@@ -1,9 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
 import { useJobFavorite } from "@/hooks/useJobFavorite";
 
 export function FavoriteButton({ jobId, initialFavorited }: { jobId: string; initialFavorited: boolean }) {
+  const t = useTranslations("favoriteButton");
   const router = useRouter();
   const { favorited, loading, toggle } = useJobFavorite(jobId, initialFavorited, () => router.refresh());
 
@@ -22,7 +24,7 @@ export function FavoriteButton({ jobId, initialFavorited }: { jobId: string; ini
       <svg width="14" height="14" viewBox="0 0 24 24" fill={favorited ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8">
         <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
-      {favorited ? "Favorited" : "Favorite"}
+      {favorited ? t("favorited") : t("favorite")}
     </button>
   );
 }

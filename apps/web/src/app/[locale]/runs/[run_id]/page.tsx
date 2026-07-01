@@ -1,5 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
+import type { useTranslations } from "next-intl";
+import { Link } from "@/i18n/navigation";
 import { getRun, getRunReport } from "@/api/client";
 import type { RunRead, JobReportResponse, FitReportResponse } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
@@ -14,6 +16,8 @@ interface PageProps {
   params: Promise<{ run_id: string }>;
 }
 
+type T = ReturnType<typeof useTranslations>;
+
 function StatusIcon({ status }: { status: string }) {
   if (status === "succeeded") return <CheckCircle2 size={14} className="text-emerald-500" />;
   if (status === "failed") return <XCircle size={14} className="text-rose-500" />;
@@ -23,40 +27,39 @@ function StatusIcon({ status }: { status: string }) {
   return <Clock size={14} className="text-zinc-400" />;
 }
 
-function StatusMessage({ run }: { run: RunRead }) {
+function StatusMessage({ run, t }: { run: RunRead; t: T }) {
   if (run.status === "running") {
     return (
       <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
-        Search in progress. This may take a few minutes.
+        {t("runInProgress")}
       </div>
     );
   }
   if (run.status === "queued") {
     return (
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-        Waiting to start. Your run is queued and will begin shortly.
+        {t("runQueuedMsg")}
       </div>
     );
   }
   if (run.status === "needs_review") {
     return (
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
-        This run needs review. Some results may be incomplete. Please retry or contact support if
-        the issue persists.
+        {t("runNeedsReviewMsg")}
       </div>
     );
   }
   if (run.status === "failed") {
     return (
       <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-        This run failed. Please retry or contact support if it happens again.
+        {t("runFailedMsg")}
       </div>
     );
   }
   if (run.status === "cancelled") {
     return (
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-500">
-        This run was cancelled.
+        {t("runCancelledMsg")}
       </div>
     );
   }
@@ -95,7 +98,7 @@ function SeverityChip({ severity }: { severity: string }) {
   );
 }
 
-function JobReportSection({ report }: { report: JobReportResponse }) {
+function JobReportSection({ report, t, tDetail }: { report: JobReportResponse; t: T; tDetail: T }) {
   const s = report.structured_json as Record<string, unknown>;
 
   const primaryRoleCategory = s.primary_role_category as string | undefined;
@@ -124,34 +127,34 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          Job Intelligence Report
+          {t("runJobReport")}
           <Badge className="bg-emerald-100 text-emerald-700 text-xs">{report.status}</Badge>
           {report.used_research && (
-            <Badge className="bg-blue-100 text-blue-700 text-xs">with research</Badge>
+            <Badge className="bg-blue-100 text-blue-700 text-xs">{tDetail("withResearch")}</Badge>
           )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-xs text-zinc-700">
         {primaryRoleCategory && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
+            <p className="font-medium text-zinc-500 mb-0.5">{t("roleCategory")}</p>
             <p>{primaryRoleCategory}</p>
           </div>
         )}
 
         {bc?.summary && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Business Context</p>
+            <p className="font-medium text-zinc-500 mb-0.5">{tDetail("businessContext")}</p>
             <p className="leading-relaxed">{bc.summary}</p>
             {bc.problem_solved && (
-              <p className="leading-relaxed text-zinc-500 mt-0.5">Problem solved: {bc.problem_solved}</p>
+              <p className="leading-relaxed text-zinc-500 mt-0.5">{tDetail("problemSolved", { text: bc.problem_solved })}</p>
             )}
           </div>
         )}
 
         {pf?.primary_function && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Position Function</p>
+            <p className="font-medium text-zinc-500 mb-0.5">{tDetail("positionFunction")}</p>
             <p className="leading-relaxed font-medium">{pf.primary_function}</p>
             {pf.function_mix_description && (
               <p className="leading-relaxed text-zinc-500 mt-0.5">{pf.function_mix_description}</p>
@@ -161,10 +164,10 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
 
         {dw && (dw.likely_analyses?.length || dw.likely_outputs?.length) ? (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Daily Workflow</p>
+            <p className="font-medium text-zinc-500 mb-1">{tDetail("dailyWorkflow")}</p>
             {dw.likely_analyses && dw.likely_analyses.length > 0 && (
               <div className="mb-1">
-                <p className="text-zinc-400 mb-0.5">Analyses</p>
+                <p className="text-zinc-400 mb-0.5">{t("analyses")}</p>
                 <ul className="space-y-0.5 list-disc list-inside">
                   {dw.likely_analyses.map((a, i) => <li key={i}>{a}</li>)}
                 </ul>
@@ -172,7 +175,7 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
             )}
             {dw.likely_outputs && dw.likely_outputs.length > 0 && (
               <div>
-                <p className="text-zinc-400 mb-0.5">Outputs</p>
+                <p className="text-zinc-400 mb-0.5">{t("outputs")}</p>
                 <ul className="space-y-0.5 list-disc list-inside">
                   {dw.likely_outputs.map((o, i) => <li key={i}>{o}</li>)}
                 </ul>
@@ -183,7 +186,7 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
 
         {demands && demands.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Key Skill Demands</p>
+            <p className="font-medium text-zinc-500 mb-1">{tDetail("keySkillDemands")}</p>
             <ul className="space-y-1">
               {demands.slice(0, 5).map((d, i) => (
                 <li key={i} className="flex gap-2 items-start">
@@ -208,7 +211,7 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
 
         {uncertaintyNotes && uncertaintyNotes.length > 0 && (
           <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
-            <p className="font-medium text-amber-700 mb-1">Uncertainty Notes</p>
+            <p className="font-medium text-amber-700 mb-1">{tDetail("uncertaintyNotes")}</p>
             <ul className="space-y-1">
               {uncertaintyNotes.map((n, i) => (
                 <li key={i}>
@@ -224,7 +227,7 @@ function JobReportSection({ report }: { report: JobReportResponse }) {
   );
 }
 
-function FitReportSection({ report }: { report: FitReportResponse }) {
+function FitReportSection({ report, t }: { report: FitReportResponse; t: T }) {
   const s = report.structured_json as Record<string, unknown>;
   const matchSummary = s.match_summary as string | undefined;
   const strongMatches = (s.strong_matches as { demand: string; evidence: string }[]) ?? [];
@@ -237,7 +240,7 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2">
-          Candidate Fit Report
+          {t("candidateFitReport")}
           <ScoreBadge score={report.overall_match_score} />
           <Badge className="bg-emerald-100 text-emerald-700 text-xs">{report.status}</Badge>
         </CardTitle>
@@ -245,21 +248,21 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
       <CardContent className="space-y-4 text-xs text-zinc-700">
         {matchSummary && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Summary</p>
+            <p className="font-medium text-zinc-500 mb-0.5">{t("summary")}</p>
             <p className="leading-relaxed">{matchSummary}</p>
           </div>
         )}
 
         {nextAction && (
           <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2 flex items-center gap-2">
-            <p className="font-medium text-blue-700">Recommended action:</p>
+            <p className="font-medium text-blue-700">{t("recommendedAction")}</p>
             <p className="text-blue-700 font-semibold">{nextAction}</p>
           </div>
         )}
 
         {strongMatches.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Strong Matches (top {Math.min(strongMatches.length, 3)})</p>
+            <p className="font-medium text-zinc-500 mb-1">{t("strongMatches", { count: Math.min(strongMatches.length, 3) })}</p>
             <ul className="space-y-1">
               {strongMatches.slice(0, 3).map((m, i) => (
                 <li key={i} className="flex gap-2">
@@ -273,7 +276,7 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
 
         {gaps.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Gaps</p>
+            <p className="font-medium text-zinc-500 mb-1">{t("gaps")}</p>
             <ul className="space-y-1.5">
               {gaps.map((g, i) => (
                 <li key={i} className="flex gap-2 items-start">
@@ -287,7 +290,7 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
 
         {riskFlags.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Risk Flags</p>
+            <p className="font-medium text-zinc-500 mb-1">{t("riskFlags")}</p>
             <ul className="space-y-0.5">
               {riskFlags.map((f, i) => (
                 <li key={i} className="flex gap-1.5 items-start text-amber-700">
@@ -301,7 +304,7 @@ function FitReportSection({ report }: { report: FitReportResponse }) {
 
         {talkingPoints.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Interview Talking Points</p>
+            <p className="font-medium text-zinc-500 mb-1">{t("interviewTalkingPoints")}</p>
             <ol className="space-y-0.5 list-decimal list-inside">
               {talkingPoints.map((p, i) => (
                 <li key={i}>{p}</li>
@@ -318,6 +321,8 @@ export default async function RunDetailPage({ params }: PageProps) {
   const { run_id } = await params;
 
   const token = await getServerToken();
+  const t = await getTranslations("runs");
+  const tDetail = await getTranslations("jobDetail");
 
   let run: RunRead;
   try {
@@ -331,12 +336,12 @@ export default async function RunDetailPage({ params }: PageProps) {
     ? await getRunReport(run_id, token).catch(() => null)
     : null;
 
-  const RUN_TYPE_LABELS: Record<string, string> = {
-    job_discovery: "Discovery Run",
-    job_report: "Job Intelligence Report",
-    fit_report: "Fit Analysis",
+  const RUN_TYPE_KEYS: Record<string, string> = {
+    job_discovery: "runDiscovery",
+    job_report: "runJobReport",
+    fit_report: "runFitReport",
   };
-  const runLabel = RUN_TYPE_LABELS[run.run_type] ?? run.run_type.replace(/_/g, " ");
+  const runLabel = t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery");
 
   return (
     <>
@@ -349,7 +354,7 @@ export default async function RunDetailPage({ params }: PageProps) {
           className="text-[13px] hover:underline"
           style={{ color: "var(--primary)" }}
         >
-          ← Back to Reports
+          {t("backToReports")}
         </Link>
       </header>
 
@@ -361,7 +366,7 @@ export default async function RunDetailPage({ params }: PageProps) {
               <StatusIcon status={run.status} />
               <div>
                 <h1 className="text-xl font-semibold capitalize" style={{ color: "oklch(16% 0.015 275)" }}>{runLabel}</h1>
-                <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>Started {fmtTs(run.created_at)}</p>
+                <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>{t("started", { time: fmtTs(run.created_at) })}</p>
               </div>
             </div>
             <Badge className={statusBg(run.status) + " text-sm px-3 py-1"}>
@@ -370,14 +375,14 @@ export default async function RunDetailPage({ params }: PageProps) {
           </div>
 
           {/* Status message */}
-          <StatusMessage run={run} />
+          <StatusMessage run={run} t={t} />
 
           {/* Report viewer */}
           {report && run.run_type === "job_report" && (
-            <JobReportSection report={report as JobReportResponse} />
+            <JobReportSection report={report as JobReportResponse} t={t} tDetail={tDetail} />
           )}
           {report && run.run_type === "fit_report" && (
-            <FitReportSection report={report as FitReportResponse} />
+            <FitReportSection report={report as FitReportResponse} t={t} />
           )}
         </div>
       </div>
