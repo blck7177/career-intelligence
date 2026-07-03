@@ -66,6 +66,18 @@
           "source": "allow-always"
         }
       ]
+    },
+    "candidate-story-agent": {
+      "security": "allowlist",
+      "ask": "never",
+      "allowlist": [
+        {
+          "id": "a1b2c3d4-0008-4000-8000-career000008",
+          "pattern": "/usr/bin/python3*",
+          "argPattern": "^/app/tools/wrappers/agent_tools/career_write_manifest\\.py",
+          "source": "allow-always"
+        }
+      ]
     }
   }
 }

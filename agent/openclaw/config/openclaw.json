@@ -41,6 +41,11 @@
         "id": "career-research-agent",
         "workspace": "/openclaw/workspace/agents/career-research-agent",
         "skills": ["career-research-operator"]
+      },
+      {
+        "id": "candidate-story-agent",
+        "workspace": "/openclaw/workspace/agents/candidate-story-agent",
+        "skills": ["candidate-story-operator"]
       }
     ]
   },

@@ -117,6 +117,14 @@ class ResumeTailorInput(BaseModel):
     preferences: Optional[dict] = None
 
 
+class CandidateStoryBuildInput(BaseModel):
+    """Input for run_type=candidate_story_build (agent.candidate_story_build)."""
+
+    profile_id: Optional[str] = None  # null → use workspace default profile
+    max_tool_calls: int = Field(default=60, ge=1, le=100)
+    timeout_seconds: int = Field(default=1200, ge=60, le=3600)
+
+
 # ---------------------------------------------------------------------------
 # RunCreate — discriminated union on run_type
 # ---------------------------------------------------------------------------
@@ -171,6 +179,13 @@ class ResumeTailorRunCreate(BaseModel):
     input_snapshot: ResumeTailorInput
 
 
+class CandidateStoryBuildRunCreate(BaseModel):
+    """POST /api/app/runs with run_type=candidate_story_build."""
+
+    run_type: Literal["candidate_story_build"]
+    input_snapshot: CandidateStoryBuildInput
+
+
 _RunCreateUnion = Annotated[
     Union[
         JobDiscoveryRunCreate,
@@ -180,6 +195,7 @@ _RunCreateUnion = Annotated[
         JobResearchRunCreate,
         RunReflectionRunCreate,
         ResumeTailorRunCreate,
+        CandidateStoryBuildRunCreate,
     ],
     Field(discriminator="run_type"),
 ]

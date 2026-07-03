@@ -66,3 +66,19 @@ class ReflectionManifest(AgentOutputManifest):
     # artifact_paths keys expected:
     #   "reflection_report" → reflection_report.md
     #   "strategy_patch"    → strategy_patch.json
+
+
+class StoryBankManifest(AgentOutputManifest):
+    """Output manifest for agent.candidate_story_build tasks.
+
+    The agent only produces the investigation transcript (natural-language
+    Hiring-Manager/Candidate-Advocate interview per experience). A separate,
+    non-agentic structuring step turns that transcript into the persisted
+    story bank — see _step_structure_stories in story_bank_build.py.
+    """
+
+    profile_id: str
+    experiences_investigated: int = 0
+
+    # artifact_paths keys expected:
+    #   "investigation_transcript" → investigation_transcript.json (final output)

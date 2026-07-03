@@ -25,6 +25,7 @@ from apps.worker.tasks.resume_tailor import handle_resume_tailor
 from apps.worker.tasks.reflect_run import handle_reflect_run
 from apps.worker.tasks.research_run import handle_research_run
 from apps.worker.tasks.search_run import handle_search_run
+from apps.worker.tasks.story_bank_build import handle_story_bank_build
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.routing import ExecutionMode
 from packages.infrastructure.db.repositories import RunRepository, TaskEventRepository, TaskRepository
@@ -39,6 +40,7 @@ _OPENCLAW_HANDLERS = {
     "agent.job_discovery": handle_search_run,
     "agent.job_research": handle_research_run,
     "agent.run_reflection": handle_reflect_run,
+    "agent.candidate_story_build": handle_story_bank_build,
 }
 
 # Maps DETERMINISTIC task_type → handler function
