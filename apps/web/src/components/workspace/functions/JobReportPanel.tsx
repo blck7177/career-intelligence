@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createRun } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { Loader2, Play } from "lucide-react";
+import { Play } from "lucide-react";
 
 interface JobReportPanelProps {
   onRunCreated: (runId: string) => void;
@@ -46,30 +46,30 @@ export function JobReportPanel({ onRunCreated }: JobReportPanelProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4 p-4">
       <div>
-        <h2 className="text-sm font-semibold text-zinc-800">Job Intelligence Report</h2>
-        <p className="text-xs text-zinc-500 mt-0.5">
+        <h2 className="text-sm font-semibold text-[var(--ink-primary)]">Job Intelligence Report</h2>
+        <p className="text-xs text-[var(--ink-muted)] mt-0.5">
           Generate a structured analysis of a specific job posting.
         </p>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs font-medium text-zinc-700">
+        <label className="text-xs font-medium text-[var(--ink-secondary)]">
           Job ID <span className="text-rose-500">*</span>
         </label>
         <input
           required
-          className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+          className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
           placeholder="job_abc123"
           value={jobId}
           onChange={(e) => setJobId(e.target.value)}
         />
-        <p className="text-xs text-zinc-400">
+        <p className="text-xs text-[var(--ink-muted)]">
           Job ID from a completed discovery run.
         </p>
       </div>
 
       <div className="flex gap-4">
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
           <input
             type="checkbox"
             checked={useResearch}
@@ -78,7 +78,7 @@ export function JobReportPanel({ onRunCreated }: JobReportPanelProps) {
           />
           Include research bundle
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
           <input
             type="checkbox"
             checked={forceRefresh}
@@ -97,15 +97,12 @@ export function JobReportPanel({ onRunCreated }: JobReportPanelProps) {
 
       <Button
         type="submit"
-        disabled={loading || !jobId.trim()}
+        disabled={!jobId.trim()}
+        loading={loading}
         size="sm"
         className="w-full"
       >
-        {loading ? (
-          <Loader2 size={13} className="animate-spin mr-1.5" />
-        ) : (
-          <Play size={13} className="mr-1.5" />
-        )}
+        {!loading && <Play size={13} className="mr-1.5" />}
         Generate Job Report
       </Button>
     </form>

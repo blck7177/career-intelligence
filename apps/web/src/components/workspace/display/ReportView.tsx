@@ -5,85 +5,55 @@ import { getRunReport } from "@/api/client";
 import type { JobReportResponse, FitReportResponse, RunRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScoreBadge, SeverityChip } from "@/components/MatchVisuals";
+import { EmptyState } from "@/components/EmptyState";
+import { Skeleton } from "@/components/ui/skeleton";
+import { FileText, AlertTriangle, HelpCircle, Building2, Compass, Workflow, ListChecks, StickyNote } from "lucide-react";
+import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
 
 interface ReportViewProps {
   run: RunRead;
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const color =
-    score >= 80
-      ? "bg-emerald-100 text-emerald-700"
-      : score >= 60
-      ? "bg-amber-100 text-amber-700"
-      : "bg-rose-100 text-rose-700";
-  return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${color}`}>
-      {score}/100
-    </span>
-  );
-}
+const JOB_REPORT_ICONS = {
+  businessContext: Building2,
+  positionFunction: Compass,
+  dailyWorkflow: Workflow,
+  skillDemands: ListChecks,
+  analystNotes: StickyNote,
+};
 
-function SeverityChip({ severity }: { severity: string }) {
-  const color =
-    severity === "blocking"
-      ? "bg-rose-100 text-rose-700"
-      : severity === "significant"
-      ? "bg-amber-100 text-amber-700"
-      : "bg-zinc-100 text-zinc-600";
-  return (
-    <span className={`inline-flex rounded px-1.5 py-0.5 text-xs font-medium ${color}`}>
-      {severity}
-    </span>
-  );
-}
+const JOB_REPORT_LABELS: JobReportLabels = {
+  businessContext: "Business Context",
+  positionFunction: "Position Function",
+  dailyWorkflow: "Daily Workflow",
+  likelyInputs: "Inputs",
+  typicalAnalyses: "Typical Analyses",
+  outputs: "Outputs",
+  keySkillDemands: "Key Skill Demands",
+  core: "Core",
+  supporting: "Supporting",
+  other: "Other",
+  analystNotes: "Analyst Notes",
+  uncertaintyNotes: "Uncertainty Notes",
+  confidence: "Confidence",
+  problemSolved: (text) => `Problem solved: ${text}`,
+};
 
-function JobReportContent({ report }: { report: JobReportResponse }) {
-  const s = report.structured_json as Record<string, unknown>;
-  const primaryRoleCategory = s.primary_role_category as string | undefined;
-  const businessContext = s.business_context as string | undefined;
-  const positionFunction = s.position_function as string | undefined;
-  const uncertaintyNotes = s.uncertainty_notes as string | undefined;
-
+function JobReportCard({ report }: { report: JobReportResponse }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
           Job Intelligence Report
-          <Badge className="bg-emerald-100 text-emerald-700 text-xs">{report.status}</Badge>
+          <Badge variant="match-strong" className="text-xs">{report.status}</Badge>
           {report.used_research && (
-            <Badge className="bg-blue-100 text-blue-700 text-xs">with research</Badge>
+            <Badge variant="match-good" className="text-xs">with research</Badge>
           )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3 text-xs text-zinc-700">
-        {primaryRoleCategory && (
-          <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Role category</p>
-            <p>{primaryRoleCategory}</p>
-          </div>
-        )}
-        {businessContext && (
-          <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Business Context</p>
-            <p className="leading-relaxed">{businessContext}</p>
-          </div>
-        )}
-        {positionFunction && (
-          <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Position Function</p>
-            <p className="leading-relaxed">{positionFunction}</p>
-          </div>
-        )}
-        {uncertaintyNotes && (
-          <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
-            <p className="font-medium text-amber-700 mb-0.5">Uncertainty Notes</p>
-            <p className="text-amber-700">{uncertaintyNotes}</p>
-          </div>
-        )}
-        <p className="text-zinc-400 pt-1">
-          Report ID: {report.id} · v{report.prompt_version}
-        </p>
+      <CardContent>
+        <JobReportContent report={report} labels={JOB_REPORT_LABELS} icons={JOB_REPORT_ICONS} />
       </CardContent>
     </Card>
   );
@@ -104,13 +74,13 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
         <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
           Candidate Fit Report
           <ScoreBadge score={report.overall_match_score} />
-          <Badge className="bg-emerald-100 text-emerald-700 text-xs">{report.status}</Badge>
+          <Badge variant="match-strong" className="text-xs">{report.status}</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4 text-xs text-zinc-700">
+      <CardContent className="space-y-4 text-xs text-[var(--ink-secondary)]">
         {matchSummary && (
           <div>
-            <p className="font-medium text-zinc-500 mb-0.5">Summary</p>
+            <p className="font-medium text-[var(--ink-muted)] mb-0.5">Summary</p>
             <p className="leading-relaxed">{matchSummary}</p>
           </div>
         )}
@@ -122,7 +92,7 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
         )}
         {strongMatches.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">
+            <p className="font-medium text-[var(--ink-muted)] mb-1">
               Strong Matches (top {Math.min(strongMatches.length, 3)})
             </p>
             <ul className="space-y-1">
@@ -139,7 +109,7 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
         )}
         {gaps.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Gaps</p>
+            <p className="font-medium text-[var(--ink-muted)] mb-1">Gaps</p>
             <ul className="space-y-1.5">
               {gaps.map((g, i) => (
                 <li key={i} className="flex gap-2 items-start">
@@ -154,7 +124,7 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
         )}
         {riskFlags.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Risk Flags</p>
+            <p className="font-medium text-[var(--ink-muted)] mb-1">Risk Flags</p>
             <ul className="space-y-0.5">
               {riskFlags.map((f, i) => (
                 <li key={i} className="flex gap-1.5 items-start text-amber-700">
@@ -167,7 +137,7 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
         )}
         {talkingPoints.length > 0 && (
           <div>
-            <p className="font-medium text-zinc-500 mb-1">Interview Talking Points</p>
+            <p className="font-medium text-[var(--ink-muted)] mb-1">Interview Talking Points</p>
             <ol className="space-y-0.5 list-decimal list-inside">
               {talkingPoints.map((p, i) => (
                 <li key={i}>{p}</li>
@@ -175,7 +145,7 @@ function FitReportContent({ report }: { report: FitReportResponse }) {
             </ol>
           </div>
         )}
-        <p className="text-zinc-400 pt-1">
+        <p className="text-[var(--ink-muted)] pt-1">
           Report ID: {report.id} · Job Report: {report.job_report_id} · v{report.prompt_version}
         </p>
       </CardContent>
@@ -197,27 +167,44 @@ export function ReportView({ run }: ReportViewProps) {
       .finally(() => setLoading(false));
   }, [run.id]);
 
-  if (loading) return <p className="text-xs text-zinc-400 py-4 text-center">Loading report…</p>;
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        <Skeleton className="h-6 w-40 rounded-lg" />
+        <div className="space-y-2">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-5/6" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-3.5 w-32" />
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-2/3" />
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (
-      <p className="text-xs text-rose-600 rounded border border-rose-200 bg-rose-50 px-3 py-2">
+      <p className="flex items-center gap-1.5 text-xs text-rose-600 rounded border border-rose-200 bg-rose-50 px-3 py-2">
+        <AlertTriangle size={12} className="shrink-0" />
         {error}
       </p>
     );
   }
 
   if (!report) {
-    return <p className="text-xs text-zinc-400 py-4 text-center">No report available.</p>;
+    return <EmptyState icon={FileText} title="No report available." compact />;
   }
 
   if (run.run_type === "job_report") {
-    return <JobReportContent report={report as JobReportResponse} />;
+    return <JobReportCard report={report as JobReportResponse} />;
   }
 
   if (run.run_type === "fit_report") {
     return <FitReportContent report={report as FitReportResponse} />;
   }
 
-  return <p className="text-xs text-zinc-400 py-4 text-center">Unknown report type.</p>;
+  return <EmptyState icon={HelpCircle} title="Unknown report type." compact />;
 }

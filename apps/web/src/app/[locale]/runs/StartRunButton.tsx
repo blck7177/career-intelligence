@@ -6,7 +6,7 @@ import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { Button } from "@/components/ui/button";
 import { createRun, type RunCreate } from "@/api/client";
-import { Plus, Loader2, X, ChevronDown } from "lucide-react";
+import { Plus, X, ChevronDown } from "lucide-react";
 
 type FormMode = "none" | "job_report" | "fit_report" | "discovery";
 type T = ReturnType<typeof useTranslations>;
@@ -48,18 +48,18 @@ function JobReportForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-sm">
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <p className="font-medium text-zinc-700">{t("generateJobReport")}</p>
-        <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-zinc-600">
+        <p className="font-medium text-[var(--ink-secondary)]">{t("generateJobReport")}</p>
+        <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
           <X size={14} />
         </button>
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500">{t("jobIdRequired")}</label>
+        <label className="text-xs text-[var(--ink-muted)]">{t("jobIdRequired")}</label>
         <input
-          className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+          className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
           placeholder="job_abc123"
           value={jobId}
           onChange={(e) => setJobId(e.target.value)}
@@ -68,7 +68,7 @@ function JobReportForm({
       </div>
 
       <div className="flex gap-4">
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
           <input
             type="checkbox"
             checked={useResearch}
@@ -77,7 +77,7 @@ function JobReportForm({
           />
           {t("useResearch")}
         </label>
-        <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
           <input
             type="checkbox"
             checked={forceRefresh}
@@ -90,14 +90,14 @@ function JobReportForm({
 
       {useResearch && (
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">{t("researchArtifactIdRequired")}</label>
+          <label className="text-xs text-[var(--ink-muted)]">{t("researchArtifactIdRequired")}</label>
           <input
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
             placeholder="art_abc123"
             value={researchArtifactId}
             onChange={(e) => setResearchArtifactId(e.target.value)}
           />
-          <p className="text-xs text-zinc-400">
+          <p className="text-xs text-[var(--ink-muted)]">
             {t("researchArtifactHint")}
           </p>
           {researchBlocked && (
@@ -108,8 +108,8 @@ function JobReportForm({
         </div>
       )}
 
-      <Button type="submit" disabled={loading || !jobId.trim() || researchBlocked} size="sm" className="w-full">
-        {loading ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Plus size={13} className="mr-1.5" />}
+      <Button type="submit" disabled={!jobId.trim() || researchBlocked} loading={loading} size="sm" className="w-full">
+        {!loading && <Plus size={13} className="mr-1.5" />}
         {t("startJobReportRun")}
       </Button>
     </form>
@@ -145,24 +145,24 @@ function FitReportForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 space-y-3 text-sm">
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 space-y-3 text-sm">
       <div className="flex items-center justify-between">
-        <p className="font-medium text-zinc-700">{t("generateFitReport")}</p>
-        <button type="button" onClick={onCancel} className="text-zinc-400 hover:text-zinc-600">
+        <p className="font-medium text-[var(--ink-secondary)]">{t("generateFitReport")}</p>
+        <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
           <X size={14} />
         </button>
       </div>
 
-      <p className="text-xs text-zinc-500">
+      <p className="text-xs text-[var(--ink-muted)]">
         {t("usesSavedProfile")}{" "}
-        <a href="/profile" className="underline text-zinc-400 hover:text-zinc-600">{t("editProfileLink")}</a>
+        <a href="/profile" className="underline text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">{t("editProfileLink")}</a>
       </p>
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">{t("jobIdRequired")}</label>
+          <label className="text-xs text-[var(--ink-muted)]">{t("jobIdRequired")}</label>
           <input
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
             placeholder="job_abc123"
             value={jobId}
             onChange={(e) => setJobId(e.target.value)}
@@ -170,9 +170,9 @@ function FitReportForm({
           />
         </div>
         <div className="space-y-1">
-          <label className="text-xs text-zinc-500">{t("jobReportIdOptional")}</label>
+          <label className="text-xs text-[var(--ink-muted)]">{t("jobReportIdOptional")}</label>
           <input
-            className="w-full rounded border border-zinc-300 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-zinc-400"
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
             placeholder={t("useLatestActive")}
             value={jobReportId}
             onChange={(e) => setJobReportId(e.target.value)}
@@ -180,7 +180,7 @@ function FitReportForm({
         </div>
       </div>
 
-      <label className="flex items-center gap-1.5 text-xs text-zinc-600 cursor-pointer">
+      <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
         <input
           type="checkbox"
           checked={forceRefresh}
@@ -190,8 +190,8 @@ function FitReportForm({
         {t("forceRefresh")}
       </label>
 
-      <Button type="submit" disabled={loading || !jobId.trim()} size="sm" className="w-full">
-        {loading ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Plus size={13} className="mr-1.5" />}
+      <Button type="submit" disabled={!jobId.trim()} loading={loading} size="sm" className="w-full">
+        {!loading && <Plus size={13} className="mr-1.5" />}
         {t("startFitReportRun")}
       </Button>
     </form>
@@ -257,21 +257,21 @@ export function StartRunButton() {
 
       {/* Dropdown menu */}
       {menuOpen && (
-        <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-zinc-200 bg-white shadow-md z-10">
+        <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-[var(--border)] bg-white shadow-md z-10">
           <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 rounded-t-lg"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] rounded-t-lg"
             onClick={() => { router.push("/workspace"); setMenuOpen(false); }}
           >
             {t("runDiscovery")}
           </button>
           <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)]"
             onClick={() => openForm("job_report")}
           >
             {t("runJobReport")}
           </button>
           <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 rounded-b-lg"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] rounded-b-lg"
             onClick={() => openForm("fit_report")}
           >
             {t("candidateFitReport")}

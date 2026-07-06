@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { Star } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { batchArchiveJobs, batchAnalyzeJobs, importJob, getRun } from "@/api/client";
@@ -9,6 +10,9 @@ import { fmtTs } from "@/lib/utils";
 import { ArchiveJobButton } from "./ArchiveJobButton";
 import { FavoriteStarButton } from "./FavoriteStarButton";
 import { JobFitCell } from "./JobFitCell";
+import { bandOf, BAND } from "@/lib/matchBand";
+import { EmptyState } from "@/components/EmptyState";
+import { Button } from "@/components/ui/button";
 
 interface JobItem {
   id: string;
@@ -40,7 +44,7 @@ type MatchStyle = "strong" | "good" | "partial" | "unanalyzed";
 
 function matchStyle(score: number | undefined): MatchStyle {
   if (score === undefined) return "unanalyzed";
-  if (score >= 75) return "strong";
+  if (score >= 70) return "strong";
   if (score >= 50) return "good";
   return "partial";
 }
@@ -61,14 +65,11 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
   const router = useRouter();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  function matchBadge(style: MatchStyle): { text: string; classes: string } {
-    if (style === "strong")
-      return { text: t("matchStrong"), classes: "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]" };
-    if (style === "good")
-      return { text: t("matchGood"), classes: "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]" };
-    if (style === "partial")
-      return { text: t("matchPartial"), classes: "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]" };
-    return { text: t("matchUnanalyzed"), classes: "bg-zinc-100 text-zinc-500" };
+  function matchBadge(style: MatchStyle): { text: string; bg: string; fg: string } {
+    if (style === "strong") return { text: t("matchStrong"), bg: BAND.strong.bg, fg: BAND.strong.fg };
+    if (style === "good") return { text: t("matchGood"), bg: BAND.partial.bg, fg: BAND.partial.fg };
+    if (style === "partial") return { text: t("matchPartial"), bg: BAND.gaps.bg, fg: BAND.gaps.fg };
+    return { text: t("matchUnanalyzed"), bg: "", fg: "" };
   }
 
   // Reset whenever the server gives us a fresh job list (new page/filter).
@@ -255,20 +256,16 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               className="flex-1 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
               style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
             />
-            <button
-              onClick={handleImportUrl}
-              disabled={importing || !importUrl.trim()}
-              className="h-9 px-4 rounded-lg text-sm font-medium text-white disabled:opacity-50"
-              style={{ background: "var(--primary)" }}
-            >
-              {importing ? t("importing") : t("import")}
-            </button>
-            <button
+            <Button onClick={handleImportUrl} disabled={!importUrl.trim()} loading={importing} size="sm">
+              {t("import")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => { setShowImportInput(false); setImportUrl(""); }}
-              className="h-9 px-3 rounded-lg text-sm text-zinc-400 hover:text-zinc-600"
             >
               {tCommon("cancel")}
-            </button>
+            </Button>
           </div>
         ) : (
           <button
@@ -287,17 +284,17 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
       {/* Select all toggle */}
       {visibleJobs.length > 0 && (
         <div className="flex items-center gap-2 mb-2">
-          <label className="flex items-center gap-2 cursor-pointer text-[13px] text-zinc-500 hover:text-zinc-700">
+          <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
             <input
               type="checkbox"
               checked={allSelected}
               onChange={toggleAll}
-              className="w-4 h-4 rounded border-zinc-300 accent-[var(--primary)]"
+              className="w-4 h-4 rounded border-[var(--border)] accent-[var(--primary)]"
             />
             {t("selectAll")}
           </label>
           {selected.size > 0 && (
-            <span className="text-[13px] text-zinc-400">
+            <span className="text-[13px] text-[var(--ink-muted)]">
               {t("selectedCount", { count: selected.size })}
             </span>
           )}
@@ -306,9 +303,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
 
       {/* Job cards */}
       {visibleJobs.length === 0 && jobs.length > 0 && (
-        <div className="rounded-xl border border-dashed py-10 text-center" style={{ borderColor: "var(--border)" }}>
-          <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noFavoritesLeft")}</p>
-        </div>
+        <EmptyState icon={Star} title={t("noFavoritesLeft")} />
       )}
       <div className="flex flex-col gap-2.5">
         {visibleJobs.map((job) => {
@@ -337,13 +332,16 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => toggleOne(job.id)}
-                  className="w-4 h-4 rounded border-zinc-300 accent-[var(--primary)] shrink-0"
+                  className="w-4 h-4 rounded border-[var(--border)] accent-[var(--primary)] shrink-0"
                 />
-                <span className={`py-[3px] px-2.5 rounded text-xs font-medium ${badge.classes}`}>
+                <span
+                  className={`py-[3px] px-2.5 rounded text-xs font-medium ${ms === "unanalyzed" ? "bg-[var(--muted)] text-[var(--ink-muted)]" : ""}`}
+                  style={ms === "unanalyzed" ? undefined : { backgroundColor: badge.bg, color: badge.fg }}
+                >
                   {badge.text}
                 </span>
                 {isDiscovered && (
-                  <span className="py-[3px] px-2.5 rounded text-xs font-medium bg-zinc-100 text-zinc-500">
+                  <span className="py-[3px] px-2.5 rounded text-xs font-medium bg-[var(--muted)] text-[var(--ink-muted)]">
                     {t("noJD")}
                   </span>
                 )}
@@ -376,20 +374,20 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
               <Link href={`/jobs/${job.id}`} className="block group">
                 <div
                   className="text-[17px] font-semibold mb-1 group-hover:underline"
-                  style={{ color: isPartial ? "oklch(28% 0.012 275)" : "oklch(16% 0.015 275)" }}
+                  style={{ color: isPartial ? "var(--ink-secondary)" : "var(--ink-primary)" }}
                 >
                   {job.title}
                 </div>
-                <div className="text-[13px] mb-3" style={{ color: "oklch(56% 0.01 275)" }}>
+                <div className="text-[13px] mb-3" style={{ color: "var(--ink-muted)" }}>
                   {job.company}
                   {job.location && ` · ${job.location}`}
                   {job.seniority_inferred && ` · ${job.seniority_inferred}`}
                 </div>
               </Link>
 
-              <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid oklch(93% 0.008 280)" }}>
+              <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-4">
-                  <span className="text-[13px]" style={{ color: "oklch(58% 0.01 275)" }}>
+                  <span className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
                     {t("discovered", { time: fmtTs(job.created_at.toString()) })}
                   </span>
                   <ArchiveJobButton jobId={job.id} />
@@ -397,7 +395,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
                 <Link
                   href={`/jobs/${job.id}`}
                   className="text-[13px] font-medium hover:underline"
-                  style={{ color: isPartial ? "oklch(62% 0.01 275)" : "var(--primary)" }}
+                  style={{ color: isPartial ? "var(--ink-faint)" : "var(--primary)" }}
                 >
                   {tCommon("viewRole")}
                 </Link>
@@ -416,30 +414,25 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
             {t("selectedCount", { count: selected.size })}
           </span>
-          <div className="w-px h-6 bg-zinc-200" />
-          <button
+          <div className="w-px h-6 bg-[var(--border)]" />
+          <Button
             onClick={handleBatchArchive}
             disabled={!!loading}
-            className="text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+            loading={loading === "archive"}
+            size="sm"
+            variant="ghost"
+            className="text-rose-600 bg-rose-50 hover:bg-rose-100"
           >
-            {loading === "archive" ? t("archiving") : t("archive")}
-          </button>
+            {t("archive")}
+          </Button>
           {hasProfile && (
-            <button
-              onClick={handleBatchAnalyze}
-              disabled={!!loading}
-              className="text-sm font-medium px-4 py-2 rounded-lg transition-all hover:shadow-sm disabled:opacity-50"
-              style={{ color: "white", background: "var(--primary)" }}
-            >
-              {loading === "analyze" ? t("analyzing") : t("analyzeFit")}
-            </button>
+            <Button onClick={handleBatchAnalyze} disabled={!!loading} loading={loading === "analyze"} size="sm">
+              {t("analyzeFit")}
+            </Button>
           )}
-          <button
-            onClick={() => setSelected(new Set())}
-            className="text-sm text-zinc-400 hover:text-zinc-600 px-3 py-2"
-          >
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
             {tCommon("cancel")}
-          </button>
+          </Button>
         </div>
       )}
     </>

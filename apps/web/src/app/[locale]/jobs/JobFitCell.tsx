@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { FitButton } from "@/components/FitButton";
+import { bandOf, BAND } from "@/lib/matchBand";
 
 interface JobFitCellProps {
   jobId: string;
@@ -15,18 +16,14 @@ interface JobFitCellProps {
   };
 }
 
-function fitScoreClass(score: number): string {
-  if (score >= 75) return "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]";
-  if (score >= 50) return "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]";
-  return "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]";
-}
-
 function FitScoreBadge({ fitReportId, score }: { fitReportId: string; score: number }) {
   const t = useTranslations("jobFit");
+  const band = BAND[bandOf(score)];
   return (
     <Link
       href={`/fit-reports/${fitReportId}`}
-      className={`text-xs font-semibold px-2 py-0.5 rounded-full ${fitScoreClass(score)} hover:opacity-80 transition-opacity`}
+      className="text-xs font-semibold px-2 py-0.5 rounded-full hover:opacity-80 transition-opacity"
+      style={{ backgroundColor: band.bg, color: band.fg }}
     >
       {t("percentFit", { score })}
     </Link>
@@ -51,7 +48,7 @@ export function JobFitCell({ jobId, jobReportId, hasProfile, fitReport }: JobFit
       <div className="flex flex-col items-end gap-1">
         <FitScoreBadge fitReportId={fitReport.id} score={fitReport.score} />
         {fitReport.recommended_next_action && (
-          <span className="text-[11px] text-zinc-400 max-w-[130px] text-right leading-tight">
+          <span className="text-[11px] text-[var(--ink-muted)] max-w-[130px] text-right leading-tight">
             {actionKey ? t(actionKey) : fitReport.recommended_next_action}
           </span>
         )}
@@ -80,7 +77,7 @@ export function JobFitCell({ jobId, jobReportId, hasProfile, fitReport }: JobFit
         variant="outline"
         label={t("analyzeFit")}
       />
-      <span className="text-[11px] text-zinc-400">{t("needsReport")}</span>
+      <span className="text-[11px] text-[var(--ink-muted)]">{t("needsReport")}</span>
     </div>
   );
 }

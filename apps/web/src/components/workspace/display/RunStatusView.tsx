@@ -3,31 +3,24 @@
 import { useState } from "react";
 import { cancelRun } from "@/api/client";
 import type { RunRead } from "@/api/client";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { statusBg, fmtTs } from "@/lib/utils";
-import {
-  CheckCircle2,
-  XCircle,
-  Circle,
-  AlertCircle,
-  StopCircle,
-  Loader2,
-} from "lucide-react";
+import { fmtTs } from "@/lib/utils";
+import { StopCircle } from "lucide-react";
+import { RunStatusStepper, type RunStatus } from "@/components/RunStatusStepper";
 
 interface RunStatusViewProps {
   run: RunRead;
   onCancelled: (updated: RunRead) => void;
 }
 
-function StatusIcon({ status }: { status: string }) {
-  if (status === "succeeded") return <CheckCircle2 size={16} className="text-emerald-500" />;
-  if (status === "failed") return <XCircle size={16} className="text-rose-500" />;
-  if (status === "needs_review") return <AlertCircle size={16} className="text-amber-500" />;
-  if (status === "running") return <Circle size={16} className="text-blue-500 animate-pulse" />;
-  if (status === "cancelled") return <StopCircle size={16} className="text-zinc-400" />;
-  return <Circle size={16} className="text-zinc-300" />;
-}
+const STATUS_LABELS: Record<string, string> = {
+  queued: "Queued",
+  running: "In progress",
+  succeeded: "Completed",
+  failed: "Failed",
+  needs_review: "Needs review",
+  cancelled: "Cancelled",
+};
 
 const CANCELLABLE = new Set(["queued", "running"]);
 
@@ -61,14 +54,16 @@ export function RunStatusView({ run, onCancelled }: RunStatusViewProps) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <StatusIcon status={run.status} />
-          <span className="text-sm font-semibold text-zinc-800">
-            {run.status.replace(/_/g, " ")}
-          </span>
-        </div>
-        <Badge className={statusBg(run.status) + " text-xs"}>{run.status.replace("_", " ")}</Badge>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-semibold text-[var(--ink-primary)]">Status</span>
+        <RunStatusStepper
+          status={run.status as RunStatus}
+          labels={{
+            queued: STATUS_LABELS.queued,
+            running: STATUS_LABELS.running,
+            done: STATUS_LABELS[run.status] ?? STATUS_LABELS.cancelled,
+          }}
+        />
       </div>
 
       {/* Error banner */}
@@ -84,8 +79,8 @@ export function RunStatusView({ run, onCancelled }: RunStatusViewProps) {
         {fields.map(({ label, value }) =>
           value ? (
             <div key={label} className="flex gap-2 text-xs">
-              <dt className="w-32 shrink-0 text-zinc-400">{label}</dt>
-              <dd className="text-zinc-700 font-mono break-all">{value}</dd>
+              <dt className="w-32 shrink-0 text-[var(--ink-muted)]">{label}</dt>
+              <dd className="text-[var(--ink-secondary)] font-mono break-all">{value}</dd>
             </div>
           ) : null,
         )}
@@ -93,7 +88,7 @@ export function RunStatusView({ run, onCancelled }: RunStatusViewProps) {
 
       {/* Cancel */}
       {CANCELLABLE.has(run.status) && (
-        <div className="pt-2 border-t border-zinc-100">
+        <div className="pt-2 border-t border-[var(--border)]">
           {cancelError && (
             <p className="text-xs text-rose-600 mb-2">{cancelError}</p>
           )}
@@ -101,17 +96,13 @@ export function RunStatusView({ run, onCancelled }: RunStatusViewProps) {
             variant="outline"
             size="sm"
             onClick={handleCancel}
-            disabled={cancelling}
+            loading={cancelling}
             className="text-rose-600 border-rose-300 hover:bg-rose-50"
           >
-            {cancelling ? (
-              <Loader2 size={13} className="animate-spin mr-1.5" />
-            ) : (
-              <StopCircle size={13} className="mr-1.5" />
-            )}
+            {!cancelling && <StopCircle size={13} className="mr-1.5" />}
             Request cancellation
           </Button>
-          <p className="text-xs text-zinc-400 mt-1">
+          <p className="text-xs text-[var(--ink-muted)] mt-1">
             Marks the run as cancelled. In-flight agent work may still complete.
           </p>
         </div>

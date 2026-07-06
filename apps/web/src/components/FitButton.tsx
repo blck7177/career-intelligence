@@ -6,7 +6,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { createRun, getRunReport } from "@/api/client";
 import { pollRunUntilDone, extractReportId } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
-import { Loader2, Target, AlertCircle } from "lucide-react";
+import { Target, AlertCircle } from "lucide-react";
 
 interface FitButtonProps {
   jobId: string;
@@ -136,8 +136,7 @@ export function FitButton({
 
   if (state.phase === "polling" || state.phase === "submitting") {
     return (
-      <Button size={size} variant={variant} disabled>
-        <Loader2 size={14} className="animate-spin mr-1.5" />
+      <Button size={size} variant={variant} loading>
         {state.phase === "submitting" ? "Starting…" : "Analyzing fit…"}
       </Button>
     );

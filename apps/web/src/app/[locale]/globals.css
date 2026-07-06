@@ -17,6 +17,13 @@
   --accent-foreground: oklch(44% 0.18 285);
   --radius: 0.5rem;
 
+  /* Ink scale — one legibility ladder instead of one-off grays scattered
+     per component. Pick by role, not by eyeballing a lightness number. */
+  --ink-primary: oklch(20% 0.015 275);   /* titles, high-emphasis values */
+  --ink-secondary: oklch(36% 0.012 275); /* body copy, list content */
+  --ink-muted: oklch(46% 0.01 275);      /* captions, meta, labels — still clears AA */
+  --ink-faint: oklch(60% 0.008 275);     /* decorative/disabled only, never body text */
+
   --sidebar-bg: #ffffff;
   --sidebar-fg: oklch(50% 0.01 275);
   --sidebar-border: oklch(91.5% 0.01 280);
@@ -33,6 +40,15 @@
   --match-partial-bg: oklch(96% 0.004 275);
   --match-partial-fg: oklch(54% 0.01 275);
   --match-partial-border: oklch(88% 0.008 275);
+
+  /* Button depth — 3-tier shadow used by ui/button.tsx's buttonVariants() */
+  --shadow-btn-rest: 0 1px 2px oklch(0% 0 0 / 0.08), 0 1px 1px oklch(0% 0 0 / 0.04);
+  --shadow-btn-hover: 0 4px 10px oklch(52% 0.2 285 / 0.22), 0 2px 4px oklch(0% 0 0 / 0.06);
+  --shadow-btn-active: 0 1px 2px oklch(0% 0 0 / 0.1);
+  --shadow-btn-rest-soft: 0 1px 2px oklch(0% 0 0 / 0.03);
+  --shadow-btn-hover-soft: 0 3px 8px oklch(0% 0 0 / 0.07);
+  --shadow-btn-hover-outline: 0 2px 6px oklch(0% 0 0 / 0.05);
+  --shadow-btn-hover-destructive: 0 4px 10px oklch(58% 0.2 20 / 0.25), 0 2px 4px oklch(0% 0 0 / 0.06);
 }
 
 * {
@@ -52,3 +68,36 @@ body {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: oklch(87% 0.01 280); border-radius: 3px; }
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.28s ease-out both;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-skeleton-pulse {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes button-shimmer {
+  from { transform: translateX(-150%) skewX(-20deg); }
+  to { transform: translateX(150%) skewX(-20deg); }
+}
+
+.animate-button-shimmer {
+  animation: button-shimmer 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up { animation: none; }
+  .animate-skeleton-pulse { animation: none; }
+  .animate-button-shimmer { animation: none; }
+}

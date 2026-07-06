@@ -1,11 +1,14 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
+import { Briefcase } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { listJobs, listFitReports, getProfile } from "@/api/client";
 import type { FitReportSummary, JobRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { JobFilters } from "./JobFilters";
 import { JobListClient } from "./JobListClient";
+import { EmptyState } from "@/components/EmptyState";
+import { buttonVariants } from "@/components/ui/button-variants";
 
 export const dynamic = "force-dynamic";
 
@@ -218,11 +221,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
           {activeFilters > 0 && ` · ${t("filterCount", { count: activeFilters })}`}
         </span>
         <div className="flex-1" />
-        <Link
-          href="/workspace"
-          className="flex items-center gap-2 h-9 px-4 rounded-lg text-[13px] font-semibold text-white shrink-0 transition-all hover:opacity-90 shadow-sm hover:shadow"
-          style={{ background: "var(--primary)" }}
-        >
+        <Link href="/workspace" className={buttonVariants({ size: "sm", className: "shrink-0 gap-2" })}>
           <svg width="12" height="12" viewBox="0 0 12 12">
             <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="2" strokeLinecap="round" />
             <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="2" strokeLinecap="round" />
@@ -243,7 +242,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                 className="py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
                 style={
                   active
-                    ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                    ? { background: "var(--ink-primary)", color: "#fff" }
                     : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
                 }
               >
@@ -252,14 +251,14 @@ export default async function JobsPage({ searchParams }: PageProps) {
             );
           })}
 
-          <div className="w-px self-stretch bg-zinc-200 mx-1" />
+          <div className="w-px self-stretch bg-[var(--border)] mx-1" />
 
           <Link
             href={`/jobs${buildQuery(params, { favorites: favoritesOnly ? undefined : "1", page: undefined })}`}
             className="flex items-center gap-1.5 py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
             style={
               favoritesOnly
-                ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                ? { background: "var(--ink-primary)", color: "#fff" }
                 : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
             }
           >
@@ -275,16 +274,20 @@ export default async function JobsPage({ searchParams }: PageProps) {
         </Suspense>
 
         {jobs.length === 0 ? (
-          <div className="rounded-xl border border-dashed py-16 text-center mt-4" style={{ borderColor: "var(--border)" }}>
-            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("emptyTitle")}</p>
-            <Link
-              href="/workspace"
-              className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium hover:underline"
-              style={{ color: "var(--primary)" }}
-            >
-              {t("startDiscovery")}
-            </Link>
-          </div>
+          <EmptyState
+            icon={Briefcase}
+            title={t("emptyTitle")}
+            className="mt-4"
+            action={
+              <Link
+                href="/workspace"
+                className="inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+                style={{ color: "var(--primary)" }}
+              >
+                {t("startDiscovery")}
+              </Link>
+            }
+          />
         ) : (
           <div className="mt-4">
             <JobListClient
@@ -332,7 +335,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                       className="h-8 w-8 rounded-md text-[13px] font-medium flex items-center justify-center"
                       style={
                         p === currentPage
-                          ? { background: "oklch(20% 0.02 275)", color: "#fff" }
+                          ? { background: "var(--ink-primary)", color: "#fff" }
                           : { color: "var(--foreground)", border: "1px solid var(--border)" }
                       }
                     >

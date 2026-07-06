@@ -59,7 +59,9 @@
     "matchNewRole": "新职位",
     "matchStrong": "高匹配",
     "matchGood": "中等匹配",
-    "matchPartial": "部分匹配"
+    "matchPartial": "部分匹配",
+    "matchDistribution": "匹配分布",
+    "matchUnanalyzedLabel": "未分析"
   },
   "jobs": {
     "title": "已收藏职位",
@@ -107,6 +109,7 @@
     "yourProfile": "你的简介"
   },
   "jobFilters": {
+    "filters": "筛选",
     "sort": "排序:",
     "sortNewest": "最新",
     "sortOldest": "最早",
@@ -175,9 +178,14 @@
     "problemSolved": "解决的问题:{text}",
     "positionFunction": "岗位职能",
     "dailyWorkflow": "日常工作流程",
+    "likelyInputs": "输入",
     "typicalAnalyses": "典型分析工作",
     "outputs": "产出物",
     "keySkillDemands": "关键技能需求",
+    "importanceCore": "核心",
+    "importanceSupporting": "辅助",
+    "importanceOther": "其他",
+    "confidenceLabel": "置信度",
     "analystNotes": "分析师备注",
     "uncertaintyNotes": "不确定项",
     "noFitAnalysis": "尚未生成匹配度分析。",
@@ -307,6 +315,7 @@
     "significant": "重要",
     "minor": "轻微",
     "recommendedAction": "建议操作:",
+    "matchComposition": "匹配构成",
     "matchAnalysisTab": "匹配分析",
     "resumePositioningTab": "简历定位建议",
     "yearsExperience": "{count} 年经验",

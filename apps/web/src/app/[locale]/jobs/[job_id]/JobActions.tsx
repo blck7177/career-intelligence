@@ -8,7 +8,7 @@ import { createRun, archiveJob } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { FitButton } from "@/components/FitButton";
 import { Button } from "@/components/ui/button";
-import { Loader2, FileText, Trash2, PenLine } from "lucide-react";
+import { FileText, Trash2, PenLine } from "lucide-react";
 
 interface JobActionsProps {
   jobId: string;
@@ -74,15 +74,11 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
     <div className="flex items-center gap-2.5">
       <Button
         onClick={handleGenerateReport}
-        disabled={reportLoading}
+        loading={reportLoading}
         size="sm"
         variant={hasExistingReport ? "outline" : "default"}
       >
-        {reportLoading ? (
-          <Loader2 size={15} className="animate-spin mr-1.5" />
-        ) : (
-          <FileText size={15} className="mr-1.5" />
-        )}
+        {!reportLoading && <FileText size={15} className="mr-1.5" />}
         {hasExistingReport ? t("refreshReport") : t("generateReport")}
       </Button>
       {reportError && <span className="text-xs text-rose-600">{reportError}</span>}
@@ -118,15 +114,11 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
               setTailorLoading(false);
             }
           }}
-          disabled={tailorLoading}
+          loading={tailorLoading}
           size="sm"
           variant="outline"
         >
-          {tailorLoading ? (
-            <Loader2 size={15} className="animate-spin mr-1.5" />
-          ) : (
-            <PenLine size={15} className="mr-1.5" />
-          )}
+          {!tailorLoading && <PenLine size={15} className="mr-1.5" />}
           {tailorLoading ? t("tailoring") : t("tailorResume")}
         </Button>
       )}
@@ -134,12 +126,12 @@ export function JobActions({ jobId, hasExistingReport, jobReportId, hasProfile }
 
       <Button
         onClick={handleArchive}
-        disabled={archiving}
+        loading={archiving}
         size="sm"
         variant="outline"
-        className="text-zinc-400 hover:text-rose-500 hover:border-rose-300"
+        className="text-[var(--ink-muted)] hover:text-rose-500 hover:border-rose-300"
       >
-        <Trash2 size={15} className="mr-1.5" />
+        {!archiving && <Trash2 size={15} className="mr-1.5" />}
         {archiving ? tCommon("removing") : tCommon("remove")}
       </Button>
     </div>

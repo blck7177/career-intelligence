@@ -137,7 +137,7 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
       {/* Left: Function selector — 240px fixed */}
-      <div className="w-60 shrink-0 border-r border-zinc-200 bg-zinc-50 overflow-y-auto">
+      <div className="w-60 shrink-0 border-r border-[var(--border)] bg-[var(--muted)] overflow-y-auto">
         <FunctionPanel
           activeFunction={state.activeFunction}
           onSelect={setActiveFunction}
@@ -145,7 +145,7 @@ export function WorkspaceShell() {
       </div>
 
       {/* Middle: Parameter panel + agent placeholder — 420px fixed */}
-      <div className="w-[420px] shrink-0 border-r border-zinc-200 overflow-y-auto">
+      <div className="w-[420px] shrink-0 border-r border-[var(--border)] overflow-y-auto">
         <MiddlePanel
           activeFunction={state.activeFunction}
           activeRunId={state.activeRunId}

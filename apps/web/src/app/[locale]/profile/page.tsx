@@ -14,6 +14,7 @@ import {
   type ProfileUpdate,
 } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
+import { Button } from "@/components/ui/button";
 
 type FieldState = {
   label: string;
@@ -366,7 +367,7 @@ export default function ProfilePage() {
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold" style={{ color: "oklch(16% 0.015 275)" }}>{t("title")}</h1>
+            <h1 className="text-xl font-semibold" style={{ color: "var(--ink-primary)" }}>{t("title")}</h1>
             <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground)" }}>
               {t("subtitle")}
             </p>
@@ -374,7 +375,7 @@ export default function ProfilePage() {
           <button
             onClick={handleNewProfile}
             disabled={saving}
-            className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors hover:bg-zinc-50 disabled:opacity-50"
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--muted)] disabled:opacity-50"
             style={{ borderColor: "var(--border)", color: "var(--primary)" }}
           >
             {t("newProfile")}
@@ -410,9 +411,9 @@ export default function ProfilePage() {
       {hasProfileData && (
         <div className="mb-8 rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid var(--border)" }}>
           <div className="flex items-start justify-between gap-2">
-            <h2 className="text-sm font-semibold" style={{ color: "oklch(38% 0.012 275)" }}>{t("profileOverview")}</h2>
+            <h2 className="text-sm font-semibold" style={{ color: "var(--ink-secondary)" }}>{t("profileOverview")}</h2>
             {profileHash && (
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ color: "oklch(60% 0.01 275)", background: "var(--muted)" }}>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ color: "var(--muted-foreground)", background: "var(--muted)" }}>
                 {profileHash.slice(0, 8)}
               </span>
             )}
@@ -420,14 +421,14 @@ export default function ProfilePage() {
 
           {fields.years_experience && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-xs" style={{ color: "oklch(60% 0.01 275)" }}>{t("experience")}</span>
-              <span className="font-semibold" style={{ color: "oklch(22% 0.015 275)" }}>{t("years", { count: fields.years_experience })}</span>
+              <span className="text-xs" style={{ color: "var(--ink-muted)" }}>{t("experience")}</span>
+              <span className="font-semibold" style={{ color: "var(--ink-primary)" }}>{t("years", { count: fields.years_experience })}</span>
             </div>
           )}
 
           {subjectAreaList.length > 0 && (
             <div>
-              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>{t("subjectAreas")}</p>
+              <p className="text-xs mb-2" style={{ color: "var(--ink-muted)" }}>{t("subjectAreas")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {subjectAreaList.map((d) => (
                   <span
@@ -444,7 +445,7 @@ export default function ProfilePage() {
 
           {skillList.length > 0 && (
             <div>
-              <p className="text-xs mb-2" style={{ color: "oklch(60% 0.01 275)" }}>{t("technicalSkills")}</p>
+              <p className="text-xs mb-2" style={{ color: "var(--ink-muted)" }}>{t("technicalSkills")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {skillList.map((s) => (
                   <span
@@ -463,10 +464,10 @@ export default function ProfilePage() {
 
       {/* Resume Import Section */}
       <div className="mb-8">
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 space-y-4">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-5 space-y-4">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-700 mb-1">{t("importFromResume")}</h2>
-            <p className="text-xs text-zinc-400">
+            <h2 className="text-sm font-semibold text-[var(--ink-secondary)] mb-1">{t("importFromResume")}</h2>
+            <p className="text-xs text-[var(--ink-muted)]">
               {t("importHint")}
             </p>
           </div>
@@ -476,8 +477,8 @@ export default function ProfilePage() {
             <label
               className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-4 text-sm cursor-pointer transition-colors ${
                 uploadingFile
-                  ? "border-zinc-300 bg-zinc-50 text-zinc-400 cursor-wait"
-                  : "border-zinc-300 hover:border-[var(--primary)] hover:bg-zinc-50 text-zinc-500"
+                  ? "border-[var(--border)] bg-[var(--muted)] text-[var(--ink-muted)] cursor-wait"
+                  : "border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)] text-[var(--ink-muted)]"
               }`}
             >
               <input
@@ -515,23 +516,22 @@ export default function ProfilePage() {
                 onChange={(e) => setResumeText(e.target.value)}
                 placeholder={t("pastePlaceholder")}
                 disabled={importStatus === "generating"}
-                className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y disabled:opacity-50"
+                className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y disabled:opacity-50"
               />
             </div>
           )}
 
           {resumeText.trim() && (
             <div className="flex items-center gap-3">
-              <button
+              <Button
                 onClick={handleImport}
-                disabled={!resumeText.trim() || importStatus === "generating"}
-                className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
-                style={{ background: "var(--primary)" }}
+                disabled={!resumeText.trim()}
+                loading={importStatus === "generating"}
               >
                 {importStatus === "generating" ? t("generating") : t("generateDraft")}
-              </button>
+              </Button>
 
-              <span className="text-xs text-zinc-400">
+              <span className="text-xs text-[var(--ink-muted)]">
                 {t("charsCount", { count: resumeText.trim().length.toLocaleString() })}
               </span>
 
@@ -548,11 +548,11 @@ export default function ProfilePage() {
 
           {/* Clean resume preview */}
           {cleanResume?.markdown && (
-            <details className="rounded-md border border-zinc-200 bg-zinc-50">
-              <summary className="px-3 py-2 text-xs font-medium text-zinc-500 cursor-pointer hover:text-zinc-700">
+            <details className="rounded-md border border-[var(--border)] bg-[var(--muted)]">
+              <summary className="px-3 py-2 text-xs font-medium text-[var(--ink-muted)] cursor-pointer hover:text-[var(--ink-secondary)]">
                 {t("viewReconstructed")}
               </summary>
-              <pre className="px-3 py-2 text-xs text-zinc-600 whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-zinc-200">
+              <pre className="px-3 py-2 text-xs text-[var(--ink-secondary)] whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-[var(--border)]">
                 {cleanResume.markdown}
               </pre>
             </details>
@@ -568,7 +568,7 @@ export default function ProfilePage() {
                 </div>
               )}
               {(parseNotes.missing_information ?? []).length > 0 && (
-                <div className="text-xs text-zinc-500 bg-zinc-50 rounded-md px-3 py-2">
+                <div className="text-xs text-[var(--ink-muted)] bg-[var(--muted)] rounded-md px-3 py-2">
                   <span className="font-medium">{t("notFoundInResume")}</span>
                   {parseNotes.missing_information!.join(" | ")}
                 </div>
@@ -585,16 +585,16 @@ export default function ProfilePage() {
           {/* Extracted projects preview */}
           {draftProjects && draftProjects.length > 0 && (
             <div>
-              <p className="text-xs text-zinc-500 mb-2 font-medium">
+              <p className="text-xs text-[var(--ink-muted)] mb-2 font-medium">
                 {t("extractedProjects", { count: draftProjects.length })}
               </p>
               <div className="space-y-1.5">
                 {(draftProjects as Array<{ title?: string; description?: string }>).map(
                   (p, i) => (
-                    <div key={i} className="text-xs text-zinc-600 bg-zinc-50 rounded px-3 py-2">
+                    <div key={i} className="text-xs text-[var(--ink-secondary)] bg-[var(--muted)] rounded px-3 py-2">
                       <span className="font-medium">{p.title || t("projectFallback", { n: i + 1 })}</span>
                       {p.description && (
-                        <span className="text-zinc-400"> — {p.description.slice(0, 120)}</span>
+                        <span className="text-[var(--ink-muted)]"> — {p.description.slice(0, 120)}</span>
                       )}
                     </div>
                   ),
@@ -607,7 +607,7 @@ export default function ProfilePage() {
 
       {/* Edit form */}
       <div className="mb-4 flex items-center justify-between gap-4">
-        <h2 className="text-sm font-semibold text-zinc-700">{t("editProfile")}</h2>
+        <h2 className="text-sm font-semibold text-[var(--ink-secondary)]">{t("editProfile")}</h2>
         {allProfiles.length > 1 && (
           <button
             onClick={handleDeleteProfile}
@@ -685,14 +685,9 @@ export default function ProfilePage() {
       </div>
 
       <div className="mt-8 flex items-center gap-4">
-        <button
-          onClick={importStatus === "ready" ? handleApplyAndSave : handleSave}
-          disabled={saving}
-          className="px-4 py-2 rounded-lg text-white text-sm font-medium disabled:opacity-50 transition-opacity hover:opacity-90"
-          style={{ background: "var(--primary)" }}
-        >
-          {saving ? t("saving") : t("saveProfile")}
-        </button>
+        <Button onClick={importStatus === "ready" ? handleApplyAndSave : handleSave} loading={saving}>
+          {t("saveProfile")}
+        </Button>
         {status === "saved" && (
           <span className="text-sm text-emerald-600">{t("profileSaved")}</span>
         )}
@@ -724,13 +719,13 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 mb-1">{label}</label>
-      <p className="text-xs text-zinc-400 mb-1.5">{hint}</p>
+      <label className="block text-sm font-medium text-[var(--ink-secondary)] mb-1">{label}</label>
+      <p className="text-xs text-[var(--ink-muted)] mb-1.5">{hint}</p>
       <textarea
         rows={rows}
         value={value}
         onChange={onChange}
-        className="w-full rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y"
+        className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y"
       />
     </div>
   );
@@ -751,13 +746,13 @@ function TextInput({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 mb-1">{label}</label>
-      <p className="text-xs text-zinc-400 mb-1.5">{hint}</p>
+      <label className="block text-sm font-medium text-[var(--ink-secondary)] mb-1">{label}</label>
+      <p className="text-xs text-[var(--ink-muted)] mb-1.5">{hint}</p>
       <input
         type={type}
         value={value}
         onChange={onChange}
-        className="w-48 rounded-md border border-zinc-200 px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+        className="w-48 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
       />
     </div>
   );

@@ -1,10 +1,13 @@
 import { getTranslations } from "next-intl/server";
+import { ListChecks } from "lucide-react";
 import { Link } from "@/i18n/navigation";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { StartRunButton } from "./StartRunButton";
 import { fmtTs } from "@/lib/utils";
+import { RunStatusStepper, type RunStatus } from "@/components/RunStatusStepper";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -23,20 +26,12 @@ const STATUS_KEYS: Record<string, string> = {
   cancelled: "statusCancelled",
 };
 
-function statusDotColor(status: string): string {
-  if (status === "succeeded") return "oklch(52% 0.18 155)";
-  if (status === "running") return "oklch(52% 0.18 260)";
-  if (status === "failed") return "oklch(52% 0.18 25)";
-  if (status === "needs_review") return "oklch(52% 0.18 80)";
-  return "oklch(70% 0.01 275)";
-}
-
 function statusBadgeStyle(status: string): { bg: string; fg: string } {
   if (status === "succeeded") return { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" };
-  if (status === "running") return { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" };
+  if (status === "running") return { bg: "var(--secondary)", fg: "var(--secondary-foreground)" };
   if (status === "failed") return { bg: "oklch(95% 0.02 25)", fg: "oklch(45% 0.15 25)" };
   if (status === "needs_review") return { bg: "oklch(95% 0.03 80)", fg: "oklch(45% 0.12 80)" };
-  return { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" };
+  return { bg: "var(--muted)", fg: "var(--muted-foreground)" };
 }
 
 function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
@@ -48,15 +43,12 @@ function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
       style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)" }}
     >
       <div className="flex items-center gap-3 min-w-0">
-        <div
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ background: statusDotColor(run.status) }}
-        />
+        <RunStatusStepper status={run.status as RunStatus} size="sm" />
         <div className="min-w-0">
-          <p className="text-sm font-medium truncate" style={{ color: "oklch(22% 0.015 275)" }}>
+          <p className="text-sm font-medium truncate" style={{ color: "var(--ink-primary)" }}>
             {t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery")}
           </p>
-          <p className="text-xs mt-0.5" style={{ color: "oklch(60% 0.01 275)" }}>{fmtTs(run.created_at)}</p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--ink-faint)" }}>{fmtTs(run.created_at)}</p>
         </div>
       </div>
       <span
@@ -110,17 +102,12 @@ export default async function RunsPage() {
         )}
 
         {runs.length === 0 && !fetchError && (
-          <div className="rounded-xl border border-dashed py-16 text-center" style={{ borderColor: "var(--border)" }}>
-            <p className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("noRunsYet")}</p>
-            <p className="text-xs mt-1" style={{ color: "oklch(60% 0.01 275)" }}>
-              {t("noRunsHint")}
-            </p>
-          </div>
+          <EmptyState icon={ListChecks} title={t("noRunsYet")} hint={t("noRunsHint")} />
         )}
 
         {discoveryRuns.length > 0 && (
           <div className="space-y-2 mb-6">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--ink-muted)" }}>
               {t("discoverySection")}
             </h2>
             {discoveryRuns.map((run) => (
@@ -131,7 +118,7 @@ export default async function RunsPage() {
 
         {reportRuns.length > 0 && (
           <div className="space-y-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "oklch(60% 0.01 275)" }}>
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--ink-muted)" }}>
               {t("reportsSection")}
             </h2>
             {reportRuns.map((run) => (

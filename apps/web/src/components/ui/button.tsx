@@ -1,33 +1,48 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
+import { buttonVariants, type ButtonVariant, type ButtonSize } from "./button-variants";
 import { cn } from "@/lib/utils";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "default" | "secondary" | "outline" | "ghost" | "destructive";
-  size?: "sm" | "md" | "lg";
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  /** Shows a spinner before children and disables the button — no need to hand-roll a Loader2 conditional at each call site. */
+  loading?: boolean;
+  /**
+   * Adds a single soft diagonal sheen that loops across the button. Reserve
+   * for the one or two highest-intent primary actions on a page (e.g. "Start
+   * discovery") — this is a rare accent, not a default button treatment.
+   */
+  shimmer?: boolean;
 }
 
 export function Button({
   className,
   variant = "default",
   size = "md",
+  loading = false,
+  shimmer = false,
+  disabled,
+  children,
   ...props
 }: ButtonProps) {
   return (
     <button
-      className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-all focus-visible:outline-none disabled:opacity-50 disabled:pointer-events-none",
-        size === "sm" && "h-9 px-3.5 text-[13px]",
-        size === "md" && "h-10 px-4 text-sm",
-        size === "lg" && "h-11 px-6 text-sm",
-        variant === "default" && "bg-[var(--primary)] text-white shadow-sm hover:opacity-90 hover:shadow",
-        variant === "secondary" && "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80",
-        variant === "outline" && "border border-[var(--border)] bg-white text-[var(--foreground)] hover:bg-[var(--muted)]",
-        variant === "ghost" && "text-[var(--foreground)] hover:bg-[var(--muted)]",
-        variant === "destructive" && "bg-rose-600 text-white shadow-sm hover:bg-rose-700",
-        className,
-      )}
+      className={buttonVariants({ variant, size, className: cn(shimmer && "relative overflow-hidden", className) })}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
-    />
+    >
+      {shimmer && !loading && !disabled && (
+        <span
+          aria-hidden="true"
+          className="absolute inset-y-0 left-0 w-1/3 animate-button-shimmer pointer-events-none"
+          style={{ background: "linear-gradient(115deg, transparent, oklch(100% 0 0 / 0.35), transparent)" }}
+        />
+      )}
+      {loading && <Loader2 size={size === "sm" ? 12 : 14} className="animate-spin mr-1.5" />}
+      {children}
+    </button>
   );
 }

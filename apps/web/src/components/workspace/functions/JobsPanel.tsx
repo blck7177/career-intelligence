@@ -17,7 +17,7 @@ function jobStatusBg(status: string): string {
   if (status === "reportable") return "bg-emerald-100 text-emerald-800";
   if (status === "discovered") return "bg-blue-100 text-blue-800";
   if (status === "invalid") return "bg-rose-100 text-rose-800";
-  return "bg-zinc-100 text-zinc-600";
+  return "bg-[var(--muted)] text-[var(--ink-secondary)]";
 }
 
 export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
@@ -49,8 +49,8 @@ export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-800">Jobs</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h2 className="text-sm font-semibold text-[var(--ink-primary)]">Jobs</h2>
+          <p className="text-xs text-[var(--ink-muted)] mt-0.5">
             {jobs.length} job{jobs.length !== 1 ? "s" : ""} in database
           </p>
         </div>
@@ -58,14 +58,14 @@ export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
           <button
             onClick={fetchJobs}
             disabled={loading}
-            className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+            className="p-1.5 rounded text-[var(--ink-muted)] hover:text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
             title="Refresh"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           </button>
           <Link
             href="/jobs"
-            className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-600 px-1.5 py-1 rounded hover:bg-zinc-100 transition-colors"
+            className="flex items-center gap-1 text-xs text-[var(--ink-muted)] hover:text-[var(--ink-secondary)] px-1.5 py-1 rounded hover:bg-[var(--muted)] transition-colors"
             title="Open full database"
           >
             <ExternalLink size={12} />
@@ -80,7 +80,7 @@ export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
       )}
 
       {!loading && jobs.length === 0 && !error && (
-        <p className="text-xs text-zinc-400 py-4 text-center">
+        <p className="text-xs text-[var(--ink-muted)] py-4 text-center">
           No jobs yet. Use Discovery to find jobs.
         </p>
       )}
@@ -93,18 +93,18 @@ export function JobsPanel({ activeJobId, onJobSelected }: JobsPanelProps) {
               className={[
                 "w-full flex items-start gap-2 px-3 py-2.5 rounded-lg border text-left transition-colors",
                 activeJobId === job.id
-                  ? "border-zinc-800 bg-zinc-50"
-                  : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                  ? "border-[var(--primary)] bg-[var(--muted)]"
+                  : "border-[var(--border)] hover:border-[var(--ink-faint)] hover:bg-[var(--muted)]",
               ].join(" ")}
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <p className="text-xs font-medium text-zinc-800 truncate">{job.title}</p>
+                  <p className="text-xs font-medium text-[var(--ink-primary)] truncate">{job.title}</p>
                   <Badge className={jobStatusBg(job.status) + " text-[10px] shrink-0"}>
                     {job.status}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2 text-[11px] text-zinc-500 mt-0.5">
+                <div className="flex items-center gap-2 text-[11px] text-[var(--ink-muted)] mt-0.5">
                   <span className="flex items-center gap-0.5">
                     <Building2 size={10} />
                     {job.company}

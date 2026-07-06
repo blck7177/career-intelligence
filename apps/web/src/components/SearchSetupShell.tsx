@@ -9,6 +9,7 @@ import type { ProfileRead, RunRead } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Loader2,
   Play,
@@ -78,10 +79,30 @@ const STATUS_KEY_MAP: Record<string, string> = {
 function statusBadgeClass(status: string): string {
   if (status === "succeeded") return "bg-emerald-100 text-emerald-700";
   if (status === "running") return "bg-blue-100 text-blue-700";
-  if (status === "queued") return "bg-zinc-100 text-zinc-600";
+  if (status === "queued") return "bg-[var(--muted)] text-[var(--ink-secondary)]";
   if (status === "needs_review") return "bg-amber-100 text-amber-700";
   if (status === "failed") return "bg-rose-100 text-rose-700";
-  return "bg-zinc-100 text-zinc-500";
+  return "bg-[var(--muted)] text-[var(--ink-muted)]";
+}
+
+// Wizard step header: a numbered badge makes "step 1 of 3" legible at a glance
+// instead of relying on copy alone, and the larger/bolder title gives each
+// phase of the wizard a real heading instead of a same-weight caption line.
+function StepHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span
+        className="flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 mt-0.5"
+        style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+      >
+        {step}
+      </span>
+      <div>
+        <h2 className="text-lg font-bold leading-tight" style={{ color: "var(--ink-primary)" }}>{title}</h2>
+        <p className="text-xs mt-0.5" style={{ color: "var(--ink-muted)" }}>{subtitle}</p>
+      </div>
+    </div>
+  );
 }
 
 function StatusIcon({ status }: { status: string }) {
@@ -89,7 +110,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "failed") return <XCircle size={13} className="text-rose-500 shrink-0" />;
   if (status === "needs_review") return <AlertCircle size={13} className="text-amber-500 shrink-0" />;
   if (status === "running") return <Circle size={13} className="text-blue-500 animate-pulse shrink-0" />;
-  return <Clock size={13} className="text-zinc-400 shrink-0" />;
+  return <Clock size={13} className="text-[var(--ink-muted)] shrink-0" />;
 }
 
 function resolveSearchMode(source: SearchSource, criteriaMode: SearchMode): SearchMode {
@@ -362,8 +383,20 @@ export function SearchSetupShell() {
   function renderWizardCard() {
     if (profileLoading) {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-8 flex justify-center">
-          <Loader2 size={20} className="animate-spin text-zinc-400" />
+        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+          <div className="flex items-start gap-2.5">
+            <Skeleton className="w-6 h-6 rounded-full shrink-0" />
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          </div>
+          <Skeleton className="h-16 w-full rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
         </div>
       );
     }
@@ -381,11 +414,11 @@ export function SearchSetupShell() {
 
     if (phase === "polling") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center space-y-4">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-8 text-center space-y-4">
           <Loader2 size={28} className="animate-spin text-[var(--primary)] mx-auto" />
           <div>
-            <p className="text-sm font-medium text-zinc-800">{pollStatus}</p>
-            <p className="text-xs text-zinc-500 mt-1">{t("thisMayTakeAFewMinutes")}</p>
+            <p className="text-sm font-medium text-[var(--ink-primary)]">{pollStatus}</p>
+            <p className="text-xs text-[var(--ink-muted)] mt-1">{t("thisMayTakeAFewMinutes")}</p>
           </div>
         </div>
       );
@@ -428,11 +461,8 @@ export function SearchSetupShell() {
 
     if (phase === "source-select") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-800">{t("step1Title")}</h2>
-            <p className="text-xs text-zinc-500 mt-1">{t("step1Subtitle")}</p>
-          </div>
+        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+          <StepHeader step={1} title={t("step1Title")} subtitle={t("step1Subtitle")} />
 
           {profileNeedsSetup && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
@@ -444,9 +474,9 @@ export function SearchSetupShell() {
             </div>
           )}
 
-          <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-600 space-y-2">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-4 py-3 text-xs text-[var(--ink-secondary)] space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium text-zinc-700">
+              <span className="font-medium text-[var(--ink-secondary)]">
                 {allProfiles.length > 1 ? t("selectedProfile") : t("yourProfile")}
               </span>
               <Link href="/profile" className="text-[var(--primary)] hover:underline">
@@ -463,7 +493,7 @@ export function SearchSetupShell() {
                     applySearchDefaults((p as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
                   }
                 }}
-                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-800 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-xs text-[var(--ink-primary)] bg-white focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
               >
                 {allProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -491,15 +521,15 @@ export function SearchSetupShell() {
                   "w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all",
                   searchSource === opt.id
                     ? "border-[var(--primary)] bg-[var(--secondary)]"
-                    : "border-zinc-200 hover:border-zinc-300 bg-white",
+                    : "border-[var(--border)] hover:border-[var(--ink-faint)] bg-white",
                 ].join(" ")}
               >
-                <span className={searchSource === opt.id ? "text-[var(--primary)]" : "text-zinc-400"}>
+                <span className={searchSource === opt.id ? "text-[var(--primary)]" : "text-[var(--ink-muted)]"}>
                   {opt.icon}
                 </span>
                 <span>
-                  <span className="block text-sm font-medium text-zinc-800">{t(opt.titleKey)}</span>
-                  <span className="block text-xs text-zinc-500 mt-0.5">{t(opt.subtitleKey)}</span>
+                  <span className="block text-sm font-medium text-[var(--ink-primary)]">{t(opt.titleKey)}</span>
+                  <span className="block text-xs text-[var(--ink-muted)] mt-0.5">{t(opt.subtitleKey)}</span>
                 </span>
               </button>
             ))}
@@ -518,14 +548,11 @@ export function SearchSetupShell() {
 
     if (phase === "criteria") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-800">{t("step2Title")}</h2>
-            <p className="text-xs text-zinc-500 mt-1">{t("step2Subtitle")}</p>
-          </div>
+        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+          <StepHeader step={2} title={t("step2Title")} subtitle={t("step2Subtitle")} />
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-700">
+            <label className="text-sm font-medium text-[var(--ink-secondary)]">
               {t("whatLookingFor")}{" "}
               <span className="text-rose-400 font-normal">{t("required")}</span>
             </label>
@@ -534,9 +561,9 @@ export function SearchSetupShell() {
               placeholder={t("criteriaPlaceholder")}
               value={rawUserRequest}
               onChange={(e) => setRawUserRequest(e.target.value)}
-              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
             />
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-[var(--ink-muted)]">
               {rawUserRequest.trim().length < 5
                 ? t("moreCharsNeeded", { count: 5 - rawUserRequest.trim().length })
                 : t("charsCount", { count: rawUserRequest.trim().length })}
@@ -545,7 +572,7 @@ export function SearchSetupShell() {
 
           {searchSource === "instruction_only" && (
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-700">{t("searchStyle")}</label>
+              <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchStyle")}</label>
               <div className="grid grid-cols-2 gap-2">
                 {(["direct", "exploratory"] as const).map((mode) => (
                   <button
@@ -556,14 +583,14 @@ export function SearchSetupShell() {
                       "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                       criteriaMode === mode
                         ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
-                        : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
+                        : "border-[var(--border)] text-[var(--ink-secondary)] hover:border-[var(--ink-faint)] bg-white",
                     ].join(" ")}
                   >
                     <span className="block font-medium">{mode === "direct" ? t("modeDirectLabel") : t("modeExploratoryLabel")}</span>
                     <span
                       className={[
                         "block text-[11px] mt-0.5",
-                        criteriaMode === mode ? "text-white/60" : "text-zinc-400",
+                        criteriaMode === mode ? "text-white/60" : "text-[var(--ink-muted)]",
                       ].join(" ")}
                     >
                       {mode === "direct" ? t("exactMatch") : t("broaderSearch")}
@@ -597,14 +624,11 @@ export function SearchSetupShell() {
 
     // depth-submit
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-800">{t("step3Title")}</h2>
-          <p className="text-xs text-zinc-500 mt-1">{t("step3Subtitle")}</p>
-        </div>
+      <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+        <StepHeader step={3} title={t("step3Title")} subtitle={t("step3Subtitle")} />
 
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-zinc-700">{t("searchDepthLabel")}</label>
+          <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchDepthLabel")}</label>
           <div className="grid grid-cols-3 gap-2">
             {(
               [
@@ -621,14 +645,14 @@ export function SearchSetupShell() {
                   "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                   searchDepth === val
                     ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
-                    : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
+                    : "border-[var(--border)] text-[var(--ink-secondary)] hover:border-[var(--ink-faint)] bg-white",
                 ].join(" ")}
               >
                 <span className="block font-medium">{t(labelKey)}</span>
                 <span
                   className={[
                     "block text-[11px] mt-0.5",
-                    searchDepth === val ? "text-white/60" : "text-zinc-400",
+                    searchDepth === val ? "text-white/60" : "text-[var(--ink-muted)]",
                   ].join(" ")}
                 >
                   {t(hintKey)}
@@ -660,12 +684,9 @@ export function SearchSetupShell() {
             <ChevronLeft size={14} className="mr-1" />
             {t("back")}
           </Button>
-          <Button className="flex-1" disabled={loading} onClick={handleStartDiscovery}>
+          <Button className="flex-1" loading={loading} shimmer onClick={handleStartDiscovery}>
             {loading ? (
-              <>
-                <Loader2 size={14} className="animate-spin mr-2" />
-                {t("starting")}
-              </>
+              t("starting")
             ) : (
               <>
                 <Play size={14} className="mr-2" />
@@ -680,37 +701,37 @@ export function SearchSetupShell() {
 
   function renderConstraintsSection() {
     return (
-      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+      <div className="rounded-lg border border-[var(--border)] overflow-hidden">
         <button
           type="button"
           onClick={() => setConstraintsOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
         >
           <span>{t("hardConstraints")}</span>
-          <span className="flex items-center gap-1 text-xs text-zinc-400">
+          <span className="flex items-center gap-1 text-xs text-[var(--ink-muted)]">
             {constraintsOpen ? t("hide") : t("show")}
             {constraintsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
 
         {constraintsOpen && (
-          <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 bg-zinc-50">
+          <div className="px-4 pb-4 space-y-3 border-t border-[var(--border)] bg-[var(--muted)]">
             <div className="grid grid-cols-2 gap-3 pt-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">{t("location")}</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("location")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder={t("locationPlaceholder")}
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">{t("workArrangement")}</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("workArrangement")}</label>
                 <select
                   value={workArrangement}
                   onChange={(e) => setWorkArrangement(e.target.value as WorkArrangement)}
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 >
                   <option value="">{t("noPreference")}</option>
                   <option value="hybrid">{t("hybrid")}</option>
@@ -722,9 +743,9 @@ export function SearchSetupShell() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">{t("seniorityCsv")}</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("seniorityCsv")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder={t("seniorityPlaceholder")}
                 value={seniority}
                 onChange={(e) => setSeniority(e.target.value)}
@@ -732,9 +753,9 @@ export function SearchSetupShell() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">{t("mustIncludeKeywords")}</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("mustIncludeKeywords")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder={t("mustIncludePlaceholder")}
                 value={mustIncludeKeywords}
                 onChange={(e) => setMustIncludeKeywords(e.target.value)}
@@ -742,9 +763,9 @@ export function SearchSetupShell() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">{t("excludeRoleTypes")}</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("excludeRoleTypes")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder={t("excludePlaceholder")}
                 value={excludeRoleTypes}
                 onChange={(e) => setExcludeRoleTypes(e.target.value)}
@@ -753,18 +774,18 @@ export function SearchSetupShell() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">{t("compensationRange")}</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("compensationRange")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder={t("compensationPlaceholder")}
                   value={compensationRange}
                   onChange={(e) => setCompensationRange(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">{t("visaNote")}</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("visaNote")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                   placeholder={t("visaPlaceholder")}
                   value={visaNote}
                   onChange={(e) => setVisaNote(e.target.value)}
@@ -779,32 +800,32 @@ export function SearchSetupShell() {
 
   function renderSoftPreferencesSection() {
     return (
-      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+      <div className="rounded-lg border border-[var(--border)] overflow-hidden">
         <button
           type="button"
           onClick={() => setSoftPreferencesOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
         >
           <span>{t("softPreferences")}</span>
-          <span className="flex items-center gap-1 text-xs text-zinc-400">
+          <span className="flex items-center gap-1 text-xs text-[var(--ink-muted)]">
             {softPreferencesOpen ? t("hide") : t("show")}
             {softPreferencesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
 
         {softPreferencesOpen && (
-          <div className="px-4 pb-4 space-y-2 border-t border-zinc-100 bg-zinc-50 pt-3">
+          <div className="px-4 pb-4 space-y-2 border-t border-[var(--border)] bg-[var(--muted)] pt-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">
+              <label className="text-xs font-medium text-[var(--ink-muted)]">
                 {t("softPreferencesLabel")}
               </label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
                 placeholder={t("softPreferencesPlaceholder")}
                 value={softPreferences}
                 onChange={(e) => setSoftPreferences(e.target.value)}
               />
-              <p className="text-[11px] text-zinc-400">
+              <p className="text-[11px] text-[var(--ink-muted)]">
                 {t("softPreferencesHint")}
               </p>
             </div>
@@ -817,8 +838,8 @@ export function SearchSetupShell() {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-10">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900">{t("title")}</h1>
-        <p className="text-zinc-500 text-sm mt-1">
+        <h1 className="text-2xl font-bold text-[var(--ink-primary)]">{t("title")}</h1>
+        <p className="text-[var(--ink-muted)] text-sm mt-1">
           {t("subtitle")}
         </p>
       </div>
@@ -826,24 +847,24 @@ export function SearchSetupShell() {
       {renderWizardCard()}
 
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">{t("howItWorks")}</h2>
+        <h2 className="text-sm font-semibold text-[var(--ink-secondary)] uppercase tracking-wider">{t("howItWorks")}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {HOW_IT_WORKS.map((step, i) => (
             <div
               key={i}
-              className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-4"
+              className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-white p-4"
             >
-              <div className="w-8 h-8 rounded-lg bg-zinc-50 border border-zinc-100 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center shrink-0">
                 {step.icon}
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  <span className="text-[10px] font-bold text-[var(--ink-muted)] uppercase tracking-wider">
                     {i + 1}
                   </span>
-                  <p className="text-sm font-medium text-zinc-800">{t(step.titleKey)}</p>
+                  <p className="text-sm font-medium text-[var(--ink-primary)]">{t(step.titleKey)}</p>
                 </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">{t(step.descKey)}</p>
+                <p className="text-xs text-[var(--ink-muted)] leading-relaxed">{t(step.descKey)}</p>
               </div>
             </div>
           ))}
@@ -852,8 +873,8 @@ export function SearchSetupShell() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">{t("recentSearches")}</h2>
-          <Link href="/runs" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">
+          <h2 className="text-sm font-semibold text-[var(--ink-secondary)] uppercase tracking-wider">{t("recentSearches")}</h2>
+          <Link href="/runs" className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink-secondary)] transition-colors">
             {t("viewAll")}
           </Link>
         </div>
@@ -861,37 +882,37 @@ export function SearchSetupShell() {
         {runsLoading && (
           <div className="space-y-2">
             {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-14 rounded-lg border border-zinc-100 bg-zinc-50 animate-pulse" />
+              <div key={i} className="h-14 rounded-lg border border-[var(--border)] bg-[var(--muted)] animate-pulse" />
             ))}
           </div>
         )}
 
         {!runsLoading && recentRuns.length === 0 && (
-          <div className="rounded-lg border border-dashed border-zinc-200 py-8 text-center">
-            <p className="text-xs text-zinc-400">{t("noDiscoveryRunsYet")}</p>
+          <div className="rounded-lg border border-dashed border-[var(--border)] py-8 text-center">
+            <p className="text-xs text-[var(--ink-muted)]">{t("noDiscoveryRunsYet")}</p>
           </div>
         )}
 
         {!runsLoading && recentRuns.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-100 overflow-hidden">
+          <div className="rounded-xl border border-[var(--border)] bg-white divide-y divide-[var(--border)] overflow-hidden">
             {recentRuns.map((run) => (
               <Link
                 key={run.id}
                 href={run.status === "succeeded" ? "/jobs" : `/runs/${run.id}`}
-                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors"
+                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--muted)] transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <StatusIcon status={run.status} />
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-zinc-700 truncate">{t("discoveryRun")}</p>
-                    <p className="text-[10px] text-zinc-400">{fmtTs(run.created_at)}</p>
+                    <p className="text-xs font-medium text-[var(--ink-secondary)] truncate">{t("discoveryRun")}</p>
+                    <p className="text-[10px] text-[var(--ink-muted)]">{fmtTs(run.created_at)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <Badge className={statusBadgeClass(run.status) + " text-[10px]"}>
                     {tRuns(STATUS_KEY_MAP[run.status] ?? "statusQueued")}
                   </Badge>
-                  <ChevronRight size={13} className="text-zinc-300" />
+                  <ChevronRight size={13} className="text-[var(--ink-faint)]" />
                 </div>
               </Link>
             ))}
@@ -899,10 +920,10 @@ export function SearchSetupShell() {
         )}
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 flex items-center justify-between gap-4">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <Star size={13} className="text-zinc-400 shrink-0" />
-          <p className="text-xs text-zinc-500">
+          <Star size={13} className="text-[var(--ink-muted)] shrink-0" />
+          <p className="text-xs text-[var(--ink-muted)]">
             {t("afterDiscoveryPrefix")}{" "}
             <Link href="/jobs" className="font-medium text-[var(--primary)] hover:underline">
               {t("roleInboxLink")}

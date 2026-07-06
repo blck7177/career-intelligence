@@ -37,7 +37,7 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
         </button>
         <button
           onClick={() => setConfirming(false)}
-          className="text-[13px] text-zinc-400 hover:text-zinc-600"
+          className="text-[13px] text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]"
         >
           {t("cancel")}
         </button>
@@ -48,7 +48,7 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
   return (
     <button
       onClick={() => setConfirming(true)}
-      className="text-[13px] text-zinc-400 hover:text-rose-500 transition-colors"
+      className="text-[13px] text-[var(--ink-muted)] hover:text-rose-500 transition-colors"
     >
       {t("remove")}
     </button>

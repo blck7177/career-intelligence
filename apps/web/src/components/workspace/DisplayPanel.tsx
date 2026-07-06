@@ -1,5 +1,6 @@
 "use client";
 
+import { Inbox } from "lucide-react";
 import type { RunRead } from "@/api/client";
 import type { WorkspaceFunctionId, DisplayTab } from "@/lib/workspace/workspaceTypes";
 import { ALL_DISPLAY_TABS } from "@/lib/workspace/workspaceTypes";
@@ -7,6 +8,7 @@ import { RunStatusView } from "./display/RunStatusView";
 import { ReportView } from "./display/ReportView";
 import { JobsView } from "./display/JobsView";
 import { JobDetailView } from "./display/JobDetailView";
+import { EmptyState } from "@/components/EmptyState";
 
 interface DisplayPanelProps {
   activeFunction: WorkspaceFunctionId;
@@ -21,24 +23,12 @@ interface DisplayPanelProps {
   onRunCreated: (runId: string) => void;
 }
 
-function EmptyState({ activeFunction }: { activeFunction: WorkspaceFunctionId }) {
-  const hints: Partial<Record<WorkspaceFunctionId, string>> = {
-    discovery: "Fill in the parameters and start a discovery run.",
-    job_report: "Enter a Job ID and generate a report.",
-    fit_report: "Enter a Job ID and your profile, then generate a fit report.",
-    runs: "Select a run from the list to inspect its details.",
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center h-64 gap-2 text-center px-8">
-      <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center">
-        <span className="text-zinc-400 text-xs">—</span>
-      </div>
-      <p className="text-sm text-zinc-500 font-medium">No run selected</p>
-      <p className="text-xs text-zinc-400">{hints[activeFunction] ?? "Select or start a run."}</p>
-    </div>
-  );
-}
+const NO_RUN_HINTS: Partial<Record<WorkspaceFunctionId, string>> = {
+  discovery: "Fill in the parameters and start a discovery run.",
+  job_report: "Enter a Job ID and generate a report.",
+  fit_report: "Enter a Job ID and your profile, then generate a fit report.",
+  runs: "Select a run from the list to inspect its details.",
+};
 
 export function DisplayPanel({
   activeFunction,
@@ -58,7 +48,7 @@ export function DisplayPanel({
     return (
       <div className="flex flex-col h-full">
         {/* Tab bar */}
-        <div className="flex border-b border-zinc-200 px-4 shrink-0">
+        <div className="flex border-b border-[var(--border)] px-4 shrink-0">
           {tabMetas.map((tab) => (
             <button
               key={tab.id}
@@ -66,8 +56,8 @@ export function DisplayPanel({
               className={[
                 "px-3 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors",
                 activeDisplayTab === tab.id
-                  ? "border-zinc-800 text-zinc-800"
-                  : "border-transparent text-zinc-400 hover:text-zinc-600",
+                  ? "border-[var(--primary)] text-[var(--secondary-foreground)] bg-[var(--secondary)]/40"
+                  : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]",
               ].join(" ")}
             >
               {tab.label}
@@ -75,23 +65,25 @@ export function DisplayPanel({
           ))}
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
-          {activeDisplayTab === "jobs" && (
-            <JobsView
-              activeJobId={activeJobId}
-              onJobSelected={onJobSelected}
-            />
-          )}
-          {activeDisplayTab === "job_detail" && activeJobId && (
-            <JobDetailView
-              jobId={activeJobId}
-              onRunCreated={onRunCreated}
-            />
-          )}
-          {activeDisplayTab === "job_detail" && !activeJobId && (
-            <p className="text-xs text-zinc-400 text-center py-8">
-              Select a job from the list.
-            </p>
-          )}
+          <div key={activeDisplayTab} className="animate-fade-in-up">
+            {activeDisplayTab === "jobs" && (
+              <JobsView
+                activeJobId={activeJobId}
+                onJobSelected={onJobSelected}
+              />
+            )}
+            {activeDisplayTab === "job_detail" && activeJobId && (
+              <JobDetailView
+                jobId={activeJobId}
+                onRunCreated={onRunCreated}
+              />
+            )}
+            {activeDisplayTab === "job_detail" && !activeJobId && (
+              <p className="text-xs text-[var(--ink-muted)] text-center py-8">
+                Select a job from the list.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -99,8 +91,13 @@ export function DisplayPanel({
 
   if (!activeRunId || !activeRun) {
     return (
-      <div className="h-full">
-        <EmptyState activeFunction={activeFunction} />
+      <div className="h-full flex items-center justify-center px-8">
+        <EmptyState
+          icon={Inbox}
+          title="No run selected"
+          hint={NO_RUN_HINTS[activeFunction] ?? "Select or start a run."}
+          compact
+        />
       </div>
     );
   }
@@ -121,7 +118,7 @@ export function DisplayPanel({
   return (
     <div className="flex flex-col h-full">
       {/* Tab bar */}
-      <div className="flex border-b border-zinc-200 px-4 shrink-0">
+      <div className="flex border-b border-[var(--border)] px-4 shrink-0">
         {tabMetas.map((tab) => (
           <button
             key={tab.id}
@@ -129,8 +126,8 @@ export function DisplayPanel({
             className={[
               "px-3 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors",
               activeDisplayTab === tab.id
-                ? "border-zinc-800 text-zinc-800"
-                : "border-transparent text-zinc-400 hover:text-zinc-600",
+                ? "border-[var(--primary)] text-[var(--secondary-foreground)] bg-[var(--secondary)]/40"
+                : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]",
             ].join(" ")}
           >
             {tab.label}
@@ -139,12 +136,14 @@ export function DisplayPanel({
       </div>
 
       {/* Run ID header */}
-      <div className="px-4 py-2 border-b border-zinc-100 bg-zinc-50/60 shrink-0">
-        <p className="text-[10px] font-mono text-zinc-400 truncate">{activeRunId}</p>
+      <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--muted)]/60 shrink-0">
+        <p className="text-[10px] font-mono text-[var(--ink-muted)] truncate">{activeRunId}</p>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">{renderContent()}</div>
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        <div key={activeDisplayTab} className="animate-fade-in-up">{renderContent()}</div>
+      </div>
     </div>
   );
 }

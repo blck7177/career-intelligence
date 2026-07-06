@@ -73,17 +73,17 @@ export default async function JobDetailPage({ params }: PageProps) {
             </Link>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-lg font-semibold leading-tight truncate" style={{ color: "oklch(16% 0.015 275)" }}>
+                <h1 className="text-lg font-semibold leading-tight truncate" style={{ color: "var(--ink-primary)" }}>
                   {job.title}
                 </h1>
                 <Badge className={jobStatusBg(job.status) + " text-[11px] shrink-0"}>
                   {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
                 </Badge>
               </div>
-              <div className="flex items-center gap-2.5 text-[13px] mt-1" style={{ color: "oklch(52% 0.01 275)" }}>
-                <span className="font-medium" style={{ color: "oklch(36% 0.01 275)" }}>{job.company}</span>
+              <div className="flex items-center gap-2.5 text-[13px] mt-1" style={{ color: "var(--ink-muted)" }}>
+                <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{job.company}</span>
                 {job.location && <span>{job.location}</span>}
-                <span style={{ color: "oklch(64% 0.01 275)" }}>{fmtTs(job.created_at.toString())}</span>
+                <span style={{ color: "var(--ink-faint)" }}>{fmtTs(job.created_at.toString())}</span>
                 <a
                   href={job.canonical_url}
                   target="_blank"

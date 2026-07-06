@@ -42,11 +42,11 @@ export default async function FitReportPage({ params }: PageProps) {
       <div className="flex-1 overflow-y-auto px-7 py-6">
         <div className="max-w-4xl space-y-6">
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold" style={{ color: "oklch(16% 0.015 275)" }}>
+            <h1 className="text-lg font-semibold" style={{ color: "var(--ink-primary)" }}>
               {t("title")}
             </h1>
             {job && (
-              <p className="text-sm" style={{ color: "oklch(52% 0.01 275)" }}>
+              <p className="text-sm" style={{ color: "var(--ink-muted)" }}>
                 {job.title} · {job.company}
                 {job.location && <> · {job.location}</>}
               </p>

@@ -18,7 +18,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "failed") return <XCircle size={12} className="text-rose-500 shrink-0" />;
   if (status === "needs_review") return <AlertCircle size={12} className="text-amber-500 shrink-0" />;
   if (status === "running") return <Circle size={12} className="text-blue-500 animate-pulse shrink-0" />;
-  return <Circle size={12} className="text-zinc-400 shrink-0" />;
+  return <Circle size={12} className="text-[var(--ink-muted)] shrink-0" />;
 }
 
 export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
@@ -50,13 +50,13 @@ export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-zinc-800">Runs</h2>
-          <p className="text-xs text-zinc-500 mt-0.5">Select a run to inspect.</p>
+          <h2 className="text-sm font-semibold text-[var(--ink-primary)]">Runs</h2>
+          <p className="text-xs text-[var(--ink-muted)] mt-0.5">Select a run to inspect.</p>
         </div>
         <button
           onClick={fetchRuns}
           disabled={loading}
-          className="p-1.5 rounded text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 transition-colors"
+          className="p-1.5 rounded text-[var(--ink-muted)] hover:text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
           title="Refresh"
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -70,7 +70,7 @@ export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
       )}
 
       {!loading && runs.length === 0 && !error && (
-        <p className="text-xs text-zinc-400 py-4 text-center">
+        <p className="text-xs text-[var(--ink-muted)] py-4 text-center">
           No runs yet. Use Discovery, Job Report, or Fit Report to create one.
         </p>
       )}
@@ -83,14 +83,14 @@ export function RunsPanel({ activeRunId, onSelectRun }: RunsPanelProps) {
               className={[
                 "w-full flex items-start gap-2 px-3 py-2.5 rounded-lg border text-left transition-colors",
                 activeRunId === run.id
-                  ? "border-zinc-800 bg-zinc-50"
-                  : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                  ? "border-[var(--primary)] bg-[var(--muted)]"
+                  : "border-[var(--border)] hover:border-[var(--ink-faint)] hover:bg-[var(--muted)]",
               ].join(" ")}
             >
               <StatusIcon status={run.status} />
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-mono text-zinc-700 truncate">{run.id}</p>
-                <p className="text-xs text-zinc-500 mt-0.5">
+                <p className="text-xs font-mono text-[var(--ink-secondary)] truncate">{run.id}</p>
+                <p className="text-xs text-[var(--ink-muted)] mt-0.5">
                   {run.run_type.replace(/_/g, " ")} · {fmtTs(run.created_at)}
                 </p>
               </div>

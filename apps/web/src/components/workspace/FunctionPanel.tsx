@@ -29,7 +29,7 @@ export function FunctionPanel({ activeFunction, onSelect }: FunctionPanelProps) 
 
   return (
     <nav className="py-3">
-      <p className="px-4 pb-2 text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+      <p className="px-4 pb-2 text-xs font-semibold text-[var(--ink-muted)] uppercase tracking-wider">
         Search Setup
       </p>
       <ul className="space-y-0.5">
@@ -45,18 +45,18 @@ export function FunctionPanel({ activeFunction, onSelect }: FunctionPanelProps) 
                 className={[
                   "w-full flex items-center gap-2.5 px-4 py-2 text-sm rounded-none transition-colors text-left",
                   isActive
-                    ? "bg-zinc-900 text-white font-medium"
+                    ? "bg-[var(--primary)] text-white font-medium"
                     : isDisabled
-                    ? "text-zinc-400 cursor-not-allowed"
-                    : "text-zinc-600 hover:bg-zinc-200 hover:text-zinc-900",
+                    ? "text-[var(--ink-muted)] cursor-not-allowed"
+                    : "text-[var(--ink-secondary)] hover:bg-[var(--muted)] hover:text-[var(--ink-primary)]",
                 ].join(" ")}
               >
-                <span className={isActive ? "text-white" : isDisabled ? "text-zinc-300" : "text-zinc-400"}>
+                <span className={isActive ? "text-white" : isDisabled ? "text-[var(--ink-faint)]" : "text-[var(--ink-muted)]"}>
                   {ICONS[fn.id]}
                 </span>
                 <span className="flex-1">{fn.label}</span>
                 {fn.comingSoon && (
-                  <span className="text-xs text-zinc-400 font-normal">soon</span>
+                  <span className="text-xs text-[var(--ink-muted)] font-normal">soon</span>
                 )}
               </button>
             </li>
