@@ -1626,6 +1626,147 @@
         }
       }
     },
+    "/api/app/profiles/{profile_id}/story-bank": {
+      "get": {
+        "tags": [
+          "story-bank"
+        ],
+        "summary": "List Story Bank",
+        "description": "Return all story bank entries for a profile, ordered by experience_ref.",
+        "operationId": "list_story_bank_api_app_profiles__profile_id__story_bank_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StoryBankEntryRead"
+                  },
+                  "title": "Response List Story Bank Api App Profiles  Profile Id  Story Bank Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/profiles/{profile_id}/story-bank/{entry_id}": {
+      "patch": {
+        "tags": [
+          "story-bank"
+        ],
+        "summary": "Update Story Bank Entry",
+        "description": "Update a story bank entry. Sets user_edited_at to mark it as user-reviewed.",
+        "operationId": "update_story_bank_entry_api_app_profiles__profile_id__story_bank__entry_id__patch",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profile Id"
+            }
+          },
+          {
+            "name": "entry_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Entry Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StoryBankEntryUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryBankEntryRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/cost/by-run-type": {
       "get": {
         "tags": [
@@ -2402,6 +2543,57 @@
           "file"
         ],
         "title": "Body_upload_resume_api_app_profile_upload_resume_post"
+      },
+      "CandidateStoryBuildInput": {
+        "properties": {
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Tool Calls",
+            "default": 60
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 3600.0,
+            "minimum": 60.0,
+            "title": "Timeout Seconds",
+            "default": 1200
+          }
+        },
+        "type": "object",
+        "title": "CandidateStoryBuildInput",
+        "description": "Input for run_type=candidate_story_build (agent.candidate_story_build)."
+      },
+      "CandidateStoryBuildRunCreate": {
+        "properties": {
+          "run_type": {
+            "type": "string",
+            "const": "candidate_story_build",
+            "title": "Run Type"
+          },
+          "input_snapshot": {
+            "$ref": "#/components/schemas/CandidateStoryBuildInput"
+          }
+        },
+        "type": "object",
+        "required": [
+          "run_type",
+          "input_snapshot"
+        ],
+        "title": "CandidateStoryBuildRunCreate",
+        "description": "POST /api/app/runs with run_type=candidate_story_build."
       },
       "CostByRunType": {
         "properties": {
@@ -3814,6 +4006,9 @@
           },
           {
             "$ref": "#/components/schemas/ResumeTailorRunCreate"
+          },
+          {
+            "$ref": "#/components/schemas/CandidateStoryBuildRunCreate"
           }
         ],
         "title": "RunCreate",
@@ -3821,6 +4016,7 @@
         "discriminator": {
           "propertyName": "run_type",
           "mapping": {
+            "candidate_story_build": "#/components/schemas/CandidateStoryBuildRunCreate",
             "fit_report": "#/components/schemas/FitReportRunCreate",
             "job_discovery": "#/components/schemas/JobDiscoveryRunCreate",
             "job_report": "#/components/schemas/JobReportRunCreate",
@@ -4189,6 +4385,219 @@
         "type": "object",
         "title": "RunResultSummary",
         "description": "Structured diagnostic payload written by the worker at run completion.\n\nPopulated for both terminal statuses:\n  - validation_status=\"passed\"  \u2192 run succeeded; candidate_count / job_ids present\n  - validation_status=\"failed\"  \u2192 run needs_review; phase / failed_validators present\n\nAll fields except validation_status are Optional because the exact set depends\non which execution phase produced the summary."
+      },
+      "StoryBankEntryRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "profile_id": {
+            "type": "string",
+            "title": "Profile Id"
+          },
+          "experience_ref": {
+            "type": "string",
+            "title": "Experience Ref"
+          },
+          "story_id": {
+            "type": "string",
+            "title": "Story Id"
+          },
+          "workstream_title": {
+            "type": "string",
+            "title": "Workstream Title"
+          },
+          "bullets_covered": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bullets Covered"
+          },
+          "narrative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          },
+          "evidence_items": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Items"
+          },
+          "candidate_questions": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Questions"
+          },
+          "do_not_claim": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Do Not Claim"
+          },
+          "research_basis": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Basis"
+          },
+          "user_edited_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Edited At"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "profile_id",
+          "experience_ref",
+          "story_id",
+          "workstream_title",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StoryBankEntryRead"
+      },
+      "StoryBankEntryUpdate": {
+        "properties": {
+          "workstream_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workstream Title"
+          },
+          "narrative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative"
+          },
+          "workflow": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workflow"
+          },
+          "evidence_items": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Items"
+          },
+          "candidate_questions": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Questions"
+          },
+          "do_not_claim": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Do Not Claim"
+          }
+        },
+        "type": "object",
+        "title": "StoryBankEntryUpdate"
       },
       "TaskEventRead": {
         "properties": {
