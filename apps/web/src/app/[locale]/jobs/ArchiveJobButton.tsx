@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { archiveJob } from "@/api/client";
+import { toast } from "@/components/ui/toaster";
 
 export function ArchiveJobButton({ jobId }: { jobId: string }) {
   const t = useTranslations("common");
@@ -20,6 +21,7 @@ export function ArchiveJobButton({ jobId }: { jobId: string }) {
       await archiveJob(jobId, token);
       router.refresh();
     } catch {
+      toast.error("Couldn't archive — try again");
       setLoading(false);
       setConfirming(false);
     }

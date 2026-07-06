@@ -15,6 +15,8 @@ import {
 } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toaster";
 
 type FieldState = {
   label: string;
@@ -233,6 +235,7 @@ export default function ProfilePage() {
       await deleteProfile(serverProfile.id, token);
       await loadProfiles();
       setStatus("idle");
+      toast.success(t("deleteSuccessToast"));
     } catch (err: unknown) {
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : t("deleteFailed"));
@@ -609,13 +612,29 @@ export default function ProfilePage() {
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="text-sm font-semibold text-[var(--ink-secondary)]">{t("editProfile")}</h2>
         {allProfiles.length > 1 && (
-          <button
-            onClick={handleDeleteProfile}
-            disabled={saving}
-            className="text-xs text-rose-500 hover:text-rose-700 disabled:opacity-50"
-          >
-            {t("deleteThisProfile")}
-          </button>
+          <Dialog>
+            <DialogTrigger
+              disabled={saving}
+              className="text-xs text-rose-500 hover:text-rose-700 disabled:opacity-50"
+            >
+              {t("deleteThisProfile")}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogTitle>{t("deleteConfirmTitle")}</DialogTitle>
+              <DialogDescription>{t("deleteConfirmDescription")}</DialogDescription>
+              <div className="flex justify-end gap-2 mt-5">
+                <DialogClose className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--muted)] transition-colors">
+                  {t("deleteConfirmCancel")}
+                </DialogClose>
+                <DialogClose
+                  onClick={handleDeleteProfile}
+                  className="rounded-lg bg-rose-600 text-white px-3 py-2 text-sm hover:bg-rose-700 transition-colors"
+                >
+                  {t("deleteConfirmButton")}
+                </DialogClose>
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </div>
 

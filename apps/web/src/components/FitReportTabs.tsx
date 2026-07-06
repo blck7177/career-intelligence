@@ -19,6 +19,7 @@ import {
 import { type Band, bandOf, BAND, THEME_CHIP } from "@/lib/matchBand";
 import { CompositionBar } from "@/components/CompositionBar";
 import { useCountUp } from "@/hooks/useCountUp";
+import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 
 type T = ReturnType<typeof useTranslations>;
 
@@ -299,26 +300,17 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
         </CardContent>
       </Card>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-[var(--border)]">
-        {tabs.map((tabItem) => (
-          <button
-            key={tabItem.id}
-            type="button"
-            onClick={() => setTab(tabItem.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors rounded-t-md ${
-              tab === tabItem.id
-                ? "border-[var(--primary)] text-[var(--secondary-foreground)] bg-[var(--secondary)]/40"
-                : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink-primary)] hover:bg-[var(--muted)]"
-            }`}
-          >
-            {tabItem.label}
-          </button>
-        ))}
-      </div>
+      <TabsRoot value={tab} onValueChange={(v) => setTab(v as "analysis" | "positioning")}>
+        <TabsList>
+          {tabs.map((tabItem) => (
+            <Tab key={tabItem.id} value={tabItem.id}>
+              {tabItem.label}
+            </Tab>
+          ))}
+          <TabsIndicator />
+        </TabsList>
 
-      {tab === "analysis" && (
-        <div key="analysis" className="space-y-4 animate-fade-in-up">
+        <TabsPanel value="analysis" className="space-y-4 animate-fade-in-up pt-4">
           {(s.strong_matches?.length ?? 0) > 0 && (
             <Section icon={CheckCircle2} title={t("strongMatches")} count={s.strong_matches!.length} tone="strong">
               <div className="space-y-3">
@@ -412,11 +404,9 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
               </ol>
             </Section>
           )}
-        </div>
-      )}
+        </TabsPanel>
 
-      {tab === "positioning" && (
-        <div key="positioning" className="space-y-4 animate-fade-in-up">
+        <TabsPanel value="positioning" className="space-y-4 animate-fade-in-up pt-4">
           {strategy?.positioning ? (
             <>
               <Section icon={FileEdit} title={t("resumePositioningGuidance")} tone="theme">
@@ -456,8 +446,8 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           ) : (
             <p className="text-sm text-[var(--ink-muted)]">{t("noPositioningGuidance")}</p>
           )}
-        </div>
-      )}
+        </TabsPanel>
+      </TabsRoot>
     </div>
   );
 }

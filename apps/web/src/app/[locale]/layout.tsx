@@ -6,6 +6,8 @@ import { getMessages, setRequestLocale } from "next-intl/server";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Nav } from "@/components/Nav";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
 import { routing } from "@/i18n/routing";
 import "./globals.css";
 
@@ -37,14 +39,17 @@ export default async function RootLayout({ children, params }: Props) {
       <html lang={locale} className="h-full">
         <body className="flex h-full overflow-hidden">
           <NextIntlClientProvider messages={messages}>
-            <Nav />
-            <main className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</main>
-            {/* Language switcher — floats top-right-of-center on every page */}
-            <div className="fixed top-3 right-[220px] z-50 shadow-md rounded-lg">
-              <Suspense fallback={null}>
-                <LanguageSwitcher />
-              </Suspense>
-            </div>
+            <TooltipProvider>
+              <Nav />
+              <main className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</main>
+              {/* Language switcher — floats top-right-of-center on every page */}
+              <div className="fixed top-3 right-[220px] z-50 shadow-md rounded-lg">
+                <Suspense fallback={null}>
+                  <LanguageSwitcher />
+                </Suspense>
+              </div>
+              <Toaster />
+            </TooltipProvider>
           </NextIntlClientProvider>
         </body>
       </html>

@@ -9,6 +9,7 @@ import { FitReportTabs } from "@/components/FitReportTabs";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { EmptyState } from "@/components/EmptyState";
 import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
+import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 
 const JOB_REPORT_ICONS = {
   businessContext: Building2,
@@ -217,63 +218,50 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
 
       {/* Right: Report tabs — independent scroll */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Tab bar + actions */}
-        <div className="shrink-0 px-6 pt-4 pb-0 flex items-center justify-between gap-4" style={{ borderBottom: "1px solid var(--border)" }}>
-          <div className="flex gap-1">
-            <button
-              type="button"
-              onClick={() => setRightTab("intelligence")}
-              className="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5"
-              style={
-                rightTab === "intelligence"
-                  ? { borderColor: "var(--primary)", color: "var(--secondary-foreground)" }
-                  : { borderColor: "transparent", color: "var(--ink-muted)" }
-              }
-            >
-              {t("intelligenceReportTab")}
-              {jobReport && (
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
-                  {t("ready")}
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setRightTab("fit")}
-              className="px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5"
-              style={
-                rightTab === "fit"
-                  ? { borderColor: "var(--primary)", color: "var(--secondary-foreground)" }
-                  : { borderColor: "transparent", color: "var(--ink-muted)" }
-              }
-            >
-              {t("fitAnalysisTab")}
-              {fitReport && (
-                <span
-                  className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-                  style={{
-                    backgroundColor: BAND[bandOf(fitReport.overall_match_score)].bg,
-                    color: BAND[bandOf(fitReport.overall_match_score)].fg,
-                  }}
-                >
-                  {fitReport.overall_match_score}%
-                </span>
-              )}
-            </button>
+        <TabsRoot value={rightTab} onValueChange={(v) => setRightTab(v as RightTab)} className="flex-1 min-h-0 flex flex-col">
+          {/* Tab bar + actions */}
+          <div className="shrink-0 px-6 pt-4 pb-0 flex items-center justify-between gap-4" style={{ borderBottom: "1px solid var(--border)" }}>
+            <TabsList className="border-b-0">
+              <Tab value="intelligence" className="flex items-center gap-1.5">
+                {t("intelligenceReportTab")}
+                {jobReport && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
+                    {t("ready")}
+                  </span>
+                )}
+              </Tab>
+              <Tab value="fit" className="flex items-center gap-1.5">
+                {t("fitAnalysisTab")}
+                {fitReport && (
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    style={{
+                      backgroundColor: BAND[bandOf(fitReport.overall_match_score)].bg,
+                      color: BAND[bandOf(fitReport.overall_match_score)].fg,
+                    }}
+                  >
+                    {fitReport.overall_match_score}%
+                  </span>
+                )}
+              </Tab>
+              <TabsIndicator />
+            </TabsList>
+            <div className="flex items-center gap-2 pb-1">
+              {actions}
+            </div>
           </div>
-          <div className="flex items-center gap-2 pb-1">
-            {actions}
-          </div>
-        </div>
 
-        {/* Tab content — scrollable */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div key={rightTab} className="animate-fade-in-up">
-            {rightTab === "intelligence" && <IntelligencePanel report={jobReport} />}
-            {rightTab === "fit" && <FitPanel fitReport={fitReport} job={job} profile={profile} />}
+          {/* Tab content — scrollable */}
+          <div className="flex-1 overflow-y-auto p-6">
+            <TabsPanel value="intelligence" className="animate-fade-in-up">
+              <IntelligencePanel report={jobReport} />
+            </TabsPanel>
+            <TabsPanel value="fit" className="animate-fade-in-up">
+              <FitPanel fitReport={fitReport} job={job} profile={profile} />
+            </TabsPanel>
+            <div className="h-8" />
           </div>
-          <div className="h-8" />
-        </div>
+        </TabsRoot>
       </div>
     </div>
   );

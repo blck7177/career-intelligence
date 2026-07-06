@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useApiToken } from "@/hooks/useApiToken";
 import { favoriteJob, unfavoriteJob } from "@/api/client";
+import { toast } from "@/components/ui/toaster";
 
 export function useJobFavorite(
   jobId: string,
@@ -25,6 +26,8 @@ export function useJobFavorite(
       }
       setFavorited(next);
       onToggled?.(next);
+    } catch {
+      toast.error("Couldn't update favorite — try again");
     } finally {
       setLoading(false);
     }

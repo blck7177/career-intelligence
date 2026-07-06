@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Collapsible } from "@/components/Collapsible";
+import { Select } from "@/components/ui/select";
 
 interface ProfileOption {
   id: string;
@@ -96,8 +97,6 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
     chips.push({ key: "confidence", label: `${t("confidence")} ${t(CONFIDENCE_LABEL_KEY[confidence] ?? "all")}`, onRemove: () => update("confidence", null) });
   }
 
-  const selectClass =
-    "h-8 rounded-md border border-[var(--border)] bg-white px-2.5 text-[13px] text-[var(--ink-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50";
   const labelClass = "text-[11.5px] font-medium text-[var(--ink-muted)]";
 
   return (
@@ -158,76 +157,82 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
         <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 grid grid-cols-2 gap-3.5">
           <div className="flex flex-col gap-1">
             <label className={labelClass}>{t("sort")}</label>
-            <select value={sort} onChange={(e) => update("sort", e.target.value || null)} className={selectClass}>
-              <option value="">{t("sortNewest")}</option>
-              <option value="oldest">{t("sortOldest")}</option>
-              <option value="company">{t("sortCompany")}</option>
-              {profileId && <option value="fit">{t("sortFit")}</option>}
-            </select>
+            <Select
+              size="sm"
+              value={sort}
+              onValueChange={(v) => update("sort", v || null)}
+              options={[
+                { label: t("sortNewest"), value: "" },
+                { label: t("sortOldest"), value: "oldest" },
+                { label: t("sortCompany"), value: "company" },
+                ...(profileId ? [{ label: t("sortFit"), value: "fit" }] : []),
+              ]}
+            />
           </div>
 
           {profiles.length > 0 && (
             <div className="flex flex-col gap-1">
               <label className={labelClass}>{t("fitFor")}</label>
-              <select value={profileId} onChange={(e) => update("profile_id", e.target.value || null)} className={selectClass}>
-                <option value="">{t("noProfile")}</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+              <Select
+              size="sm"
+                value={profileId}
+                onValueChange={(v) => update("profile_id", v || null)}
+                options={[{ label: t("noProfile"), value: "" }, ...profiles.map((p) => ({ label: p.label, value: p.id }))]}
+              />
             </div>
           )}
 
           {companies.length > 1 && (
             <div className="flex flex-col gap-1">
               <label className={labelClass}>{t("company")}</label>
-              <select value={company} onChange={(e) => update("company", e.target.value || null)} className={selectClass}>
-                <option value="">{t("all")}</option>
-                {companies.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
+              <Select
+              size="sm"
+                value={company}
+                onValueChange={(v) => update("company", v || null)}
+                options={[{ label: t("all"), value: "" }, ...companies.map((c) => ({ label: c, value: c }))]}
+              />
             </div>
           )}
 
           {roleCategories.length > 0 && (
             <div className="flex flex-col gap-1">
               <label className={labelClass}>{t("roleCategory")}</label>
-              <select value={roleCategory} onChange={(e) => update("role_category", e.target.value || null)} className={selectClass}>
-                <option value="">{t("all")}</option>
-                {roleCategories.map((category) => (
-                  <option key={category} value={category}>
-                    {category.split(" / ")[0]}
-                  </option>
-                ))}
-              </select>
+              <Select
+              size="sm"
+                value={roleCategory}
+                onValueChange={(v) => update("role_category", v || null)}
+                options={[
+                  { label: t("all"), value: "" },
+                  ...roleCategories.map((category) => ({ label: category.split(" / ")[0], value: category })),
+                ]}
+              />
             </div>
           )}
 
           <div className="flex flex-col gap-1">
             <label className={labelClass}>{t("seniority")}</label>
-            <select value={seniority} onChange={(e) => update("seniority", e.target.value || null)} className={selectClass}>
-              <option value="">{t("all")}</option>
-              <option value="junior">{t("seniorityJunior")}</option>
-              <option value="mid">{t("seniorityMid")}</option>
-              <option value="senior">{t("senioritySenior")}</option>
-              <option value="lead">{t("seniorityLead")}</option>
-              <option value="director">{t("seniorityDirector")}</option>
-            </select>
+            <Select
+              size="sm"
+              value={seniority}
+              onValueChange={(v) => update("seniority", v || null)}
+              options={[
+                { label: t("all"), value: "" },
+                ...Object.entries(SENIORITY_LABEL_KEY).map(([value, key]) => ({ label: t(key), value })),
+              ]}
+            />
           </div>
 
           <div className="flex flex-col gap-1">
             <label className={labelClass}>{t("confidence")}</label>
-            <select value={confidence} onChange={(e) => update("confidence", e.target.value || null)} className={selectClass}>
-              <option value="">{t("all")}</option>
-              <option value="high">{t("confidenceHigh")}</option>
-              <option value="medium">{t("confidenceMedium")}</option>
-              <option value="low">{t("confidenceLow")}</option>
-            </select>
+            <Select
+              size="sm"
+              value={confidence}
+              onValueChange={(v) => update("confidence", v || null)}
+              options={[
+                { label: t("all"), value: "" },
+                ...Object.entries(CONFIDENCE_LABEL_KEY).map(([value, key]) => ({ label: t(key), value })),
+              ]}
+            />
           </div>
         </div>
       </Collapsible>

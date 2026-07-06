@@ -5,6 +5,12 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { createRun, type RunCreate } from "@/api/client";
 import { Plus, X, ChevronDown } from "lucide-react";
 
@@ -209,7 +215,6 @@ export function StartRunButton() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<FormMode>("none");
-  const [menuOpen, setMenuOpen] = useState(false);
 
   async function startRun(body: RunCreate) {
     setLoading(true);
@@ -227,7 +232,6 @@ export function StartRunButton() {
 
   function openForm(mode: FormMode) {
     setFormMode(mode);
-    setMenuOpen(false);
     setError(null);
   }
 
@@ -243,41 +247,21 @@ export function StartRunButton() {
           <Plus size={14} className="mr-1.5" />
           {t("newRun")}
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setMenuOpen((o) => !o)}
-          disabled={loading}
-          className="px-2"
-          aria-label={t("runTypeMenu")}
-        >
-          <ChevronDown size={14} />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="outline" size="sm" disabled={loading} className="px-2" aria-label={t("runTypeMenu")}>
+                <ChevronDown size={14} />
+              </Button>
+            }
+          />
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => router.push("/workspace")}>{t("runDiscovery")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openForm("job_report")}>{t("runJobReport")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openForm("fit_report")}>{t("candidateFitReport")}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-
-      {/* Dropdown menu */}
-      {menuOpen && (
-        <div className="absolute right-0 top-full mt-1 w-52 rounded-lg border border-[var(--border)] bg-white shadow-md z-10">
-          <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] rounded-t-lg"
-            onClick={() => { router.push("/workspace"); setMenuOpen(false); }}
-          >
-            {t("runDiscovery")}
-          </button>
-          <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)]"
-            onClick={() => openForm("job_report")}
-          >
-            {t("runJobReport")}
-          </button>
-          <button
-            className="w-full text-left px-3 py-2 text-sm hover:bg-[var(--muted)] rounded-b-lg"
-            onClick={() => openForm("fit_report")}
-          >
-            {t("candidateFitReport")}
-          </button>
-        </div>
-      )}
 
       {/* Inline forms */}
       {formMode === "job_report" && (

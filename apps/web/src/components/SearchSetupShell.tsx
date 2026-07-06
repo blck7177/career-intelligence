@@ -10,6 +10,7 @@ import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Select } from "@/components/ui/select";
 import {
   Loader2,
   Play,
@@ -484,24 +485,23 @@ export function SearchSetupShell() {
               </Link>
             </div>
             {allProfiles.length > 1 && (
-              <select
+              <Select
+                size="sm"
                 value={profile.id}
-                onChange={(e) => {
-                  const p = allProfiles.find((x) => x.id === e.target.value);
+                onValueChange={(id) => {
+                  const p = allProfiles.find((x) => x.id === id);
                   if (p) {
                     setProfile(p);
                     applySearchDefaults((p as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
                   }
                 }}
-                className="w-full rounded-md border border-[var(--border)] px-2 py-1.5 text-xs text-[var(--ink-primary)] bg-white focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-              >
-                {allProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label || t("profileFallback", { id: p.id.slice(0, 8) })}
-                    {p.summary ? ` — ${p.summary.slice(0, 50)}` : ""}
-                  </option>
-                ))}
-              </select>
+                options={allProfiles.map((p) => ({
+                  value: p.id,
+                  label:
+                    (p.label || t("profileFallback", { id: p.id.slice(0, 8) })) +
+                    (p.summary ? ` — ${p.summary.slice(0, 50)}` : ""),
+                }))}
+              />
             )}
             {allProfiles.length <= 1 && (
               <div>
@@ -728,17 +728,18 @@ export function SearchSetupShell() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--ink-muted)]">{t("workArrangement")}</label>
-                <select
+                <Select
+                  size="sm"
                   value={workArrangement}
-                  onChange={(e) => setWorkArrangement(e.target.value as WorkArrangement)}
-                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                >
-                  <option value="">{t("noPreference")}</option>
-                  <option value="hybrid">{t("hybrid")}</option>
-                  <option value="remote">{t("remote")}</option>
-                  <option value="onsite">{t("onsite")}</option>
-                  <option value="any">{t("any")}</option>
-                </select>
+                  onValueChange={(v) => setWorkArrangement(v as WorkArrangement)}
+                  options={[
+                    { value: "", label: t("noPreference") },
+                    { value: "hybrid", label: t("hybrid") },
+                    { value: "remote", label: t("remote") },
+                    { value: "onsite", label: t("onsite") },
+                    { value: "any", label: t("any") },
+                  ]}
+                />
               </div>
             </div>
 
