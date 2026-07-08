@@ -6,7 +6,8 @@
     "searches": "Searches",
     "reports": "Reports",
     "profile": "Profile",
-    "editProfile": "Edit profile"
+    "editProfile": "Edit profile",
+    "openMenu": "Open menu"
   },
   "common": {
     "viewRole": "View role →",
@@ -36,6 +37,12 @@
     "filterGood": "Good fit · {count}",
     "filterPartial": "Partial · {count}",
     "filterUnanalyzed": "Not analyzed · {count}",
+    "statAll": "All",
+    "statStrong": "Strong",
+    "statGood": "Good fit",
+    "statPartial": "Partial",
+    "statUnanalyzed": "Not analyzed",
+    "emptyFilterNote": "No roles in this preview match that filter — try \"All\" or view the full list.",
     "emptyState": "No roles in your inbox yet.",
     "startFirstSearch": "Start your first search →",
     "topPicksForYou": "Top picks for you",
@@ -48,9 +55,8 @@
     "notSetUp": "Not set up",
     "lastSearched": "Last searched",
     "searchAgain": "Search again",
-    "upNext": "Up next",
-    "rolesToReview": "{count, plural, one {# role to review} other {# roles to review}}",
-    "startNewSearch": "Start new search",
+    "rolesToReviewLabel": "{count, plural, one {role to review} other {roles to review}}",
+    "reviewNow": "Review now",
     "recentSearches": "Recent searches",
     "discoveryRun": "Discovery Run",
     "viewAllSearches": "View all searches →",
@@ -60,7 +66,6 @@
     "matchStrong": "Strong match",
     "matchGood": "Good fit",
     "matchPartial": "Partial match",
-    "matchDistribution": "Match distribution",
     "matchUnanalyzedLabel": "Not analyzed"
   },
   "jobs": {
@@ -161,6 +166,7 @@
     "tailoring": "Tailoring…",
     "tailorResume": "Tailor Resume",
     "jobDescription": "Job Description",
+    "reference": "reference",
     "noJdData": "No structured JD data available.",
     "noJdDataHint": "JD extraction runs during discovery. Older jobs may not have this data.",
     "noJdExtracted": "No structured JD data extracted for this role.",

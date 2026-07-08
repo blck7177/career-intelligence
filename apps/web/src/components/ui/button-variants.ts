@@ -27,7 +27,7 @@ export function buttonVariants({ variant = "default", size = "md", className }: 
     "transition-[transform,box-shadow,filter] duration-150 ease-out active:duration-75",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[var(--primary)]/45",
     "disabled:opacity-50 disabled:pointer-events-none",
-    size === "sm" && "h-9 px-3.5 text-[13px]",
+    size === "sm" && "h-9 px-3.5 text-xs",
     size === "md" && "h-10 px-4 text-sm",
     size === "lg" && "h-11 px-6 text-sm",
     variant === "default" &&

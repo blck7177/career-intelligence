@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select } from "@/components/ui/select";
+import { PageContainer } from "@/components/ui/page-container";
 import {
   Loader2,
   Play,
@@ -100,7 +101,7 @@ function StepHeader({ step, title, subtitle }: { step: number; title: string; su
       </span>
       <div>
         <h2 className="text-lg font-bold leading-tight" style={{ color: "var(--ink-primary)" }}>{title}</h2>
-        <p className="text-xs mt-0.5" style={{ color: "var(--ink-muted)" }}>{subtitle}</p>
+        <p className="text-xs mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>{subtitle}</p>
       </div>
     </div>
   );
@@ -384,7 +385,7 @@ export function SearchSetupShell() {
   function renderWizardCard() {
     if (profileLoading) {
       return (
-        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
           <div className="flex items-start gap-2.5">
             <Skeleton className="w-6 h-6 rounded-full shrink-0" />
             <div className="space-y-1.5 flex-1">
@@ -404,7 +405,7 @@ export function SearchSetupShell() {
 
     if (!profile) {
       return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 space-y-3">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-[var(--space-surface-spacious)] space-y-[var(--space-stack-sm)]">
           <p className="text-sm text-amber-800">{t("noProfileFound")}</p>
           <Link href="/profile">
             <Button size="sm">{t("setUpProfile")}</Button>
@@ -415,7 +416,7 @@ export function SearchSetupShell() {
 
     if (phase === "polling") {
       return (
-        <div className="rounded-xl border border-[var(--border)] bg-white p-8 text-center space-y-4">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] text-center space-y-4">
           <Loader2 size={28} className="animate-spin text-[var(--primary)] mx-auto" />
           <div>
             <p className="text-sm font-medium text-[var(--ink-primary)]">{pollStatus}</p>
@@ -427,7 +428,7 @@ export function SearchSetupShell() {
 
     if (phase === "done") {
       return (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-[var(--space-surface-spacious)] space-y-4">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={20} className="text-emerald-600" />
             <p className="text-sm font-semibold text-emerald-900">{t("discoveryComplete")}</p>
@@ -451,7 +452,7 @@ export function SearchSetupShell() {
 
     if (phase === "error") {
       return (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 space-y-4">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-[var(--space-surface-spacious)] space-y-4">
           <p className="text-sm text-rose-800">{error ?? t("somethingWentWrong")}</p>
           <Button size="sm" variant="outline" onClick={resetWizard}>
             {t("tryAgain")}
@@ -462,7 +463,7 @@ export function SearchSetupShell() {
 
     if (phase === "source-select") {
       return (
-        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
           <StepHeader step={1} title={t("step1Title")} subtitle={t("step1Subtitle")} />
 
           {profileNeedsSetup && (
@@ -548,7 +549,7 @@ export function SearchSetupShell() {
 
     if (phase === "criteria") {
       return (
-        <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
           <StepHeader step={2} title={t("step2Title")} subtitle={t("step2Subtitle")} />
 
           <div className="space-y-1.5">
@@ -573,7 +574,7 @@ export function SearchSetupShell() {
           {searchSource === "instruction_only" && (
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchStyle")}</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {(["direct", "exploratory"] as const).map((mode) => (
                   <button
                     key={mode}
@@ -589,7 +590,7 @@ export function SearchSetupShell() {
                     <span className="block font-medium">{mode === "direct" ? t("modeDirectLabel") : t("modeExploratoryLabel")}</span>
                     <span
                       className={[
-                        "block text-[11px] mt-0.5",
+                        "block text-2xs mt-0.5",
                         criteriaMode === mode ? "text-white/60" : "text-[var(--ink-muted)]",
                       ].join(" ")}
                     >
@@ -624,12 +625,12 @@ export function SearchSetupShell() {
 
     // depth-submit
     return (
-      <div className="rounded-xl border border-[var(--border)] bg-white p-6 space-y-5">
+      <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
         <StepHeader step={3} title={t("step3Title")} subtitle={t("step3Subtitle")} />
 
         <div className="space-y-1.5">
           <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchDepthLabel")}</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {(
               [
                 { val: "quick" as const, labelKey: "depthQuickLabel", hintKey: "depthQuickHint" },
@@ -651,7 +652,7 @@ export function SearchSetupShell() {
                 <span className="block font-medium">{t(labelKey)}</span>
                 <span
                   className={[
-                    "block text-[11px] mt-0.5",
+                    "block text-2xs mt-0.5",
                     searchDepth === val ? "text-white/60" : "text-[var(--ink-muted)]",
                   ].join(" ")}
                 >
@@ -716,7 +717,7 @@ export function SearchSetupShell() {
 
         {constraintsOpen && (
           <div className="px-4 pb-4 space-y-3 border-t border-[var(--border)] bg-[var(--muted)]">
-            <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--ink-muted)]">{t("location")}</label>
                 <input
@@ -773,7 +774,7 @@ export function SearchSetupShell() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-medium text-[var(--ink-muted)]">{t("compensationRange")}</label>
                 <input
@@ -826,7 +827,7 @@ export function SearchSetupShell() {
                 value={softPreferences}
                 onChange={(e) => setSoftPreferences(e.target.value)}
               />
-              <p className="text-[11px] text-[var(--ink-muted)]">
+              <p className="text-2xs text-[var(--ink-muted)]">
                 {t("softPreferencesHint")}
               </p>
             </div>
@@ -837,10 +838,11 @@ export function SearchSetupShell() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-10">
+    <div className="flex-1 overflow-y-auto">
+    <PageContainer variant="narrow" className="space-y-[var(--space-stack-xl)]">
       <div>
         <h1 className="text-2xl font-bold text-[var(--ink-primary)]">{t("title")}</h1>
-        <p className="text-[var(--ink-muted)] text-sm mt-1">
+        <p className="text-[var(--ink-muted)] text-sm mt-[var(--space-stack-xs)]">
           {t("subtitle")}
         </p>
       </div>
@@ -853,14 +855,14 @@ export function SearchSetupShell() {
           {HOW_IT_WORKS.map((step, i) => (
             <div
               key={i}
-              className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-white p-4"
+              className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-white p-[var(--space-surface-compact)]"
             >
               <div className="w-8 h-8 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center shrink-0">
                 {step.icon}
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[10px] font-bold text-[var(--ink-muted)] uppercase tracking-wider">
+                  <span className="text-2xs font-bold text-[var(--ink-muted)] uppercase tracking-wider">
                     {i + 1}
                   </span>
                   <p className="text-sm font-medium text-[var(--ink-primary)]">{t(step.titleKey)}</p>
@@ -906,11 +908,11 @@ export function SearchSetupShell() {
                   <StatusIcon status={run.status} />
                   <div className="min-w-0">
                     <p className="text-xs font-medium text-[var(--ink-secondary)] truncate">{t("discoveryRun")}</p>
-                    <p className="text-[10px] text-[var(--ink-muted)]">{fmtTs(run.created_at)}</p>
+                    <p className="text-2xs text-[var(--ink-muted)]">{fmtTs(run.created_at)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Badge className={statusBadgeClass(run.status) + " text-[10px]"}>
+                  <Badge className={statusBadgeClass(run.status) + " text-2xs"}>
                     {tRuns(STATUS_KEY_MAP[run.status] ?? "statusQueued")}
                   </Badge>
                   <ChevronRight size={13} className="text-[var(--ink-faint)]" />
@@ -933,6 +935,7 @@ export function SearchSetupShell() {
           </p>
         </div>
       </div>
+    </PageContainer>
     </div>
   );
 }

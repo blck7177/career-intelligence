@@ -54,7 +54,7 @@ function JobReportForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 space-y-3 text-sm">
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] space-y-3 text-sm">
       <div className="flex items-center justify-between">
         <p className="font-medium text-[var(--ink-secondary)]">{t("generateJobReport")}</p>
         <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
@@ -151,7 +151,7 @@ function FitReportForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 space-y-3 text-sm">
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] space-y-3 text-sm">
       <div className="flex items-center justify-between">
         <p className="font-medium text-[var(--ink-secondary)]">{t("generateFitReport")}</p>
         <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
@@ -263,25 +263,35 @@ export function StartRunButton() {
         </DropdownMenu>
       </div>
 
-      {/* Inline forms */}
-      {formMode === "job_report" && (
-        <JobReportForm
-          loading={loading}
-          onCancel={() => { setFormMode("none"); setError(null); }}
-          onSubmit={(body) => startRun(body)}
-          t={t}
-        />
+      {/* Inline forms — absolutely positioned so they float below the
+          trigger instead of expanding it in-flow. Matters now that this
+          button lives in the fixed-height top bar rather than a page's own
+          (naturally growable) header. */}
+      {(formMode !== "none" || error) && (
+        <div className="absolute right-0 top-full mt-2 w-80 z-20">
+          {formMode === "job_report" && (
+            <JobReportForm
+              loading={loading}
+              onCancel={() => { setFormMode("none"); setError(null); }}
+              onSubmit={(body) => startRun(body)}
+              t={t}
+            />
+          )}
+          {formMode === "fit_report" && (
+            <FitReportForm
+              loading={loading}
+              onCancel={() => { setFormMode("none"); setError(null); }}
+              onSubmit={(body) => startRun(body)}
+              t={t}
+            />
+          )}
+          {error && (
+            <p className="text-xs text-rose-600 mt-1 bg-white rounded-md px-2 py-1 shadow-md border border-[var(--border)]">
+              {error}
+            </p>
+          )}
+        </div>
       )}
-      {formMode === "fit_report" && (
-        <FitReportForm
-          loading={loading}
-          onCancel={() => { setFormMode("none"); setError(null); }}
-          onSubmit={(body) => startRun(body)}
-          t={t}
-        />
-      )}
-
-      {error && <p className="text-xs text-rose-600 mt-1">{error}</p>}
     </div>
   );
 }

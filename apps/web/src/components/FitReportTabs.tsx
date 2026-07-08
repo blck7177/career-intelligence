@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { type Band, bandOf, BAND, THEME_CHIP } from "@/lib/matchBand";
 import { CompositionBar } from "@/components/CompositionBar";
+import { Metric } from "@/components/ui/metric";
 import { useCountUp } from "@/hooks/useCountUp";
 import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 
@@ -72,8 +73,8 @@ function ScoreGauge({ score, t }: { score: number; t: T }) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold tabular-nums" style={{ color: BAND[band].fg }}>{displayScore}</span>
-          <span className="text-[11px] font-medium" style={{ color: "var(--ink-muted)" }}>
+          <Metric size="hero" style={{ color: BAND[band].fg }}>{displayScore}</Metric>
+          <span className="text-xs font-medium" style={{ color: "var(--ink-muted)" }}>
             / 100
           </span>
         </div>
@@ -258,7 +259,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
         className="rounded-xl shadow-sm overflow-hidden relative"
         style={{ borderTop: `3px solid ${BAND[band].ring}` }}
       >
-        <CardContent className="pt-6 pb-6">
+        <CardContent>
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="space-y-3">
               <ScoreGauge score={score} t={t} />

@@ -8,7 +8,9 @@ import { getServerToken } from "@/lib/server-auth";
 import { JobFilters } from "./JobFilters";
 import { JobListClient } from "./JobListClient";
 import { EmptyState } from "@/components/EmptyState";
-import { buttonVariants } from "@/components/ui/button-variants";
+import { PageContainer } from "@/components/ui/page-container";
+import { Row } from "@/components/ui/row";
+import { optionPillVariants } from "@/components/ui/option-pill-variants";
 
 export const dynamic = "force-dynamic";
 
@@ -208,70 +210,55 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   return (
     <>
-      {/* Header */}
-      <header
-        className="h-[56px] flex items-center px-7 bg-white shrink-0 gap-4"
-        style={{ borderBottom: "1px solid var(--border)" }}
-      >
-        <span className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
-          {t("title")}
-        </span>
-        <span className="text-[13px]" style={{ color: "var(--muted-foreground)" }}>
-          {t("roleCount", { count: jobs.length })}
-          {activeFilters > 0 && ` · ${t("filterCount", { count: activeFilters })}`}
-        </span>
-        <div className="flex-1" />
-        <Link href="/workspace" className={buttonVariants({ size: "sm", className: "shrink-0 gap-2" })}>
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="2" strokeLinecap="round" />
-            <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          {t("newSearch")}
-        </Link>
-      </header>
-
-      <div className="flex-1 overflow-y-auto px-7 py-6">
-        {/* Status filter pills */}
-        <div className="flex flex-wrap gap-2 mb-5">
-          {SAVED_VIEWS.map(({ key, status }) => {
-            const active = statusFilter === status;
-            return (
-              <Link
-                key={status}
-                href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status, page: undefined })}`}
-                className="py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
-                style={
-                  active
-                    ? { background: "var(--ink-primary)", color: "#fff" }
-                    : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
-                }
-              >
-                {t(key)}
-              </Link>
-            );
-          })}
-
-          <div className="w-px self-stretch bg-[var(--border)] mx-1" />
-
-          <Link
-            href={`/jobs${buildQuery(params, { favorites: favoritesOnly ? undefined : "1", page: undefined })}`}
-            className="flex items-center gap-1.5 py-[6px] px-4 rounded-full text-[13px] font-medium transition-colors"
-            style={
-              favoritesOnly
-                ? { background: "var(--ink-primary)", color: "#fff" }
-                : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }
-            }
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill={favoritesOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
-              <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            {t("favorites")}
-          </Link>
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer variant="wide">
+        {/* Page identity — no page-owned header bar; the shared top bar
+            already carries "New Search" for this section. */}
+        <div className="mb-[var(--space-stack-md)]">
+          <h1 className="text-2xl font-semibold" style={{ color: "var(--ink-primary)" }}>
+            {t("title")}
+          </h1>
+          <p className="text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
+            {t("roleCount", { count: jobs.length })}
+            {activeFilters > 0 && ` · ${t("filterCount", { count: activeFilters })}`}
+          </p>
         </div>
 
-        <Suspense fallback={null}>
-          <JobFilters profiles={profileOptions} roleCategories={roleCategories} companies={companies} />
-        </Suspense>
+        {/* Status pills + filter controls — one Row, so this reads as a
+            single "list controls" cluster instead of two separately
+            floating bars. */}
+        <Row className="flex flex-col gap-[var(--space-stack-sm)] mb-[var(--space-stack-md)]">
+          <div className="flex flex-wrap gap-2">
+            {SAVED_VIEWS.map(({ key, status }) => {
+              const active = statusFilter === status;
+              return (
+                <Link
+                  key={status}
+                  href={`/jobs${buildQuery(params, { status: status === "all" ? undefined : status, page: undefined })}`}
+                  className={optionPillVariants({ selected: active })}
+                >
+                  {t(key)}
+                </Link>
+              );
+            })}
+
+            <div className="w-px self-stretch bg-[var(--border)] mx-1" />
+
+            <Link
+              href={`/jobs${buildQuery(params, { favorites: favoritesOnly ? undefined : "1", page: undefined })}`}
+              className={optionPillVariants({ selected: favoritesOnly, className: "gap-1.5" })}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill={favoritesOnly ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {t("favorites")}
+            </Link>
+          </div>
+
+          <Suspense fallback={null}>
+            <JobFilters profiles={profileOptions} roleCategories={roleCategories} companies={companies} />
+          </Suspense>
+        </Row>
 
         {jobs.length === 0 ? (
           <EmptyState
@@ -313,7 +300,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                 <Link
                   href={`/jobs${buildQuery(params, { page: currentPage > 1 ? String(currentPage - 1) : undefined })}`}
                   aria-disabled={currentPage === 1}
-                  className="h-8 px-3 rounded-md text-[13px] font-medium flex items-center"
+                  className="h-8 px-3 rounded-md text-sm font-medium flex items-center"
                   style={
                     currentPage === 1
                       ? { color: "var(--muted-foreground)", pointerEvents: "none", opacity: 0.4 }
@@ -325,14 +312,14 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
                 {pageNumbers(currentPage, totalPages).map((p, idx) =>
                   p === "ellipsis" ? (
-                    <span key={`e${idx}`} className="px-1.5 text-[13px]" style={{ color: "var(--muted-foreground)" }}>
+                    <span key={`e${idx}`} className="px-1.5 text-sm" style={{ color: "var(--muted-foreground)" }}>
                       …
                     </span>
                   ) : (
                     <Link
                       key={p}
                       href={`/jobs${buildQuery(params, { page: p === 1 ? undefined : String(p) })}`}
-                      className="h-8 w-8 rounded-md text-[13px] font-medium flex items-center justify-center"
+                      className="h-8 w-8 rounded-md text-sm font-medium flex items-center justify-center"
                       style={
                         p === currentPage
                           ? { background: "var(--ink-primary)", color: "#fff" }
@@ -347,7 +334,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
                 <Link
                   href={`/jobs${buildQuery(params, { page: currentPage < totalPages ? String(currentPage + 1) : undefined })}`}
                   aria-disabled={currentPage === totalPages}
-                  className="h-8 px-3 rounded-md text-[13px] font-medium flex items-center"
+                  className="h-8 px-3 rounded-md text-sm font-medium flex items-center"
                   style={
                     currentPage === totalPages
                       ? { color: "var(--muted-foreground)", pointerEvents: "none", opacity: 0.4 }
@@ -360,6 +347,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
             )}
           </div>
         )}
+        </PageContainer>
       </div>
     </>
   );

@@ -17,6 +17,8 @@ import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toaster";
+import { PageContainer } from "@/components/ui/page-container";
+import { cn } from "@/lib/utils";
 
 type FieldState = {
   label: string;
@@ -349,7 +351,7 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto px-4 py-10 text-sm" style={{ color: "var(--muted-foreground)" }}>{t("loadingProfile")}</div>
+      <PageContainer variant="narrow" className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("loadingProfile")}</PageContainer>
     );
   }
 
@@ -366,7 +368,7 @@ export default function ProfilePage() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-7 py-8">
+      <PageContainer variant="narrow">
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -412,11 +414,11 @@ export default function ProfilePage() {
 
       {/* Profile Summary Card */}
       {hasProfileData && (
-        <div className="mb-8 rounded-xl bg-white p-5 space-y-4" style={{ border: "1px solid var(--border)" }}>
+        <div className="mb-8 rounded-xl bg-white p-[var(--space-surface-default)] space-y-4" style={{ border: "1px solid var(--border)" }}>
           <div className="flex items-start justify-between gap-2">
             <h2 className="text-sm font-semibold" style={{ color: "var(--ink-secondary)" }}>{t("profileOverview")}</h2>
             {profileHash && (
-              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ color: "var(--muted-foreground)", background: "var(--muted)" }}>
+              <span className="font-mono text-2xs px-1.5 py-0.5 rounded shrink-0" style={{ color: "var(--muted-foreground)", background: "var(--muted)" }}>
                 {profileHash.slice(0, 8)}
               </span>
             )}
@@ -436,7 +438,7 @@ export default function ProfilePage() {
                 {subjectAreaList.map((d) => (
                   <span
                     key={d}
-                    className="px-2.5 py-1 rounded-full text-[11px] font-medium"
+                    className="px-2.5 py-1 rounded-full text-2xs font-medium"
                     style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)", border: "1px solid var(--match-good-border)" }}
                   >
                     {d}
@@ -453,7 +455,7 @@ export default function ProfilePage() {
                 {skillList.map((s) => (
                   <span
                     key={s}
-                    className="px-2.5 py-1 rounded-full text-[11px] font-medium"
+                    className="px-2.5 py-1 rounded-full text-2xs font-medium"
                     style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
                   >
                     {s}
@@ -467,7 +469,7 @@ export default function ProfilePage() {
 
       {/* Resume Import Section */}
       <div className="mb-8">
-        <div className="rounded-xl border border-[var(--border)] bg-white p-5 space-y-4">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-default)] space-y-4">
           <div>
             <h2 className="text-sm font-semibold text-[var(--ink-secondary)] mb-1">{t("importFromResume")}</h2>
             <p className="text-xs text-[var(--ink-muted)]">
@@ -676,6 +678,7 @@ export default function ProfilePage() {
           type="number"
           value={fields.years_experience}
           onChange={handleChange("years_experience")}
+          inputClassName="w-28"
         />
 
         <Field
@@ -714,7 +717,7 @@ export default function ProfilePage() {
           <span className="text-sm text-rose-600">{errorMsg ?? t("saveFailed")}</span>
         )}
       </div>
-      </div>
+      </PageContainer>
     </div>
   );
 }
@@ -756,12 +759,14 @@ function TextInput({
   type = "text",
   value,
   onChange,
+  inputClassName,
 }: {
   label: string;
   hint: string;
   type?: string;
   value: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  inputClassName?: string;
 }) {
   return (
     <div>
@@ -771,7 +776,10 @@ function TextInput({
         type={type}
         value={value}
         onChange={onChange}
-        className="w-48 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+        className={cn(
+          "w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50",
+          inputClassName,
+        )}
       />
     </div>
   );

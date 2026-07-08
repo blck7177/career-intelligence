@@ -36,7 +36,7 @@ export function Select({
           "bg-white text-[var(--ink-primary)]",
           "focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:border-[var(--primary)]",
           "data-[popup-open]:ring-2 data-[popup-open]:ring-[var(--primary)]/40",
-          size === "sm" ? "h-8 px-2.5 text-[13px] rounded-md" : "h-10 px-3 text-sm",
+          size === "sm" ? "h-8 px-2.5 text-xs rounded-md" : "h-10 px-3 text-sm",
           className,
         )}
       >

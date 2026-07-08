@@ -17,7 +17,7 @@ export function DialogContent({ className, children, ...props }: React.Component
       <BaseDialog.Popup
         className={cn(
           "fixed top-1/2 left-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2",
-          "rounded-xl border border-[var(--border)] bg-white p-6 shadow-xl",
+          "rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] shadow-xl",
           "transition-[transform,opacity] data-[starting-style]:opacity-0 data-[starting-style]:scale-95",
           "data-[ending-style]:opacity-0 data-[ending-style]:scale-95",
           className,

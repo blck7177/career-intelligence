@@ -4,10 +4,10 @@ import { Link } from "@/i18n/navigation";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { StartRunButton } from "./StartRunButton";
 import { fmtTs } from "@/lib/utils";
 import { RunStatusStepper, type RunStatus } from "@/components/RunStatusStepper";
 import { EmptyState } from "@/components/EmptyState";
+import { PageContainer } from "@/components/ui/page-container";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,7 @@ function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
   return (
     <Link
       href={`/runs/${run.id}`}
-      className="flex items-center justify-between gap-4 bg-white rounded-[10px] p-4 transition-shadow hover:shadow-md"
+      className="flex items-center justify-between gap-4 bg-white rounded-[10px] p-[var(--space-row-card-y)_var(--space-row-card-x)] transition-shadow hover:shadow-md"
       style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)" }}
     >
       <div className="flex items-center gap-3 min-w-0">
@@ -48,7 +48,7 @@ function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
           <p className="text-sm font-medium truncate" style={{ color: "var(--ink-primary)" }}>
             {t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery")}
           </p>
-          <p className="text-xs mt-0.5" style={{ color: "var(--ink-faint)" }}>{fmtTs(run.created_at)}</p>
+          <p className="text-xs mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-faint)" }}>{fmtTs(run.created_at)}</p>
         </div>
       </div>
       <span
@@ -79,24 +79,22 @@ export default async function RunsPage() {
 
   return (
     <>
-      <header
-        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
-        style={{ borderBottom: "1px solid var(--border)" }}
-      >
-        <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-          {t("title")}
-        </span>
-        <span className="text-sm" style={{ color: "var(--muted-foreground)" }}>
-          {t("runCount", { count: runs.length })}
-        </span>
-        <div className="flex-1" />
-        <StartRunButton />
-      </header>
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer variant="narrow">
 
-      <div className="flex-1 overflow-y-auto px-7 py-6 max-w-3xl">
+        {/* Page identity — no page-owned header bar; the shared top bar
+            already carries "New Run" for this section. */}
+        <div className="mb-[var(--space-stack-md)]">
+          <h1 className="text-2xl font-semibold" style={{ color: "var(--ink-primary)" }}>
+            {t("title")}
+          </h1>
+          <p className="text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
+            {t("runCount", { count: runs.length })}
+          </p>
+        </div>
 
         {fetchError && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 mb-5">
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700 mb-5">
             {fetchError}
           </div>
         )}
@@ -106,8 +104,8 @@ export default async function RunsPage() {
         )}
 
         {discoveryRuns.length > 0 && (
-          <div className="space-y-2 mb-6">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--ink-muted)" }}>
+          <div className="space-y-[var(--space-stack-xs)] mb-[var(--space-stack-lg)]">
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-[var(--space-stack-sm)]" style={{ color: "var(--ink-muted)" }}>
               {t("discoverySection")}
             </h2>
             {discoveryRuns.map((run) => (
@@ -117,8 +115,8 @@ export default async function RunsPage() {
         )}
 
         {reportRuns.length > 0 && (
-          <div className="space-y-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--ink-muted)" }}>
+          <div className="space-y-[var(--space-stack-xs)]">
+            <h2 className="text-xs font-semibold uppercase tracking-wider mb-[var(--space-stack-sm)]" style={{ color: "var(--ink-muted)" }}>
               {t("reportsSection")}
             </h2>
             {reportRuns.map((run) => (
@@ -126,6 +124,7 @@ export default async function RunsPage() {
             ))}
           </div>
         )}
+        </PageContainer>
       </div>
     </>
   );

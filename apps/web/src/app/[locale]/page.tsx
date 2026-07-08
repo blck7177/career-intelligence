@@ -5,12 +5,15 @@ import { Link } from "@/i18n/navigation";
 import { listJobs, listRuns, getProfile, listFitReports } from "@/api/client";
 import type { JobRead, RunRead, FitReportSummary } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
-import { JobFitCell } from "@/app/[locale]/jobs/JobFitCell";
-import { bandOf, BAND } from "@/lib/matchBand";
-import { CompositionBar } from "@/components/CompositionBar";
+import { bandOf } from "@/lib/matchBand";
 import { EmptyState } from "@/components/EmptyState";
-import { Search, Compass, History, Building2 } from "lucide-react";
+import { Search, History, Building2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button-variants";
+import { Metric } from "@/components/ui/metric";
+import { PageContainer } from "@/components/ui/page-container";
+import { rowClassName } from "@/components/ui/row";
+import { cn } from "@/lib/utils";
+import { MatchStatStrip, type TopPick } from "@/components/MatchStatStrip";
 
 // Sidebar section header: icon + label + bottom border, so the four rail
 // sections ("This search"/"Up next"/etc.) read as distinct blocks instead of
@@ -18,31 +21,13 @@ import { buttonVariants } from "@/components/ui/button-variants";
 function SidebarLabel({ icon: Icon, children }: { icon: ElementType; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-1.5 pb-2 mb-3" style={{ borderBottom: "1px solid var(--border)" }}>
-      <Icon size={13} style={{ color: "var(--ink-muted)" }} />
-      <span className="text-[12.5px] font-semibold" style={{ color: "var(--ink-primary)" }}>{children}</span>
+      <Icon size={15} style={{ color: "var(--ink-muted)" }} />
+      <span className="text-xs font-semibold" style={{ color: "var(--ink-primary)" }}>{children}</span>
     </div>
   );
 }
 
 export const dynamic = "force-dynamic";
-
-type MatchKey = "matchNewRole" | "matchStrong" | "matchGood" | "matchPartial";
-
-// "strong"/"partial"/"gaps" bands map onto this page's existing matchStrong/
-// matchGood/matchPartial copy — same 70/50 thresholds as the rest of the app.
-function matchKey(score: number | undefined): MatchKey {
-  if (score === undefined) return "matchNewRole";
-  const band = bandOf(score);
-  if (band === "strong") return "matchStrong";
-  if (band === "partial") return "matchGood";
-  return "matchPartial";
-}
-
-function matchBadgeStyle(score: number | undefined): { backgroundColor: string; color: string } | undefined {
-  if (score === undefined) return undefined;
-  const b = BAND[bandOf(score)];
-  return { backgroundColor: b.bg, color: b.fg };
-}
 
 function whyMatchPhrase(job: JobRead, score: number | undefined): string | null {
   if (score === undefined) return null;
@@ -143,6 +128,23 @@ export default async function HomePage() {
 
   const TOP_PICKS_COUNT = 8;
   const topPicks = jobs.slice(0, TOP_PICKS_COUNT);
+  const topPicksData: TopPick[] = topPicks.map((job) => {
+    const fr = fitMap.get(job.id);
+    const score = fr?.overall_match_score;
+    return {
+      id: job.id,
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      seniorityInferred: job.seniority_inferred,
+      latestJobReportId: job.latest_job_report_id,
+      score,
+      whyPhrase: whyMatchPhrase(job, score),
+      fitReport: fr
+        ? { id: fr.id, score: fr.overall_match_score, recommended_next_action: fr.recommended_next_action }
+        : undefined,
+    };
+  });
 
   const companyCounts = new Map<string, number>();
   for (const j of jobs) {
@@ -157,113 +159,67 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* Header bar */}
-      <header
-        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
-        style={{ borderBottom: "1px solid var(--border)" }}
-      >
-        <span className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
-          {t("title")}
-        </span>
-        <div className="flex-1" />
-        <Link
-          href="/workspace"
-          className={buttonVariants({ className: "shrink-0 gap-[7px]" })}
-          style={{ letterSpacing: "0.01em" }}
-        >
-          <svg width="11" height="11" viewBox="0 0 12 12">
-            <line x1="6" y1="1" x2="6" y2="11" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-            <line x1="1" y1="6" x2="11" y2="6" stroke="white" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          {t("newSearch")}
-        </Link>
-      </header>
-
-      {/* Content grid: main + right rail */}
-      <div className="flex-1 min-h-0 grid grid-cols-[1fr_268px] overflow-hidden">
+      {/* Content grid: main + right rail. No page-owned header bar here —
+          the top bar (shared across all sections) already carries the
+          "New Search" action; this page's identity comes from the hero
+          copy below instead of a repeated title row. */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_220px] xl:grid-cols-[1fr_268px] overflow-y-auto lg:overflow-hidden">
 
         {/* Main content */}
-        <div className="overflow-y-auto px-7 py-6">
+        <div className="lg:overflow-y-auto px-[var(--space-page-x)] py-[var(--space-page-y)]">
+          {/* Width-capped so main content has a sane reading ceiling instead
+              of stretching edge-to-edge on ultrawide monitors — same
+              PageContainer(wide) token used by the job-detail report pane. */}
+          <PageContainer variant="wide" className="px-0 py-0">
 
           {fetchError && (
-            <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700 mb-5">
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700 mb-5">
               {fetchError}
             </div>
           )}
 
           {/* Hero summary */}
-          <div
-            className="bg-white rounded-xl p-[22px_26px] mb-5"
-            style={{
-              border: "1px solid oklch(86% 0.022 285)",
-              boxShadow: "0 2px 10px oklch(52% 0.15 285 / 0.07)",
-            }}
-          >
-            <div className="flex items-center gap-[7px] mb-2.5">
+          <div className="mb-[var(--space-stack-lg)]">
+            <div className="flex items-center gap-[7px] mb-[var(--space-stack-xs)]">
               <div className="w-[7px] h-[7px] rounded-full" style={{ background: "var(--primary)" }} />
               <span className="text-xs font-medium" style={{ color: "var(--primary)" }}>
                 {lastSearchTime ? t("searchedAgo", { time: lastSearchTime }) : t("noSearchesYet")}
               </span>
             </div>
-            <h2 className="text-[22px] font-semibold mb-[7px] leading-tight" style={{ color: "var(--ink-primary)" }}>
+            <h1 className="text-2xl font-semibold mb-[var(--space-stack-xs)] leading-tight" style={{ color: "var(--ink-primary)" }}>
               {t("rolesFound", { count: total })}
-            </h2>
-            <p className="text-sm mb-[18px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+            </h1>
+            <p className="text-base leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
               {profileSummary ? t("basedOnProfile", { summary: truncatedSummary }) : t("setUpProfile")}
               {strongCount > 0 && ` ${t("strongMatchNote", { count: strongCount })}`}
             </p>
-            <div className="flex gap-1.5 flex-wrap">
-              <span className="py-[5px] px-3.5 rounded-full text-white text-[12.5px] font-medium" style={{ background: "var(--ink-primary)" }}>
-                {t("filterAll", { count: total })}
-              </span>
-              {strongCount > 0 && (
-                <span
-                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
-                  style={{ background: "var(--match-strong-bg)", color: "var(--match-strong-fg)", border: "1px solid var(--match-strong-border)" }}
-                >
-                  {t("filterStrong", { count: strongCount })}
-                </span>
-              )}
-              {goodCount > 0 && (
-                <span
-                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
-                  style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)", border: "1px solid var(--match-good-border)" }}
-                >
-                  {t("filterGood", { count: goodCount })}
-                </span>
-              )}
-              {partialCount > 0 && (
-                <span
-                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
-                  style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)", border: "1px solid var(--match-partial-border)" }}
-                >
-                  {t("filterPartial", { count: partialCount })}
-                </span>
-              )}
-              {unanalyzedCount > 0 && (
-                <span
-                  className="py-[5px] px-3.5 rounded-full text-[12.5px] font-medium"
-                  style={{ background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}
-                >
-                  {t("filterUnanalyzed", { count: unanalyzedCount })}
-                </span>
-              )}
-            </div>
-            {total > 0 && (
-              <CompositionBar
-                className="mt-4"
-                ariaLabel={t("matchDistribution")}
-                segments={[
-                  { key: "strong", count: strongCount, label: t("matchStrong"), color: BAND.strong.ring },
-                  { key: "good", count: goodCount, label: t("matchGood"), color: BAND.partial.ring },
-                  { key: "partial", count: partialCount, label: t("matchPartial"), color: BAND.gaps.ring },
-                  { key: "unanalyzed", count: unanalyzedCount, label: t("matchUnanalyzedLabel"), color: "var(--ink-faint)" },
-                ]}
-              />
-            )}
           </div>
 
-          {/* Top picks */}
+          {/* Up next — the one clear call-to-action on this page, so it lives
+              in the main column rather than the right rail: right-rail items
+              are systematically under-noticed ("right-rail blindness"), and
+              this is the single most actionable thing here. Kept compact
+              (one row, same height as a rail item) so it doesn't compete
+              with "Top picks" for attention. Uses the Row shape (border +
+              padding scale) but keeps its own highlighted background —
+              it's a deliberate CTA accent, not a neutral grouping. */}
+          {unreviewedCount > 0 && (
+            <Link
+              href="/jobs?status=discovered"
+              className={cn(rowClassName, "flex items-center gap-3 mb-[var(--space-stack-md)] transition-colors hover:opacity-90")}
+              style={{ background: "var(--sidebar-item-active-bg)" }}
+            >
+              <Metric size="stat" style={{ color: "var(--primary)" }}>{unreviewedCount}</Metric>
+              <span className="flex-1 text-sm" style={{ color: "var(--ink-secondary)" }}>
+                {t("rolesToReviewLabel", { count: unreviewedCount })}
+              </span>
+              <span className="text-sm font-semibold whitespace-nowrap" style={{ color: "var(--primary)" }}>
+                {t("reviewNow")} →
+              </span>
+            </Link>
+          )}
+
+          {/* Match stat strip + top picks */}
           {jobs.length === 0 && !fetchError ? (
             <EmptyState
               icon={Search}
@@ -279,144 +235,42 @@ export default async function HomePage() {
               }
             />
           ) : (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[12.5px] font-semibold" style={{ color: "var(--ink-primary)" }}>
-                  {profileId ? t("topPicksForYou") : t("recentRoles")}
-                </span>
-                {total > topPicks.length && (
-                  <Link
-                    href="/jobs"
-                    className="text-[12.5px] font-medium hover:underline"
-                    style={{ color: "var(--primary)" }}
-                  >
-                    {t("viewAllRoles", { count: total })}
-                  </Link>
-                )}
-              </div>
-              <div className="flex flex-col gap-2.5">
-              {topPicks.map((job) => {
-                const fr = fitMap.get(job.id);
-                const score = fr?.overall_match_score;
-                const band = score !== undefined ? bandOf(score) : undefined;
-                const isPartial = band === "gaps" || band === undefined;
-                const whyPhrase = whyMatchPhrase(job, score);
-                const why = whyPhrase ? t("matchesProfile", { phrase: whyPhrase }) : null;
-
-                return (
-                  <div
-                    key={job.id}
-                    className="bg-white rounded-[10px] p-[20px_22px] transition-shadow hover:shadow-md"
-                    style={{
-                      border: "1px solid var(--border)",
-                      boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)",
-                      opacity: isPartial ? 0.88 : 1,
-                    }}
-                  >
-                    {/* Top row: badge + actions */}
-                    <div className="flex items-center gap-2.5 mb-3">
-                      <span
-                        className={`py-[3px] px-2.5 rounded text-xs font-medium ${score === undefined ? "bg-[var(--muted)] text-[var(--ink-muted)]" : ""}`}
-                        style={matchBadgeStyle(score)}
-                      >
-                        {t(matchKey(score))}
-                      </span>
-                      <div className="flex-1" />
-                      <div className="flex items-center gap-2 shrink-0">
-                        <JobFitCell
-                          jobId={job.id}
-                          jobReportId={job.latest_job_report_id}
-                          hasProfile={!!profileId}
-                          fitReport={
-                            fr
-                              ? {
-                                  id: fr.id,
-                                  score: fr.overall_match_score,
-                                  recommended_next_action: fr.recommended_next_action,
-                                }
-                              : undefined
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    {/* Title + company */}
-                    <Link href={`/jobs/${job.id}`} className="block group">
-                      <div
-                        className="text-base font-semibold mb-1 group-hover:underline"
-                        style={{ color: isPartial ? "var(--ink-secondary)" : "var(--ink-primary)" }}
-                      >
-                        {job.title}
-                      </div>
-                      <div className="text-[13px] mb-3.5" style={{ color: "var(--ink-muted)" }}>
-                        {job.company}
-                        {job.location && ` · ${job.location}`}
-                        {job.seniority_inferred && ` · ${job.seniority_inferred}`}
-                      </div>
-                    </Link>
-
-                    {/* Why this matches */}
-                    {why && (
-                      <div className="pt-3.5 flex items-start justify-between gap-5" style={{ borderTop: "1px solid var(--border)" }}>
-                        <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
-                          <span className="font-medium" style={{ color: isPartial ? "var(--ink-muted)" : "var(--primary)" }}>
-                            {t("whyThisMatches")}
-                          </span>
-                          {why}
-                        </p>
-                        <Link
-                          href={`/jobs/${job.id}`}
-                          className="text-[12.5px] font-medium whitespace-nowrap shrink-0 mt-[1px] hover:underline"
-                          style={{ color: isPartial ? "var(--ink-muted)" : "var(--primary)" }}
-                        >
-                          {tCommon("viewRole")}
-                        </Link>
-                      </div>
-                    )}
-
-                    {!why && (
-                      <div className="pt-3.5 flex items-center justify-end" style={{ borderTop: "1px solid var(--border)" }}>
-                        <Link
-                          href={`/jobs/${job.id}`}
-                          className="text-[12.5px] font-medium whitespace-nowrap hover:underline"
-                          style={{ color: isPartial ? "var(--ink-muted)" : "var(--primary)" }}
-                        >
-                          {tCommon("viewRole")}
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              </div>
-            </>
+            <MatchStatStrip
+              total={total}
+              strongCount={strongCount}
+              goodCount={goodCount}
+              partialCount={partialCount}
+              unanalyzedCount={unanalyzedCount}
+              hasProfile={!!profileId}
+              topPicks={topPicksData}
+            />
           )}
 
           <div className="h-9" />
+          </PageContainer>
         </div>
 
         {/* Right rail */}
         <div
-          className="overflow-y-auto min-h-0 bg-white px-5 py-6 flex flex-col gap-7"
-          style={{ borderLeft: "1px solid var(--border)" }}
+          className="lg:overflow-y-auto lg:min-h-0 bg-white px-5 py-6 flex flex-col gap-7 border-t lg:border-t-0 lg:border-l border-[var(--border)]"
         >
           {/* This search */}
           <div>
             <SidebarLabel icon={Search}>{t("thisSearch")}</SidebarLabel>
             <div
-              className="rounded-lg p-[14px_16px]"
+              className="rounded-lg p-[var(--space-rail-card-y)_var(--space-rail-card-x)]"
               style={{ background: "var(--background)", border: "1px solid oklch(88% 0.018 285)" }}
             >
               <div className="flex flex-col gap-2.5 mb-3.5">
                 <div>
-                  <div className="text-[11.5px] mb-0.5" style={{ color: "var(--ink-muted)" }}>{t("profileLabel")}</div>
-                  <div className="text-[13px] font-medium" style={{ color: "var(--ink-primary)" }}>
+                  <div className="text-2xs mb-0.5" style={{ color: "var(--ink-muted)" }}>{t("profileLabel")}</div>
+                  <div className="text-sm font-medium" style={{ color: "var(--ink-primary)" }}>
                     {truncatedSummary || t("notSetUp")}
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11.5px] mb-0.5" style={{ color: "var(--ink-muted)" }}>{t("lastSearched")}</div>
-                  <div className="text-[13px]" style={{ color: "var(--ink-secondary)" }}>
+                  <div className="text-2xs mb-0.5" style={{ color: "var(--ink-muted)" }}>{t("lastSearched")}</div>
+                  <div className="text-sm" style={{ color: "var(--ink-secondary)" }}>
                     {lastSearchTime ?? tCommon("never")}
                   </div>
                 </div>
@@ -426,37 +280,6 @@ export default async function HomePage() {
                 className={buttonVariants({ size: "sm", className: "w-full" })}
               >
                 {t("searchAgain")}
-              </Link>
-            </div>
-          </div>
-
-          {/* Up next */}
-          <div>
-            <SidebarLabel icon={Compass}>{t("upNext")}</SidebarLabel>
-            <div className="flex flex-col gap-2">
-              {unreviewedCount > 0 && (
-                <Link
-                  href="/jobs?status=discovered"
-                  className="flex items-center gap-2.5 p-[11px_14px] rounded-lg transition-colors hover:opacity-90"
-                  style={{ background: "var(--sidebar-item-active-bg)" }}
-                >
-                  <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "var(--primary)" }} />
-                  <span className="flex-1 text-[13px] font-medium" style={{ color: "var(--ink-primary)" }}>
-                    {t("rolesToReview", { count: unreviewedCount })}
-                  </span>
-                  <span className="text-[13px]" style={{ color: "var(--primary)" }}>→</span>
-                </Link>
-              )}
-              <Link
-                href="/workspace"
-                className="flex items-center gap-2.5 p-[11px_14px] rounded-lg transition-colors hover:bg-[var(--muted)]"
-                style={{ border: "1px solid var(--border)" }}
-              >
-                <div className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: "var(--border)" }} />
-                <span className="flex-1 text-[13px]" style={{ color: "var(--ink-secondary)" }}>
-                  {t("startNewSearch")}
-                </span>
-                <span className="text-[13px]" style={{ color: "var(--ink-faint)" }}>→</span>
               </Link>
             </div>
           </div>
@@ -476,7 +299,7 @@ export default async function HomePage() {
                         borderBottom: i < recentSearches.length - 1 ? "1px solid var(--border)" : undefined,
                       }}
                     >
-                      <span className="flex-1 text-[13px]" style={{ color: i === 0 ? "var(--ink-primary)" : "var(--ink-muted)" }}>
+                      <span className="flex-1 text-sm" style={{ color: i === 0 ? "var(--ink-primary)" : "var(--ink-muted)" }}>
                         {t("discoveryRun")}
                       </span>
                       <span className="text-xs" style={{ color: "var(--ink-faint)" }}>
@@ -488,7 +311,7 @@ export default async function HomePage() {
                 <div className="mt-3">
                   <Link
                     href="/runs"
-                    className="text-[12.5px] font-medium hover:underline"
+                    className="text-xs font-medium hover:underline"
                     style={{ color: "var(--primary)" }}
                   >
                     {t("viewAllSearches")}
@@ -496,7 +319,7 @@ export default async function HomePage() {
                 </div>
               </>
             ) : (
-              <p className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
+              <p className="text-sm" style={{ color: "var(--ink-muted)" }}>
                 {t("noSearchesPeriod")}
               </p>
             )}
@@ -510,7 +333,7 @@ export default async function HomePage() {
                 {topCompanies.map(([company, count]) => (
                   <div key={company} className="flex items-center gap-2.5 group" title={`${company}: ${count}`}>
                     <span
-                      className="text-[12.5px] truncate flex-1"
+                      className="text-xs truncate flex-1"
                       style={{ color: "var(--ink-secondary)" }}
                     >
                       {company}
@@ -521,7 +344,7 @@ export default async function HomePage() {
                         style={{ width: `${(count / maxCompanyCount) * 100}%`, background: "var(--primary)" }}
                       />
                     </div>
-                    <span className="text-[11.5px] w-4 text-right shrink-0 tabular-nums font-medium" style={{ color: "var(--ink-secondary)" }}>
+                    <span className="text-2xs w-4 text-right shrink-0 tabular-nums font-medium" style={{ color: "var(--ink-secondary)" }}>
                       {count}
                     </span>
                   </div>

@@ -10,6 +10,7 @@ import { bandOf, BAND } from "@/lib/matchBand";
 import { EmptyState } from "@/components/EmptyState";
 import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
 import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
+import { PageContainer } from "@/components/ui/page-container";
 
 const JOB_REPORT_ICONS = {
   businessContext: Building2,
@@ -45,7 +46,7 @@ function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-1.5">
       {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 text-[13px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+        <li key={i} className="flex items-start gap-2 text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
           <span className="shrink-0 mt-0.5" style={{ color: "var(--ink-faint)" }}>·</span>
           {item}
         </li>
@@ -59,7 +60,7 @@ function TagList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
-        <span key={item} className="px-2.5 py-1 rounded-md text-[11px] font-medium" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
+        <span key={item} className="px-2.5 py-1 rounded-md text-2xs font-medium" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
           {item}
         </span>
       ))}
@@ -91,7 +92,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
       {jd.inferred_team_context && (
         <div>
           <SectionTitle>{t("teamContext")}</SectionTitle>
-          <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
             {jd.inferred_team_context}
           </p>
         </div>
@@ -105,7 +106,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
       )}
 
       {(jd.required_skills.length > 0 || jd.preferred_skills.length > 0) && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {jd.required_skills.length > 0 && (
             <div>
               <SectionTitle>{t("requiredSkills")}</SectionTitle>
@@ -122,7 +123,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
       )}
 
       {(jd.likely_tasks.length > 0 || jd.likely_stakeholders.length > 0) && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {jd.likely_tasks.length > 0 && (
             <div>
               <SectionTitle>{t("likelyTasks")}</SectionTitle>
@@ -206,17 +207,12 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
   const [rightTab, setRightTab] = useState<RightTab>("intelligence");
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Left: JD — independent scroll */}
-      <div className="w-[45%] shrink-0 overflow-y-auto p-6" style={{ borderRight: "1px solid var(--border)" }}>
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>{t("jobDescription")}</h2>
-        </div>
-        <JDPanel jd={jd} />
-        <div className="h-8" />
-      </div>
-
-      {/* Right: Report tabs — independent scroll */}
+    <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
+      {/* Left: Report tabs — the AI-generated conclusion is the primary
+          view, so it takes the reading-priority position (independent
+          scroll). JD moves to a secondary reference pane on the right —
+          same pattern as evidence/citation panels in AI research products:
+          the synthesized answer leads, the source material supports it. */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <TabsRoot value={rightTab} onValueChange={(v) => setRightTab(v as RightTab)} className="flex-1 min-h-0 flex flex-col">
           {/* Tab bar + actions */}
@@ -225,7 +221,7 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
               <Tab value="intelligence" className="flex items-center gap-1.5">
                 {t("intelligenceReportTab")}
                 {jobReport && (
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
+                  <span className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
                     {t("ready")}
                   </span>
                 )}
@@ -234,7 +230,7 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
                 {t("fitAnalysisTab")}
                 {fitReport && (
                   <span
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center"
                     style={{
                       backgroundColor: BAND[bandOf(fitReport.overall_match_score)].bg,
                       color: BAND[bandOf(fitReport.overall_match_score)].fg,
@@ -251,17 +247,44 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
             </div>
           </div>
 
-          {/* Tab content — scrollable */}
-          <div className="flex-1 overflow-y-auto p-6">
-            <TabsPanel value="intelligence" className="animate-fade-in-up">
-              <IntelligencePanel report={jobReport} />
-            </TabsPanel>
-            <TabsPanel value="fit" className="animate-fade-in-up">
-              <FitPanel fitReport={fitReport} job={job} profile={profile} />
-            </TabsPanel>
-            <div className="h-8" />
+          {/* Tab content — scrollable. Wrapped in PageContainer(wide) so the
+              report text has a sane reading-width ceiling instead of
+              stretching edge-to-edge on ultrawide monitors, once the JD
+              pane on the right no longer grows to absorb that space. */}
+          <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)]">
+            <PageContainer variant="wide" className="px-0 py-0">
+              <TabsPanel value="intelligence" className="animate-fade-in-up">
+                <IntelligencePanel report={jobReport} />
+              </TabsPanel>
+              <TabsPanel value="fit" className="animate-fade-in-up">
+                <FitPanel fitReport={fitReport} job={job} profile={profile} />
+              </TabsPanel>
+              <div className="h-8" />
+            </PageContainer>
           </div>
         </TabsRoot>
+      </div>
+
+      {/* Right: JD — secondary reference pane (independent scroll), muted
+          surface so it reads as supporting material rather than competing
+          with the report for primary attention. Stacks below the report on
+          narrow screens, same priority order as the desktop split. Width is
+          capped at --pane-reference-width but never exceeds 40% of the row
+          (min(...)), so this pane can't grow past the report's own width
+          even at the lg breakpoint floor — a plain fixed px value would
+          invert that priority right at 1024px, where the row is narrowest. */}
+      <div
+        className="w-full lg:w-[min(var(--pane-reference-width),40%)] shrink-0 overflow-y-auto p-[var(--space-surface-spacious)] max-h-[45vh] lg:max-h-none border-t lg:border-t-0 lg:border-l border-[var(--border)]"
+        style={{ background: "var(--muted)" }}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>
+            {t("jobDescription")}{" "}
+            <span className="font-normal" style={{ color: "var(--ink-faint)" }}>({t("reference")})</span>
+          </h2>
+        </div>
+        <JDPanel jd={jd} />
+        <div className="h-8" />
       </div>
     </div>
   );

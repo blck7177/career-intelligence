@@ -7,6 +7,7 @@ import { useRouter } from "@/i18n/navigation";
 import { SlidersHorizontal, X } from "lucide-react";
 import { Collapsible } from "@/components/Collapsible";
 import { Select } from "@/components/ui/select";
+import { optionPillVariants } from "@/components/ui/option-pill-variants";
 
 interface ProfileOption {
   id: string;
@@ -97,7 +98,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
     chips.push({ key: "confidence", label: `${t("confidence")} ${t(CONFIDENCE_LABEL_KEY[confidence] ?? "all")}`, onRemove: () => update("confidence", null) });
   }
 
-  const labelClass = "text-[11.5px] font-medium text-[var(--ink-muted)]";
+  const labelClass = "text-2xs font-medium text-[var(--ink-muted)]";
 
   return (
     <div className="flex flex-col gap-2.5">
@@ -105,7 +106,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
         <button
           type="button"
           onClick={() => setPanelOpen((o) => !o)}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-full text-[13px] font-medium border border-dashed transition-colors"
+          className="flex items-center gap-1.5 h-8 px-3 rounded-full text-sm font-medium border border-dashed transition-colors"
           style={
             panelOpen
               ? { borderColor: "var(--primary)", color: "var(--primary)", background: "var(--secondary)" }
@@ -116,7 +117,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
           {t("filters")}
           {chips.length > 0 && (
             <span
-              className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px] font-semibold text-white"
+              className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-2xs font-semibold text-white"
               style={{ background: "var(--primary)" }}
             >
               {chips.length}
@@ -125,17 +126,13 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
         </button>
 
         {chips.map((chip) => (
-          <span
-            key={chip.key}
-            className="flex items-center gap-1.5 h-8 pl-3 pr-1.5 rounded-full text-[12.5px] font-medium"
-            style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
-          >
+          <span key={chip.key} className={optionPillVariants({ selected: true, className: "pl-3.5 pr-1.5" })}>
             {chip.label}
             <button
               type="button"
               onClick={chip.onRemove}
               aria-label={t("clearFilters")}
-              className="flex items-center justify-center w-4 h-4 rounded-full hover:bg-black/10 transition-colors"
+              className="flex items-center justify-center w-4 h-4 rounded-full hover:bg-white/20 transition-colors"
             >
               <X size={11} />
             </button>
@@ -146,7 +143,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
           <button
             type="button"
             onClick={() => router.push("/jobs")}
-            className="text-[12.5px] text-[var(--ink-muted)] hover:text-[var(--ink-primary)] underline underline-offset-2"
+            className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink-primary)] underline underline-offset-2"
           >
             {t("clearFilters")}
           </button>
@@ -154,7 +151,7 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
       </div>
 
       <Collapsible open={panelOpen}>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 grid grid-cols-2 gap-3.5">
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-[var(--space-surface-compact)] grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div className="flex flex-col gap-1">
             <label className={labelClass}>{t("sort")}</label>
             <Select

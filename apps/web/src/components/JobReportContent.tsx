@@ -55,7 +55,7 @@ function IconChip({ icon: Icon }: { icon: ElementType }) {
 
 function SectionHeading({ icon, children }: { icon: ElementType; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2 text-[13px] font-semibold mb-2" style={{ color: "var(--ink-primary)" }}>
+    <div className="flex items-center gap-2 text-sm font-semibold mb-2" style={{ color: "var(--ink-primary)" }}>
       <IconChip icon={icon} />
       {children}
     </div>
@@ -65,7 +65,7 @@ function SectionHeading({ icon, children }: { icon: ElementType; children: React
 function ConfidenceChip({ value, label }: { value: string | undefined; label: string }) {
   if (!value) return null;
   return (
-    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-[var(--muted)] text-[var(--ink-muted)] ml-2">
+    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-2xs font-medium bg-[var(--muted)] text-[var(--ink-muted)] ml-2">
       {label}: {value}
     </span>
   );
@@ -100,10 +100,10 @@ function WorkflowPipeline({
       {stages.map((stage, i) => (
         <Fragment key={stage.key}>
           <div className="flex-1 rounded-lg p-3 bg-[var(--muted)]">
-            <h4 className="text-[10.5px] font-bold uppercase tracking-wide mb-2 text-[var(--ink-muted)]">{stage.label}</h4>
+            <h4 className="text-2xs font-bold uppercase tracking-wide mb-2 text-[var(--ink-muted)]">{stage.label}</h4>
             <ul className="space-y-1.5">
               {stage.items!.map((item, j) => (
-                <li key={j} className="text-[12.5px] leading-snug pl-3 relative text-[var(--ink-secondary)]">
+                <li key={j} className="text-xs leading-snug pl-3 relative text-[var(--ink-secondary)]">
                   <span className="absolute left-0 top-[7px] w-[5px] h-[5px] rounded-full bg-[var(--primary)] opacity-50" />
                   {item}
                 </li>
@@ -161,7 +161,7 @@ function SkillDemands({
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             {segments.map((s) => (
-              <div key={s.key} className="flex items-center gap-1.5 text-[11px] text-[var(--ink-muted)]">
+              <div key={s.key} className="flex items-center gap-1.5 text-2xs text-[var(--ink-muted)]">
                 <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                 {s.label} <span className="font-semibold text-[var(--ink-secondary)]">{s.count}</span>
               </div>
@@ -177,12 +177,12 @@ function SkillDemands({
           return (
             <div key={i} className="flex gap-2.5 items-start rounded-md p-2 bg-[var(--muted)]/60">
               <span
-                className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide mt-0.5"
+                className="shrink-0 rounded px-1.5 py-0.5 text-2xs font-bold uppercase tracking-wide mt-0.5"
                 style={{ backgroundColor: style.bg, color: style.fg }}
               >
                 {importanceLabel}
               </span>
-              <div className="text-[12.5px]">
+              <div className="text-xs">
                 <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{d.jd_phrase}</span>
                 {d.underlying_capability && (
                   <span style={{ color: "var(--ink-muted)" }}> — {d.underlying_capability}</span>
@@ -220,7 +220,7 @@ export function JobReportContent({
     <div className="space-y-5">
       {s.primary_role_category && (
         <div
-          className="inline-block text-[13px] font-semibold rounded-lg px-3 py-1.5"
+          className="inline-block text-sm font-semibold rounded-lg px-3 py-1.5"
           style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
         >
           {s.primary_role_category}
@@ -233,7 +233,7 @@ export function JobReportContent({
             {labels.businessContext}
             <ConfidenceChip value={bc.confidence} label={labels.confidence} />
           </SectionHeading>
-          <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>{bc.summary}</p>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>{bc.summary}</p>
           {bc.problem_solved && (
             <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "var(--ink-muted)" }}>
               {labels.problemSolved(bc.problem_solved)}
@@ -250,7 +250,7 @@ export function JobReportContent({
           </SectionHeading>
           <p className="text-sm font-medium" style={{ color: "var(--ink-primary)" }}>{pf.primary_function}</p>
           {pf.function_mix_description && (
-            <p className="text-[13px] mt-1 leading-relaxed" style={{ color: "var(--ink-muted)" }}>{pf.function_mix_description}</p>
+            <p className="text-sm mt-1 leading-relaxed" style={{ color: "var(--ink-muted)" }}>{pf.function_mix_description}</p>
           )}
         </div>
       )}
@@ -272,7 +272,7 @@ export function JobReportContent({
       {s.analyst_notes && (
         <div>
           <SectionHeading icon={icons.analystNotes}>{labels.analystNotes}</SectionHeading>
-          <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>{s.analyst_notes}</p>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>{s.analyst_notes}</p>
         </div>
       )}
 
@@ -284,7 +284,7 @@ export function JobReportContent({
           <p className="text-xs font-semibold mb-1.5" style={{ color: BAND.partial.fg }}>{labels.uncertaintyNotes}</p>
           <ul className="space-y-1.5">
             {uncertaintyNotes.map((n, i) => (
-              <li key={i} className="text-[13px]" style={{ color: BAND.partial.fg }}>
+              <li key={i} className="text-sm" style={{ color: BAND.partial.fg }}>
                 <span className="font-medium">{n.issue}</span>
                 {n.impact && <span className="opacity-80"> — {n.impact}</span>}
               </li>
@@ -293,7 +293,7 @@ export function JobReportContent({
         </div>
       )}
 
-      <p className="text-[11px] font-mono pt-1" style={{ color: "var(--ink-faint)" }}>
+      <p className="text-2xs font-mono pt-1" style={{ color: "var(--ink-faint)" }}>
         {report.id} · v{report.prompt_version}
       </p>
     </div>

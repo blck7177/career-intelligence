@@ -238,7 +238,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           style={{ background: "oklch(96% 0.015 145)", color: "oklch(30% 0.08 145)", border: "1px solid oklch(88% 0.04 145)" }}
         >
           <span>{banner}</span>
-          <button onClick={() => setBanner(null)} className="text-[11px] opacity-60 hover:opacity-100">{t("dismiss")}</button>
+          <button onClick={() => setBanner(null)} className="text-2xs opacity-60 hover:opacity-100">{t("dismiss")}</button>
         </div>
       )}
 
@@ -284,7 +284,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
       {/* Select all toggle */}
       {visibleJobs.length > 0 && (
         <div className="flex items-center gap-2 mb-2">
-          <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
+          <label className="flex items-center gap-2 cursor-pointer text-sm text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
             <input
               type="checkbox"
               checked={allSelected}
@@ -294,7 +294,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
             {t("selectAll")}
           </label>
           {selected.size > 0 && (
-            <span className="text-[13px] text-[var(--ink-muted)]">
+            <span className="text-sm text-[var(--ink-muted)]">
               {t("selectedCount", { count: selected.size })}
             </span>
           )}
@@ -318,7 +318,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           return (
             <div
               key={job.id}
-              className="bg-white rounded-[10px] p-[20px_22px] transition-shadow hover:shadow-md"
+              className="bg-white rounded-[10px] p-[var(--space-row-card-y)_var(--space-row-card-x)] transition-shadow hover:shadow-md"
               style={{
                 border: isSelected
                   ? "2px solid var(--primary)"
@@ -373,12 +373,12 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
 
               <Link href={`/jobs/${job.id}`} className="block group">
                 <div
-                  className="text-[17px] font-semibold mb-1 group-hover:underline"
+                  className="text-lg font-semibold mb-1 group-hover:underline"
                   style={{ color: isPartial ? "var(--ink-secondary)" : "var(--ink-primary)" }}
                 >
                   {job.title}
                 </div>
-                <div className="text-[13px] mb-3" style={{ color: "var(--ink-muted)" }}>
+                <div className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>
                   {job.company}
                   {job.location && ` · ${job.location}`}
                   {job.seniority_inferred && ` · ${job.seniority_inferred}`}
@@ -387,14 +387,14 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
 
               <div className="pt-3 flex items-center justify-between" style={{ borderTop: "1px solid var(--border)" }}>
                 <div className="flex items-center gap-4">
-                  <span className="text-[13px]" style={{ color: "var(--ink-muted)" }}>
+                  <span className="text-sm" style={{ color: "var(--ink-muted)" }}>
                     {t("discovered", { time: fmtTs(job.created_at.toString()) })}
                   </span>
                   <ArchiveJobButton jobId={job.id} />
                 </div>
                 <Link
                   href={`/jobs/${job.id}`}
-                  className="text-[13px] font-medium hover:underline"
+                  className="text-sm font-medium hover:underline"
                   style={{ color: isPartial ? "var(--ink-faint)" : "var(--primary)" }}
                 >
                   {tCommon("viewRole")}

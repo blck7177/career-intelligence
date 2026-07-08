@@ -14,7 +14,7 @@ export function FavoriteButton({ jobId, initialFavorited }: { jobId: string; ini
       onClick={toggle}
       disabled={loading}
       aria-pressed={favorited}
-      className="flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-50 shrink-0"
+      className="flex items-center gap-1.5 h-9 px-3.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
       style={
         favorited
           ? { background: "oklch(96% 0.04 95)", color: "oklch(45% 0.1 80)", border: "1px solid oklch(88% 0.06 90)" }

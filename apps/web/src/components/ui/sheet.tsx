@@ -12,7 +12,12 @@ import { cn } from "@/lib/utils";
 export const Sheet = BaseDialog.Root;
 export const SheetTrigger = BaseDialog.Trigger;
 
-export function SheetContent({ className, children, ...props }: React.ComponentProps<typeof BaseDialog.Popup>) {
+export function SheetContent({
+  className,
+  children,
+  side = "right",
+  ...props
+}: React.ComponentProps<typeof BaseDialog.Popup> & { side?: "left" | "right" }) {
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop
@@ -21,9 +26,12 @@ export function SheetContent({ className, children, ...props }: React.ComponentP
       />
       <BaseDialog.Popup
         className={cn(
-          "fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white border-l border-[var(--border)] shadow-xl p-6",
+          "fixed top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl p-[var(--space-surface-spacious)] border-[var(--border)]",
+          side === "left" ? "left-0 border-r" : "right-0 border-l",
           "transition-transform duration-300 ease-out",
-          "data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full",
+          side === "left"
+            ? "data-[starting-style]:-translate-x-full data-[ending-style]:-translate-x-full"
+            : "data-[starting-style]:translate-x-full data-[ending-style]:translate-x-full",
           className,
         )}
         {...props}

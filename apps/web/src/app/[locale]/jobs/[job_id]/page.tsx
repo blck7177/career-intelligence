@@ -68,7 +68,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <Link href="/" className="text-[13px] hover:underline shrink-0" style={{ color: "var(--primary)" }}>
+            <Link href="/" className="text-sm hover:underline shrink-0" style={{ color: "var(--primary)" }}>
               {t("backToInbox")}
             </Link>
             <div className="min-w-0">
@@ -76,11 +76,11 @@ export default async function JobDetailPage({ params }: PageProps) {
                 <h1 className="text-lg font-semibold leading-tight truncate" style={{ color: "var(--ink-primary)" }}>
                   {job.title}
                 </h1>
-                <Badge className={jobStatusBg(job.status) + " text-[11px] shrink-0"}>
+                <Badge className={jobStatusBg(job.status) + " text-2xs shrink-0"}>
                   {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
                 </Badge>
               </div>
-              <div className="flex items-center gap-2.5 text-[13px] mt-1" style={{ color: "var(--ink-muted)" }}>
+              <div className="flex items-center gap-2.5 text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
                 <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{job.company}</span>
                 {job.location && <span>{job.location}</span>}
                 <span style={{ color: "var(--ink-faint)" }}>{fmtTs(job.created_at.toString())}</span>

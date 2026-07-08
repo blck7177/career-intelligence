@@ -12,6 +12,7 @@ import { ScoreBadge, SeverityChip } from "@/components/MatchVisuals";
 import { RunStatusStepper, type RunStatus } from "@/components/RunStatusStepper";
 import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
 import { Building2, Compass, Workflow, ListChecks, StickyNote } from "lucide-react";
+import { PageContainer } from "@/components/ui/page-container";
 
 const JOB_REPORT_ICONS = {
   businessContext: Building2,
@@ -32,35 +33,35 @@ type T = ReturnType<typeof useTranslations>;
 function StatusMessage({ run, t }: { run: RunRead; t: T }) {
   if (run.status === "running") {
     return (
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700">
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-[var(--space-surface-compact)] text-sm text-blue-700">
         {t("runInProgress")}
       </div>
     );
   }
   if (run.status === "queued") {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 text-sm text-[var(--ink-secondary)]">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] text-sm text-[var(--ink-secondary)]">
         {t("runQueuedMsg")}
       </div>
     );
   }
   if (run.status === "needs_review") {
     return (
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-[var(--space-surface-compact)] text-sm text-amber-700">
         {t("runNeedsReviewMsg")}
       </div>
     );
   }
   if (run.status === "failed") {
     return (
-      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+      <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700">
         {t("runFailedMsg")}
       </div>
     );
   }
   if (run.status === "cancelled") {
     return (
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-4 text-sm text-[var(--ink-muted)]">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] text-sm text-[var(--ink-muted)]">
         {t("runCancelledMsg")}
       </div>
     );
@@ -235,12 +236,12 @@ export default async function RunDetailPage({ params }: PageProps) {
   return (
     <>
       <header
-        className="h-[52px] flex items-center px-7 bg-white shrink-0 gap-4"
+        className="h-14 flex items-center px-7 bg-white shrink-0 gap-4"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <Link
           href="/runs"
-          className="text-[13px] hover:underline"
+          className="text-sm hover:underline"
           style={{ color: "var(--primary)" }}
         >
           {t("backToReports")}
@@ -248,12 +249,12 @@ export default async function RunDetailPage({ params }: PageProps) {
       </header>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-7 py-6 space-y-6">
+        <PageContainer variant="wide" className="space-y-[var(--space-stack-lg)]">
           {/* Header */}
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-xl font-semibold capitalize" style={{ color: "var(--ink-primary)" }}>{runLabel}</h1>
-              <p className="text-sm mt-0.5" style={{ color: "var(--muted-foreground)" }}>{t("started", { time: fmtTs(run.created_at) })}</p>
+              <h1 className="text-lg font-semibold capitalize" style={{ color: "var(--ink-primary)" }}>{runLabel}</h1>
+              <p className="text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--muted-foreground)" }}>{t("started", { time: fmtTs(run.created_at) })}</p>
             </div>
             <RunStatusStepper
               status={run.status as RunStatus}
@@ -275,7 +276,7 @@ export default async function RunDetailPage({ params }: PageProps) {
           {report && run.run_type === "fit_report" && (
             <FitReportSection report={report as FitReportResponse} t={t} />
           )}
-        </div>
+        </PageContainer>
       </div>
     </>
   );

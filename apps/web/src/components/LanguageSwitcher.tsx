@@ -29,7 +29,7 @@ export function LanguageSwitcher() {
           type="button"
           onClick={() => switchTo(code)}
           aria-pressed={locale === code}
-          className="px-2.5 py-1 rounded-md text-[12px] font-medium transition-colors"
+          className="px-2.5 py-1 rounded-md text-xs font-medium transition-colors"
           style={
             locale === code
               ? { background: "#fff", color: "var(--foreground)", boxShadow: "0 1px 2px oklch(0% 0 0 / 0.06)" }
