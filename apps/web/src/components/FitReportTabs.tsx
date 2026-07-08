@@ -189,12 +189,12 @@ function Section({
   return (
     <Card className="shadow-sm hover:shadow-md transition-shadow duration-200 rounded-xl">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2.5 text-sm font-semibold">
+        <CardTitle className="flex items-center gap-2.5 text-[16.5px] font-bold">
           <span
-            className={`flex items-center justify-center w-7 h-7 rounded-full shrink-0 ${chipClassName ?? ""}`}
+            className={`flex items-center justify-center w-6 h-6 rounded-full shrink-0 ${chipClassName ?? ""}`}
             style={chipStyle}
           >
-            <Icon size={14} />
+            <Icon size={12} />
           </span>
           {title}
           {count !== undefined && (
@@ -271,7 +271,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
               )}
             </div>
             {s.match_summary && (
-              <div className="sm:max-w-md text-sm text-[var(--ink-muted)] leading-relaxed">
+              <div className="sm:max-w-md text-[15px] text-[var(--ink-muted)] leading-relaxed">
                 {s.match_summary}
               </div>
             )}
@@ -321,9 +321,9 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
                     className="rounded-md p-3 transition-colors"
                     style={{ backgroundColor: BAND.strong.bg, borderLeft: `2px solid ${BAND.strong.border}` }}
                   >
-                    <p className="text-sm font-medium" style={{ color: BAND.strong.fg }}>{m.demand}</p>
+                    <p className="text-[15px] font-medium" style={{ color: BAND.strong.fg }}>{m.demand}</p>
                     {m.evidence && (
-                      <p className="text-xs text-[var(--ink-muted)] mt-1 leading-relaxed">{m.evidence}</p>
+                      <p className="text-[15px] text-[var(--ink-muted)] mt-1 leading-relaxed">{m.evidence}</p>
                     )}
                   </div>
                 ))}
@@ -340,9 +340,9 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
                     className="rounded-md p-3 transition-colors"
                     style={{ backgroundColor: BAND.partial.bg, borderLeft: `2px solid ${BAND.partial.border}` }}
                   >
-                    <p className="text-sm font-medium" style={{ color: BAND.partial.fg }}>{m.demand}</p>
+                    <p className="text-[15px] font-medium" style={{ color: BAND.partial.fg }}>{m.demand}</p>
                     {m.gap_description && (
-                      <p className="text-xs text-[var(--ink-muted)] mt-1 leading-relaxed">{m.gap_description}</p>
+                      <p className="text-[15px] text-[var(--ink-muted)] mt-1 leading-relaxed">{m.gap_description}</p>
                     )}
                   </div>
                 ))}
@@ -366,11 +366,11 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
                     style={{ backgroundColor: BAND.gaps.bg, borderLeft: `2px solid ${BAND.gaps.border}` }}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium" style={{ color: BAND.gaps.fg }}>{g.demand}</p>
+                      <p className="text-[15px] font-medium" style={{ color: BAND.gaps.fg }}>{g.demand}</p>
                       <SeverityBadge severity={g.severity} t={t} />
                     </div>
                     {g.gap_description && (
-                      <p className="text-xs text-[var(--ink-muted)] mt-1 leading-relaxed">{g.gap_description}</p>
+                      <p className="text-[15px] text-[var(--ink-muted)] mt-1 leading-relaxed">{g.gap_description}</p>
                     )}
                   </div>
                 ))}
@@ -382,7 +382,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
             <Section icon={Flag} title={t("riskFlags")} count={s.risk_flags!.length} tone="theme">
               <ul className="space-y-2">
                 {s.risk_flags!.map((flag, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-[var(--ink-secondary)]">
+                  <li key={i} className="flex items-start gap-2 text-[15px] text-[var(--ink-secondary)]">
                     <Flag size={13} className="mt-0.5 shrink-0 text-[var(--ink-muted)]" />
                     {flag}
                   </li>
@@ -395,7 +395,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
             <Section icon={MessageSquare} title={t("interviewTalkingPoints")} tone="theme">
               <ol className="space-y-2 list-none">
                 {s.interview_talking_points!.map((point, i) => (
-                  <li key={i} className="flex items-start gap-3 text-sm">
+                  <li key={i} className="flex items-start gap-3 text-[15px]">
                     <span className="shrink-0 w-5 h-5 rounded-full bg-[var(--muted)] flex items-center justify-center text-xs font-semibold text-[var(--ink-muted)]">
                       {i + 1}
                     </span>
@@ -411,7 +411,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
           {strategy?.positioning ? (
             <>
               <Section icon={FileEdit} title={t("resumePositioningGuidance")} tone="theme">
-                <p className="text-sm leading-relaxed text-[var(--ink-primary)]">{strategy.positioning}</p>
+                <p className="text-[15px] leading-relaxed text-[var(--ink-primary)]">{strategy.positioning}</p>
               </Section>
 
               {(strategy.keywords_to_add?.length ?? 0) > 0 && (
@@ -435,7 +435,7 @@ export function FitReportTabs({ report, job, profile }: FitReportTabsProps) {
                 <Section icon={Lightbulb} title={t("evidenceToSurface")} tone="theme">
                   <ul className="space-y-2">
                     {strategy.evidence_to_surface!.map((item, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm">
+                      <li key={i} className="flex items-start gap-2 text-[15px]">
                         <ChevronRight size={14} className="shrink-0 mt-0.5 text-[var(--ink-muted)]" />
                         <span className="leading-relaxed">{item}</span>
                       </li>

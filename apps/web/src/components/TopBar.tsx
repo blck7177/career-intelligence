@@ -25,8 +25,9 @@ function NavBadgeCount({ count, urgent }: { count: number; urgent: boolean }) {
     <span
       className="text-2xs font-bold rounded-full px-2 py-[3px] min-w-[20px] text-center tabular-nums"
       style={{
-        background: urgent ? "var(--primary)" : "var(--muted)",
+        background: urgent ? "var(--primary)" : "#fff",
         color: urgent ? "#fff" : "var(--muted-foreground)",
+        border: urgent ? "none" : "1px solid var(--border)",
       }}
     >
       {animated}
@@ -117,7 +118,7 @@ export function TopBar() {
           entirely below sm: see the drawer variant underneath for phone
           widths. */}
       <header
-        className="hidden sm:flex items-center gap-2 h-14 px-5 shrink-0 bg-white"
+        className="hidden sm:flex items-center gap-2 h-14 px-5 shrink-0 bg-[var(--muted)]"
         style={{ borderBottom: "1px solid var(--sidebar-border)" }}
       >
         <Link href="/" className="flex items-center gap-2.5 shrink-0 pr-2">
@@ -129,7 +130,7 @@ export function TopBar() {
           </span>
         </Link>
 
-        <nav className="flex items-stretch h-full">
+        <nav className="flex items-center h-full gap-1">
           {NAV_ITEMS.map(({ href, key, icon: Icon, exact, badgeType }) => {
             const active = isActive(href, exact);
             const badgeCount = counts[key] ?? 0;
@@ -138,18 +139,15 @@ export function TopBar() {
                 key={href}
                 href={href}
                 className={cn(
-                  "group relative z-[1] flex items-center gap-2.5 h-full px-3.5 text-sm font-medium shrink-0",
+                  "flex items-center gap-2.5 h-10 px-3.5 rounded-lg text-sm font-medium shrink-0 transition-colors duration-150",
                   active
-                    ? "text-[var(--primary)] font-semibold"
-                    : "text-[var(--sidebar-fg)] transition-colors duration-150 hover:text-[var(--ink-primary)]",
+                    ? "bg-white text-[var(--sidebar-item-active-fg)] font-semibold"
+                    : "text-[var(--sidebar-fg)] hover:bg-white hover:text-[var(--ink-primary)]",
                 )}
               >
                 <Icon size={18} strokeWidth={active ? 2.3 : 1.9} className="shrink-0" />
                 <span>{t(key)}</span>
                 {badgeType !== "none" && badgeCount > 0 && <NavBadgeCount count={badgeCount} urgent={badgeType === "urgent"} />}
-                {active && (
-                  <span className="absolute left-3 right-3 -bottom-px h-[2.5px] rounded-full" style={{ background: "var(--primary)" }} />
-                )}
               </Link>
             );
           })}
@@ -166,7 +164,7 @@ export function TopBar() {
             <Link
               href="/profile"
               aria-label={t("profile")}
-              className="flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-[var(--muted)]"
+              className="flex items-center justify-center w-8 h-8 rounded-full transition-colors hover:bg-white"
               style={{ color: "var(--ink-muted)" }}
             >
               <UserRound size={17} />
@@ -182,7 +180,7 @@ export function TopBar() {
           dropped (too cramped at this width — reachable from within the
           section itself, e.g. the wizard's own Continue button). */}
       <div
-        className="sm:hidden flex items-center justify-between h-14 px-4 shrink-0 bg-white"
+        className="sm:hidden flex items-center justify-between h-14 px-4 shrink-0 bg-[var(--muted)]"
         style={{ borderBottom: "1px solid var(--sidebar-border)" }}
       >
         <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>

@@ -10,7 +10,6 @@ import { EmptyState } from "@/components/EmptyState";
 import { Search, History, Building2 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { Metric } from "@/components/ui/metric";
-import { PageContainer } from "@/components/ui/page-container";
 import { rowClassName } from "@/components/ui/row";
 import { cn } from "@/lib/utils";
 import { MatchStatStrip, type TopPick } from "@/components/MatchStatStrip";
@@ -165,12 +164,12 @@ export default async function HomePage() {
           copy below instead of a repeated title row. */}
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_220px] xl:grid-cols-[1fr_268px] overflow-y-auto lg:overflow-hidden">
 
-        {/* Main content */}
+        {/* Main content — deliberately NOT width-capped (no PageContainer):
+            the right rail is a fixed-width column pinned to the grid's own
+            edge, so letting this column fill the full 1fr track keeps the
+            rail flush against it instead of leaving a growing gap between
+            capped content and the rail on wide screens. */}
         <div className="lg:overflow-y-auto px-[var(--space-page-x)] py-[var(--space-page-y)]">
-          {/* Width-capped so main content has a sane reading ceiling instead
-              of stretching edge-to-edge on ultrawide monitors — same
-              PageContainer(wide) token used by the job-detail report pane. */}
-          <PageContainer variant="wide" className="px-0 py-0">
 
           {fetchError && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700 mb-5">
@@ -247,7 +246,6 @@ export default async function HomePage() {
           )}
 
           <div className="h-9" />
-          </PageContainer>
         </div>
 
         {/* Right rail */}

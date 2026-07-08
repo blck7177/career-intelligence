@@ -10,7 +10,8 @@ import { bandOf, BAND } from "@/lib/matchBand";
 import { EmptyState } from "@/components/EmptyState";
 import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
 import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
-import { PageContainer } from "@/components/ui/page-container";
+import { FitButton } from "@/components/FitButton";
+import { ReportActionButton, TailorResumeButton, RemoveJobButton } from "./JobActions";
 
 const JOB_REPORT_ICONS = {
   businessContext: Building2,
@@ -28,14 +29,18 @@ interface JobDetailTabsProps {
   jobReport: JobReportResponse | null;
   fitReport: FitReportResponse | null;
   profile: ProfileRead | null;
-  actions: React.ReactNode;
+  hasExistingReport: boolean;
+  jobReportId?: string;
 }
 
 /* ── Shared ── */
 
+/** Bumped from text-xs/uppercase (12px, same tier as body meta) to a plain
+ * bold sub-heading — was a full step smaller than the report's own section
+ * headings for no real reason; now both panes use a comparable heading tier. */
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--ink-muted)" }}>
+    <p className="text-sm font-semibold mb-2" style={{ color: "var(--ink-primary)" }}>
       {children}
     </p>
   );
@@ -46,7 +51,7 @@ function BulletList({ items }: { items: string[] }) {
   return (
     <ul className="space-y-1.5">
       {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+        <li key={i} className="flex items-start gap-2 text-[15px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
           <span className="shrink-0 mt-0.5" style={{ color: "var(--ink-faint)" }}>·</span>
           {item}
         </li>
@@ -60,7 +65,7 @@ function TagList({ items }: { items: string[] }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
-        <span key={item} className="px-2.5 py-1 rounded-md text-2xs font-medium" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
+        <span key={item} className="px-2.5 py-1 rounded-md text-xs font-medium" style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}>
           {item}
         </span>
       ))}
@@ -92,7 +97,7 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
       {jd.inferred_team_context && (
         <div>
           <SectionTitle>{t("teamContext")}</SectionTitle>
-          <p className="text-sm leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+          <p className="text-[15px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
             {jd.inferred_team_context}
           </p>
         </div>
@@ -197,13 +202,28 @@ function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | 
     return <EmptyState icon={Target} title={t("noFitAnalysis")} hint={t("noFitAnalysisHint")} />;
   }
 
-  return <FitReportTabs report={fitReport} job={job} profile={profile} />;
+  return (
+    <div className="space-y-4">
+      {/* Tailor Resume lives here now, not in the persistent toolbar — it's
+          reacting to this score, so it belongs next to it. Gated on a fit
+          report existing (not just hasExistingReport/job report) since
+          "tailor for this role" only makes sense once there's a fit verdict
+          to react to. */}
+      {profile && (
+        <div className="flex justify-end">
+          <TailorResumeButton jobId={job.id} />
+        </div>
+      )}
+      <FitReportTabs report={fitReport} job={job} profile={profile} />
+    </div>
+  );
 }
 
 /* ── Main Component ── */
 
-export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions }: JobDetailTabsProps) {
+export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExistingReport, jobReportId }: JobDetailTabsProps) {
   const t = useTranslations("jobDetail");
+  const tJobs = useTranslations("jobs");
   const [rightTab, setRightTab] = useState<RightTab>("intelligence");
 
   return (
@@ -242,25 +262,45 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, actions 
               </Tab>
               <TabsIndicator />
             </TabsList>
-            <div className="flex items-center gap-2 pb-1">
-              {actions}
+            {/* Only the action for the active tab shows here — Refresh
+                Report and Analyze Fit were both always visible regardless
+                of which tab you were on, which made a static 4-button bar
+                look like one homogeneous toolbar when really 2 of the 4
+                only apply to one tab each. Remove is page-level (not
+                tab-scoped), so it sits past a divider, de-emphasized. */}
+            <div className="flex items-center gap-2.5 pb-1">
+              {rightTab === "intelligence" && (
+                <ReportActionButton jobId={job.id} hasExistingReport={hasExistingReport} />
+              )}
+              {rightTab === "fit" && (
+                <FitButton
+                  jobId={job.id}
+                  jobReportId={jobReportId}
+                  disabled={!hasExistingReport}
+                  variant={hasExistingReport ? "default" : "outline"}
+                  label={tJobs("analyzeFit")}
+                  inline
+                />
+              )}
+              <span className="w-px h-4 bg-[var(--border)]" />
+              <RemoveJobButton jobId={job.id} />
             </div>
           </div>
 
-          {/* Tab content — scrollable. Wrapped in PageContainer(wide) so the
-              report text has a sane reading-width ceiling instead of
-              stretching edge-to-edge on ultrawide monitors, once the JD
-              pane on the right no longer grows to absorb that space. */}
+          {/* Tab content — scrollable. Deliberately NOT width-capped: the
+              JD pane on the right is its own fixed-ish column
+              (min(--pane-reference-width),40%)), so letting this column
+              fill the remaining flex-1 space keeps it flush against the
+              JD pane instead of leaving a growing gap on wide screens
+              (same fix as Home's main+rail layout). */}
           <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)]">
-            <PageContainer variant="wide" className="px-0 py-0">
-              <TabsPanel value="intelligence" className="animate-fade-in-up">
-                <IntelligencePanel report={jobReport} />
-              </TabsPanel>
-              <TabsPanel value="fit" className="animate-fade-in-up">
-                <FitPanel fitReport={fitReport} job={job} profile={profile} />
-              </TabsPanel>
-              <div className="h-8" />
-            </PageContainer>
+            <TabsPanel value="intelligence" className="animate-fade-in-up">
+              <IntelligencePanel report={jobReport} />
+            </TabsPanel>
+            <TabsPanel value="fit" className="animate-fade-in-up">
+              <FitPanel fitReport={fitReport} job={job} profile={profile} />
+            </TabsPanel>
+            <div className="h-8" />
           </div>
         </TabsRoot>
       </div>

@@ -7,7 +7,6 @@ import { getServerToken } from "@/lib/server-auth";
 import { Badge } from "@/components/ui/badge";
 import { fmtTs } from "@/lib/utils";
 import { FavoriteButton } from "./FavoriteButton";
-import { JobActions } from "./JobActions";
 import { JobDetailTabs } from "./JobDetailTabs";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +62,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     <>
       {/* Header — fixed at top */}
       <header
-        className="shrink-0 bg-white px-7 py-3"
+        className="shrink-0 bg-white px-7 py-4"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <div className="flex items-center justify-between gap-4">
@@ -107,14 +106,8 @@ export default async function JobDetailPage({ params }: PageProps) {
         jobReport={report}
         fitReport={fitReport}
         profile={profile}
-        actions={
-          <JobActions
-            jobId={job_id}
-            hasExistingReport={!!report}
-            jobReportId={report?.id}
-            hasProfile={!!profile}
-          />
-        }
+        hasExistingReport={!!report}
+        jobReportId={report?.id}
       />
     </>
   );
