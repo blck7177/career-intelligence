@@ -28,6 +28,16 @@ Input (from run.input_snapshot_json):
   { "job_id": str, "candidate_profile_id": str | None, "preferences": dict | None }
 
 Requires: JobReport + FitReport for the job (generated beforehand).
+
+STORY BANK INTEGRATION: NOT ENABLED.
+  Steps 3a/3b below re-derive experience stories and fact atoms from
+  profile.structured_resume_json on every single run — this pipeline does not
+  read any candidate story bank. A richer, human-investigated story bank
+  mechanism exists (see career-intelligence's git history for the now-removed
+  candidate-story-agent, and the standalone prototype this repo's sibling
+  resume-rewrite-prototype project builds on), but nothing here consumes it.
+  This is a known architectural gap, not an oversight — see
+  dev_note/career/pipeline_architecture_audit_0710.md for the full picture.
 """
 
 from __future__ import annotations
@@ -1522,6 +1532,9 @@ def _dedupe_workstream_analysis(analysis: WorkstreamAnalysis) -> None:
 
 
 def _step_story_reconstruction(llm, experiences: list[dict], experience_summary: str) -> list[ExperienceStory]:
+    # NOT ENABLED: story bank integration. This re-derives stories from raw
+    # profile bullets on every call instead of reading a persisted, richer
+    # candidate story bank — see module docstring.
     from pydantic import BaseModel as _BM
 
     class StoryOutput(_BM):

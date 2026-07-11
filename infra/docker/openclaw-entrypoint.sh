@@ -79,7 +79,7 @@ fi
 # volume; deleting the workspace triggers WorkspaceVanishedError on next start.
 mkdir -p /openclaw/workspace/agents
 
-for AGENT_ID in career-search-agent career-reflect-agent career-research-agent candidate-story-agent; do
+for AGENT_ID in career-search-agent career-reflect-agent career-research-agent; do
     SRC="$AGENT_SOURCE/agents/$AGENT_ID"
     DST="/openclaw/workspace/agents/$AGENT_ID"
 

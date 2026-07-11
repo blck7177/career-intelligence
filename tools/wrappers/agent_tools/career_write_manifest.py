@@ -107,13 +107,6 @@ def main(task_spec: str, output: str) -> None:
     reflect_run_id = spec.get("run_id", summary.get("run_id"))
     patches_proposed = spec.get("patches_proposed", summary.get("patches_proposed", 0))
 
-    # Promote story-bank summary fields to top-level so StoryBankManifest.model_validate()
-    # can read them.
-    profile_id = spec.get("profile_id", summary.get("profile_id"))
-    experiences_investigated = spec.get(
-        "experiences_investigated", summary.get("experiences_investigated", 0)
-    )
-
     manifest = {
         "invocation_id": spec.get("invocation_id", ""),
         "status": status,
@@ -134,10 +127,7 @@ def main(task_spec: str, output: str) -> None:
         manifest["citations_count"] = citations_count
         if jd_text is not None:
             manifest["jd_text"] = jd_text
-    if profile_id is not None:
-        manifest["profile_id"] = profile_id
-        manifest["experiences_investigated"] = experiences_investigated
-    if reflect_run_id is not None and job_id is None and profile_id is None:
+    if reflect_run_id is not None and job_id is None:
         manifest["run_id"] = reflect_run_id
         manifest["patches_proposed"] = patches_proposed
 

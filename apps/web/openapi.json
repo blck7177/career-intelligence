@@ -2403,57 +2403,6 @@
         ],
         "title": "Body_upload_resume_api_app_profile_upload_resume_post"
       },
-      "CandidateStoryBuildInput": {
-        "properties": {
-          "profile_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Profile Id"
-          },
-          "max_tool_calls": {
-            "type": "integer",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Max Tool Calls",
-            "default": 60
-          },
-          "timeout_seconds": {
-            "type": "integer",
-            "maximum": 3600.0,
-            "minimum": 60.0,
-            "title": "Timeout Seconds",
-            "default": 1200
-          }
-        },
-        "type": "object",
-        "title": "CandidateStoryBuildInput",
-        "description": "Input for run_type=candidate_story_build (agent.candidate_story_build)."
-      },
-      "CandidateStoryBuildRunCreate": {
-        "properties": {
-          "run_type": {
-            "type": "string",
-            "const": "candidate_story_build",
-            "title": "Run Type"
-          },
-          "input_snapshot": {
-            "$ref": "#/components/schemas/CandidateStoryBuildInput"
-          }
-        },
-        "type": "object",
-        "required": [
-          "run_type",
-          "input_snapshot"
-        ],
-        "title": "CandidateStoryBuildRunCreate",
-        "description": "POST /api/app/runs with run_type=candidate_story_build."
-      },
       "CostByRunType": {
         "properties": {
           "run_type": {
@@ -3865,9 +3814,6 @@
           },
           {
             "$ref": "#/components/schemas/ResumeTailorRunCreate"
-          },
-          {
-            "$ref": "#/components/schemas/CandidateStoryBuildRunCreate"
           }
         ],
         "title": "RunCreate",
@@ -3875,7 +3821,6 @@
         "discriminator": {
           "propertyName": "run_type",
           "mapping": {
-            "candidate_story_build": "#/components/schemas/CandidateStoryBuildRunCreate",
             "fit_report": "#/components/schemas/FitReportRunCreate",
             "job_discovery": "#/components/schemas/JobDiscoveryRunCreate",
             "job_report": "#/components/schemas/JobReportRunCreate",
