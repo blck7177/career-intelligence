@@ -26,6 +26,7 @@ from packages.infrastructure.jd_fetch.service import (
     fetch_jd_from_url,
     save_fetched_jd_artifact,
 )
+from packages.infrastructure.redis.domain_rate_limiter import DomainRateLimiter
 
 
 ALLOWED_SOURCE_TYPES = {"greenhouse", "lever", "ashby", "workday", "html_fallback"}
@@ -55,6 +56,7 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, f"source_type must be one of {ALLOWED_SOURCE_TYPES}")
         sys.exit(1)
 
+    DomainRateLimiter().wait_and_acquire(url)
     fetch_result = fetch_jd_from_url(url)
     if not fetch_result.ok:
         _fail(output, fetch_result.error or "Fetch failed")

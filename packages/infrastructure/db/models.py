@@ -136,6 +136,10 @@ class Workspace(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # "new" | "pro" | "max" | "beta" — governs per-run_type monthly quotas and
+    # allowed search_depth values. See configs/quotas.yaml and
+    # packages/domain/quota/tiers.py.
+    tier: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

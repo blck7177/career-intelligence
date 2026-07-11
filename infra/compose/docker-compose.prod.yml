@@ -85,6 +85,9 @@ services:
       - agent_artifacts:/app/data/agent_artifacts
       - ../../agent:/app/agent:ro
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
       interval: 10s
@@ -113,7 +116,9 @@ services:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     restart: unless-stopped
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
+    # concurrency=3 — stays under the openclaw-gateway "main" lane's default
+    # maxConcurrent=4. See docker-compose.dev.yml for the full rationale.
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=3
     network_mode: "service:openclaw-gateway"
     init: true
     cap_drop:

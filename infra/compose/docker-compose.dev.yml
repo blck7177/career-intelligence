@@ -43,6 +43,11 @@ services:
       # source config here on each start so OpenClaw can do atomic saves.
       OPENCLAW_CONFIG_PATH: /openclaw/config/openclaw.json
       OPENCLAW_WORKSPACE_DIR: /openclaw/workspace
+      # .env's default (redis://localhost:6379/0) is for the non-Docker dev
+      # workflow — inside this container "localhost" is the gateway's own
+      # loopback, not the redis service. career_fetch_source's domain rate
+      # limiter needs the real containerized redis.
+      REDIS_URL: redis://redis:6379/0
       # TOOL_LEDGER_SIGNING_KEY comes from env_file (../../.env).
       # Do NOT override here with ${...} interpolation — shell env may be empty
       # and would silently override the env_file value with blank string.
@@ -57,6 +62,9 @@ services:
       - ../../tools/wrappers/agent_tools:/app/tools/wrappers/agent_tools:ro
       # exec-approvals.json is materialized by the entrypoint on every startup
       # (cp from /app/agent/openclaw/config → /openclaw/state). No bind mount needed.
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18789/readyz || exit 1"]
       interval: 10s
@@ -113,7 +121,12 @@ services:
         condition: service_healthy
 
   # OpenClaw agent tasks: job_discovery, job_research, run_reflection
-  # Listens on the "agent" queue. concurrency=1 to prevent resource contention.
+  # Listens on the "agent" queue. concurrency=3 — the openclaw-gateway "main"
+  # lane defaults to maxConcurrent=4 (see agent-loop.md / queue.md shipped in
+  # the gateway image), so 3 stays under that with headroom. Each concurrent
+  # slot is safe because session_key is unique per invocation
+  # (agent_id+workspace_id+run_id+task_id+attempt) — the gateway only forces
+  # serialization within the same session key, never across different ones.
   # Requires openclaw-gateway to be healthy before starting.
   #
   # This worker is a gateway CLIENT only — it does not run openclaw-gateway itself.
@@ -125,7 +138,7 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=1
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=3
     network_mode: "service:openclaw-gateway"
     init: true
     cap_drop:

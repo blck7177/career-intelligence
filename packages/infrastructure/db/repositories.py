@@ -104,6 +104,24 @@ class WorkspaceRepository:
     def get(self, workspace_id: str) -> Optional[Workspace]:
         return self._s.get(Workspace, workspace_id)
 
+    def get_for_update(self, workspace_id: str) -> Optional[Workspace]:
+        """
+        Row-lock this workspace for the rest of the current transaction.
+
+        Used by create_run() to serialize its quota check-then-insert
+        (count_this_month_for_workspace + RunRepository.create) per workspace,
+        closing the race where concurrent requests all read the same
+        under-limit count before any of them commits. See
+        dev_note/career/phase20-launch-hardening/concurrency_test_0711/README.md
+        for the real-concurrency test that demonstrated the race (8 concurrent
+        requests, quota room for 1, all 8 created).
+
+        Blocks the caller if another transaction already holds the lock
+        (e.g. a concurrent create_run for the same workspace) until that
+        transaction commits or rolls back — this is the intended effect.
+        """
+        return self._s.query(Workspace).filter(Workspace.id == workspace_id).with_for_update().one_or_none()
+
     def get_or_raise(self, workspace_id: str) -> Workspace:
         ws = self.get(workspace_id)
         if ws is None:
@@ -193,6 +211,38 @@ class RunRepository:
         run.result_summary_json = result_summary
         self._s.flush()
         return run
+
+    def get_active_for_workspace(self, workspace_id: str, run_type: str) -> Optional[Run]:
+        """
+        Return the queued/running run of this type for this workspace, if any.
+        Used to report the conflicting run when uq_active_agent_run_per_workspace_type
+        rejects a duplicate insert.
+        """
+        return (
+            self._s.query(Run)
+            .filter(
+                Run.workspace_id == workspace_id,
+                Run.run_type == run_type,
+                Run.status.in_(("queued", "running")),
+            )
+            .order_by(Run.created_at.desc())
+            .first()
+        )
+
+    def count_this_month_for_workspace(self, workspace_id: str, run_type: str) -> int:
+        """Count runs of this type created since the start of the current calendar month (UTC)."""
+        month_start = datetime.now(timezone.utc).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        return (
+            self._s.query(Run)
+            .filter(
+                Run.workspace_id == workspace_id,
+                Run.run_type == run_type,
+                Run.created_at >= month_start,
+            )
+            .count()
+        )
 
     def list_for_workspace(self, workspace_id: str, limit: int = 50) -> list[Run]:
         return (
