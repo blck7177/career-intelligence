@@ -3136,6 +3136,17 @@
               }
             ]
           },
+          "jd_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jd Source"
+          },
           "is_favorited": {
             "type": "boolean",
             "title": "Is Favorited",
