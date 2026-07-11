@@ -16,6 +16,7 @@ Structured output:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -243,17 +244,22 @@ class LLMClient:
         )
 
         try:
-            parse_kwargs: dict = {
+            # Built manually via .create() (rather than the SDK's .parse()
+            # convenience wrapper) so that on a parse failure we still have
+            # the raw completion in hand — see the fallback below.
+            from openai.lib._parsing import type_to_response_format_param
+
+            create_kwargs: dict = {
                 "model": _model,
                 "messages": api_messages,
-                "response_format": response_schema,
+                "response_format": type_to_response_format_param(response_schema),
             }
             if _is_reasoning_model(_model):
-                parse_kwargs["max_completion_tokens"] = _max_tokens
+                create_kwargs["max_completion_tokens"] = _max_tokens
             else:
-                parse_kwargs["max_tokens"] = _max_tokens
-                parse_kwargs["temperature"] = _temperature
-            response = client.beta.chat.completions.parse(**parse_kwargs)  # type: ignore[arg-type]
+                create_kwargs["max_tokens"] = _max_tokens
+                create_kwargs["temperature"] = _temperature
+            response = client.chat.completions.create(**create_kwargs)  # type: ignore[arg-type]
         except Exception as exc:
             raise LLMCallError(
                 f"OpenAI structured output call failed: {exc}"
@@ -276,11 +282,42 @@ class LLMClient:
                 f"Schema: {response_schema.__name__}"
             )
 
-        parsed = choice.message.parsed
-        if parsed is None:
+        if choice.finish_reason == "content_filter":
             raise LLMCallError(
-                f"LLM returned no parsed output for schema {response_schema.__name__}. "
-                f"finish_reason={choice.finish_reason!r}"
+                f"LLM output blocked by content filter (finish_reason=content_filter). "
+                f"Schema: {response_schema.__name__}"
+            )
+
+        if choice.message.refusal:
+            raise LLMCallError(
+                f"LLM refused to produce output for schema {response_schema.__name__}: "
+                f"{choice.message.refusal}"
+            )
+
+        content = choice.message.content or ""
+        try:
+            parsed = response_schema.model_validate_json(content)
+        except Exception as exc:
+            # Known intermittent failure (observed with reasoning models under
+            # strict structured outputs): the model finishes a fully valid
+            # JSON object and then, instead of stopping, emits the exact same
+            # object a second time — finish_reason is "stop", not "length",
+            # so this isn't truncation. pydantic's model_validate_json rejects
+            # the combined string as "trailing characters" even though the
+            # first value is valid. Recover it directly rather than retrying
+            # the whole call: take just the first complete JSON value.
+            try:
+                first_value, _ = json.JSONDecoder().raw_decode(content)
+                parsed = response_schema.model_validate(first_value)
+            except Exception:
+                raise LLMCallError(
+                    f"LLM returned unparseable JSON for schema {response_schema.__name__}: {exc}"
+                ) from exc
+            logger.warning(
+                "LLM structured response had trailing content after a valid JSON "
+                "value (schema=%s, len=%d) — recovered using the first value.",
+                response_schema.__name__,
+                len(content),
             )
 
         self._emit_usage(LLMResponse(
