@@ -5,7 +5,7 @@ export function ScoreBadge({ score, size = "sm" }: { score: number; size?: "sm" 
   const b = BAND[bandOf(score)];
   return (
     <span
-      className={`inline-flex items-center rounded-full font-semibold ${
+      className={`inline-flex items-center rounded-full font-semibold tabular-nums ${
         size === "sm" ? "px-2.5 py-0.5 text-xs" : "px-3 py-1 text-sm"
       }`}
       style={{ backgroundColor: b.bg, color: b.fg }}

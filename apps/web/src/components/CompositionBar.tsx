@@ -55,7 +55,7 @@ export function CompositionBar({ segments, ariaLabel, compact, className }: Comp
         {visible.map((s) => (
           <div key={s.key} className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
             <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-            {s.label} <span className="font-semibold text-[var(--ink-secondary)]">{s.count}</span>
+            {s.label} <span className="font-semibold tabular-nums text-[var(--ink-secondary)]">{s.count}</span>
           </div>
         ))}
       </div>
