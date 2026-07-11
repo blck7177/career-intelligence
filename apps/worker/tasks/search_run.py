@@ -428,6 +428,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             )
 
         cont_msg = _build_continuation_message(
+            invocation_id=spec.invocation_id,
             candidates_so_far=candidates_so_far,
             budget=budget,
             tool_calls_remaining=tool_calls_remaining,
@@ -675,6 +676,7 @@ _ARTIFACT_GID = 1000
 
 def _build_continuation_message(
     *,
+    invocation_id: str,
     candidates_so_far: int,
     budget: AgentBudget,
     tool_calls_remaining: int,
@@ -710,6 +712,7 @@ def _build_continuation_message(
 
     parts = [
         f"Agent: {task_spec.output_paths.output_manifest_path.split('/')[4] if '/' in task_spec.output_paths.output_manifest_path else 'career-search-agent'}",
+        f"Invocation ID: {invocation_id}",
         f"\nYou are continuing a job discovery run. A previous search found only "
         f"{candidates_so_far} candidates — the target is {budget.max_candidates}.",
         f"You have {tool_calls_remaining} tool calls remaining.",
@@ -735,7 +738,9 @@ def _build_continuation_message(
     parts.append(
         f"\nSearch for NEW candidates at companies not yet covered. "
         f"Use web_search and web_fetch to find real job posting URLs. "
-        f"Call career_log_candidates to log them, then career_write_manifest when done."
+        f"Call career_log_candidates to log them, then career_write_manifest when done. "
+        f"Use invocation_id={invocation_id!r} in the task-spec JSON for both wrapper "
+        f"calls — do NOT substitute the run_id from the output paths below."
     )
 
     output_paths = task_spec.output_paths
