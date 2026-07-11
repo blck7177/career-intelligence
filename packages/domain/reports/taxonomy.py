@@ -9,7 +9,6 @@ The taxonomy is used by role_analyzer to:
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +50,15 @@ def load_taxonomy(taxonomy_path: Path | None = None) -> list[dict[str, Any]]:
         return []
 
 
-@lru_cache(maxsize=1)
 def get_taxonomy() -> list[dict[str, Any]]:
-    """Cached singleton. Use in production code."""
+    """
+    Re-reads configs/role_category_taxonomy.yaml on every call.
+
+    Deliberately not cached: a cached read would keep serving a stale
+    taxonomy for the life of the worker process after any edit to the
+    YAML, silently rejecting valid role category ids (e.g. a mid-refactor
+    key rename that lands in the file after the process already cached
+    the old shape). Both call sites are per-request/per-patch, not a hot
+    loop, so re-parsing this small file each time is cheap.
+    """
     return load_taxonomy()
