@@ -155,29 +155,25 @@ export default async function JobsPage({ searchParams }: PageProps) {
 
   const activeProfileId = resolvedProfileId;
 
-  // Sorting
-  const sortParam = params.sort;
-  if (sortParam === "fit" && activeProfileId) {
+  // Sorting. "newest" (explicit or the no-profile default) relies on the
+  // API's created_at-desc order and needs no re-sort. When a profile is
+  // active and the user hasn't chosen a sort, default to fit — but this
+  // must be kept in sync with JobFilters' effectiveSort so the dropdown
+  // never shows one order while the list renders another.
+  const effectiveSort = params.sort || (activeProfileId ? "fit" : "newest");
+  if (effectiveSort === "fit" && activeProfileId) {
     jobs = [...jobs].sort((a, b) => {
       const sa = fitMap.get(a.id)?.overall_match_score ?? -1;
       const sb = fitMap.get(b.id)?.overall_match_score ?? -1;
       return sb - sa;
     });
-  } else if (sortParam === "oldest") {
+  } else if (effectiveSort === "oldest") {
     jobs = [...jobs].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     );
-  } else if (sortParam === "company") {
+  } else if (effectiveSort === "company") {
     jobs = [...jobs].sort((a, b) => a.company.localeCompare(b.company));
-  } else if (!sortParam && activeProfileId) {
-    // Default: sort by fit when profile is selected
-    jobs = [...jobs].sort((a, b) => {
-      const sa = fitMap.get(a.id)?.overall_match_score ?? -1;
-      const sb = fitMap.get(b.id)?.overall_match_score ?? -1;
-      return sb - sa;
-    });
   }
-  // Default (no sort param, no profile): API returns newest first
 
   const roleCategories = uniqueRoleCategories(jobList.items);
   const companies = uniqueCompanies(jobList.items);

@@ -21,6 +21,7 @@ interface JobFiltersProps {
 }
 
 const SORT_LABEL_KEY: Record<string, string> = {
+  newest: "sortNewest",
   oldest: "sortOldest",
   company: "sortCompany",
   fit: "sortFit",
@@ -65,7 +66,11 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
   const seniority = sp.get("seniority") ?? "";
   const confidence = sp.get("confidence") ?? "";
   const company = sp.get("company") ?? "";
-  const sort = sp.get("sort") ?? "";
+  const rawSort = sp.get("sort") ?? "";
+  // page.tsx defaults to fit-sort when a profile is active and no sort was
+  // chosen. Mirror that here so the dropdown/chip never silently disagree
+  // with what's actually on screen.
+  const effectiveSort = rawSort || (profileId ? "fit" : "newest");
 
   useEffect(() => {
     if (!profileId && profiles.length === 1) {
@@ -79,8 +84,14 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
   // current state of the list is always visible without opening the panel,
   // instead of five permanently-open dropdown rows fighting for attention.
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
-  if (sort && SORT_LABEL_KEY[sort]) {
-    chips.push({ key: "sort", label: `${t("sort")} ${t(SORT_LABEL_KEY[sort])}`, onRemove: () => update("sort", null) });
+  if (effectiveSort !== "newest") {
+    chips.push({
+      key: "sort",
+      label: `${t("sort")} ${t(SORT_LABEL_KEY[effectiveSort])}`,
+      // Clearing the fit default while a profile is still active would just
+      // fall back to fit again, so send it to "newest" explicitly instead.
+      onRemove: () => update("sort", effectiveSort === "fit" ? "newest" : null),
+    });
   }
   if (profileId && activeProfile) {
     chips.push({ key: "profile", label: `${t("fitFor")} ${activeProfile.label}`, onRemove: () => update("profile_id", null) });
@@ -156,10 +167,10 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
             <label className={labelClass}>{t("sort")}</label>
             <Select
               size="sm"
-              value={sort}
+              value={effectiveSort}
               onValueChange={(v) => update("sort", v || null)}
               options={[
-                { label: t("sortNewest"), value: "" },
+                { label: t("sortNewest"), value: "newest" },
                 { label: t("sortOldest"), value: "oldest" },
                 { label: t("sortCompany"), value: "company" },
                 ...(profileId ? [{ label: t("sortFit"), value: "fit" }] : []),
