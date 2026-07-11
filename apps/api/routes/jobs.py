@@ -101,6 +101,7 @@ def _job_read(job, report=None, include_jd_structured: bool = False, is_favorite
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "last_seen_at": job.last_seen_at,
+        "jd_source": (job.raw_payload_json or {}).get("jd_source"),
         "is_favorited": is_favorited,
     }
     if report:

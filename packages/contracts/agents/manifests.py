@@ -51,6 +51,10 @@ class ResearchManifest(AgentOutputManifest):
     job_id: str
     citations_count: int = 0
     jd_text: Optional[str] = None
+    # "original": fetched directly from the job's canonical source_url.
+    # "mirror": source_url didn't expose readable JD text, so jd_text came
+    # from a verified third-party repost (job board aggregator) instead.
+    jd_source_type: Literal["original", "mirror"] = "original"
 
     # artifact_paths keys expected:
     #   "research_notes"  → research_notes.md

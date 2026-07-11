@@ -46,6 +46,7 @@ from packages.infrastructure.db.repositories import (
     TaskRepository,
 )
 from packages.infrastructure.db.session import get_session
+from packages.infrastructure.jd_fetch.service import MIN_JD_TEXT_LEN
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,27 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             error_code="INVALID_INPUT",
         )
         return {"status": "needs_review", "task_id": env.task_id}
+
+    # Look up the job record so the agent gets company/title/source_url —
+    # the API only requires job_id (JobResearchInput), but the research
+    # skill (research_io.md) expects these to already be in the payload.
+    # DB is the authoritative source; it overrides any caller-supplied values.
+    with get_session() as session:
+        job = JobRepository(session).get(inp.job_id)
+        if job is None:
+            logger.error("research_run: job not found: %s", inp.job_id)
+            _mark_needs_review(
+                env,
+                invocation_id="",
+                reason=f"Job not found: {inp.job_id}",
+                error_code="JOB_NOT_FOUND",
+            )
+            return {"status": "needs_review", "task_id": env.task_id}
+        job_context = {
+            "company": job.company,
+            "title": job.title,
+            "source_url": job.canonical_url,
+        }
 
     # ------------------------------------------------------------------
     # Step 2: Build AgentInvocationSpec
@@ -114,6 +136,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
     # assigned by the worker), so the worker injects them here.
     enriched_payload = {
         **input_snapshot,
+        **job_context,
         "expected_output_paths": {
             "research_notes": str(run_dir / "research_notes.md"),
             "research_sources": str(run_dir / "research_sources.json"),
@@ -315,17 +338,46 @@ def handle_research_run(env: TaskEnvelope) -> dict:
                 metadata_json={"invocation_id": invocation_id, "job_id": job_id},
             )
 
-        # Backfill JD text into the jobs table and promote to reportable.
-        # The research agent fetches the JD from source_url and writes it
-        # to the manifest so the worker can persist it here without doing IO.
-        if manifest.jd_text:
+        # Backfill JD text into the jobs table. The research agent fetches the
+        # JD from source_url and writes it to the manifest so the worker can
+        # persist it here without doing IO — or, when source_url doesn't expose
+        # readable JD text, from a verified third-party mirror repost instead.
+        # manifest.jd_source_type is the agent's own claim about which case this
+        # is, but it's self-reported prose-adjacent metadata from an LLM and has
+        # been observed to default to "original" even when the agent's own notes
+        # describe the content as a mirror — so it is NOT trusted as the sole
+        # safety signal. Instead we always check for a company+title collision
+        # before auto-promoting: if another job shares that company+title, we
+        # can't be sure the fetched text is tied to *this* specific posting
+        # (e.g. multiple concurrent postings with an identical title), so it
+        # stays in 'discovered' for review regardless of claimed source_type.
+        promoted = False
+        if manifest.jd_text and len(manifest.jd_text) >= MIN_JD_TEXT_LEN:
             jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()[:16]
             job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
-            job_repo.set_status(job_id, "reportable")
+            job_repo.merge_raw_payload(job_id, {"jd_source": f"research_{manifest.jd_source_type}"})
+
+            job = job_repo.get_or_raise(job_id)
+            collision = job_repo.has_company_title_collision(job.company, job.title, job_id)
+            if collision:
+                logger.warning(
+                    "research_run: jd_text backfilled for job_id=%s (claimed source=%s) but "
+                    "company+title matches another job — leaving status=discovered for review",
+                    job_id, manifest.jd_source_type,
+                )
+            else:
+                job_repo.set_status(job_id, "reportable")
+                promoted = True
+
             logger.info(
-                "research_run: backfilled jd_text for job_id=%s (hash=%s), status→reportable",
-                job_id,
-                jd_hash,
+                "research_run: backfilled jd_text for job_id=%s (hash=%s, source=%s, promoted=%s)",
+                job_id, jd_hash, manifest.jd_source_type, promoted,
+            )
+        elif manifest.jd_text:
+            logger.warning(
+                "research_run: manifest.jd_text too short for job_id=%s (%d chars, min %d) — "
+                "not backfilled, job stays in 'discovered' status",
+                job_id, len(manifest.jd_text), MIN_JD_TEXT_LEN,
             )
         else:
             logger.warning(
@@ -342,7 +394,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             result_summary={
                 "job_id": job_id,
                 "citations_count": manifest.citations_count,
-                "jd_backfilled": bool(manifest.jd_text),
+                "jd_backfilled": promoted,
             },
         )
         event_repo.append(
@@ -352,7 +404,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             message=(
                 f"Research complete: job_id={job_id}, "
                 f"citations={manifest.citations_count}, "
-                f"jd_backfilled={bool(manifest.jd_text)}"
+                f"jd_backfilled={promoted}"
             ),
         )
 
@@ -361,14 +413,14 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         env.task_id,
         job_id,
         manifest.citations_count,
-        bool(manifest.jd_text),
+        promoted,
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "job_id": job_id,
         "citations_count": manifest.citations_count,
-        "jd_backfilled": bool(manifest.jd_text),
+        "jd_backfilled": promoted,
     }
 
 

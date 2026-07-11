@@ -9,6 +9,7 @@ Rules:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -598,6 +599,21 @@ class AgentValidationResultRepository:
 # Job
 # ---------------------------------------------------------------------------
 
+_COMPANY_SUFFIX_RE = re.compile(r"\s*[.,]?\s*&?\s*(co|inc|llc|ltd|corp|corporation)\.?$")
+
+
+def _normalize_company_name(name: str) -> str:
+    """
+    Lowercase + strip punctuation and common corporate suffixes so
+    "JPMorgan Chase" and "JPMorgan Chase & Co." compare equal. Company names
+    are extracted independently per source and vary in formatting even for
+    the same employer, so exact string matching under-detects duplicates.
+    """
+    n = name.lower().strip()
+    n = re.sub(r"[.,]", "", n)
+    n = _COMPANY_SUFFIX_RE.sub("", n)
+    return re.sub(r"\s+", " ", n).strip()
+
 
 class JobRepository:
     def __init__(self, session: Session) -> None:
@@ -702,6 +718,35 @@ class JobRepository:
         job.jd_text = jd_text
         job.jd_hash = jd_hash
         self._s.flush()
+
+    def merge_raw_payload(self, job_id: str, updates: dict) -> None:
+        """Shallow-merge `updates` into the job's existing raw_payload_json."""
+        job = self.get_or_raise(job_id)
+        job.raw_payload_json = {**(job.raw_payload_json or {}), **updates}
+        self._s.flush()
+
+    def has_company_title_collision(self, company: str, title: str, exclude_job_id: str) -> bool:
+        """
+        True if another job (different id) shares the same title at what
+        looks like the same company (see _normalize_company_name — company
+        names vary in formatting per source, e.g. "JPMorgan Chase" vs
+        "JPMorgan Chase & Co.", so this isn't an exact string match).
+
+        Used to gate auto-promotion of research-backfilled JD text: fetched
+        text can't be reliably tied to one specific posting when the employer
+        has multiple concurrent postings with an identical title (e.g.
+        several req numbers for the same role name).
+        """
+        from sqlalchemy import select
+        stmt = select(Job.company).where(
+            Job.title == title,
+            Job.id != exclude_job_id,
+        )
+        target = _normalize_company_name(company)
+        return any(
+            _normalize_company_name(other_company) == target
+            for (other_company,) in self._s.execute(stmt).all()
+        )
 
 
 # ---------------------------------------------------------------------------

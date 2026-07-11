@@ -49,6 +49,11 @@ class JobRead(BaseModel):
     role_category_confidence: Optional[str] = None  # high | medium | low
     # Structured JD extraction (from discovery-time LLM call)
     jd_structured: Optional[JDStructured] = None
+    # Provenance of jd_text: "worker_fetch"/"artifact" (discovery-time fetch),
+    # "research_original" (research agent fetched source_url directly), or
+    # "research_mirror" (research agent recovered it from a third-party
+    # repost — surfaced in the UI since it isn't the employer's own page).
+    jd_source: Optional[str] = None
     # Whether the current workspace has bookmarked this job
     is_favorited: bool = False
 
