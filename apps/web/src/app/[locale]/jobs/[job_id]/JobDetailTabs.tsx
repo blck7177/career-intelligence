@@ -292,8 +292,11 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExist
               (min(--pane-reference-width),40%)), so letting this column
               fill the remaining flex-1 space keeps it flush against the
               JD pane instead of leaving a growing gap on wide screens
-              (same fix as Home's main+rail layout). */}
-          <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)]">
+              (same fix as Home's main+rail layout). Left edge gets the same
+              fixed --space-row-edge gutter as Home's main column at every
+              width, instead of a max-width cap that would grow the margin
+              on wide screens. */}
+          <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)] pl-[var(--space-row-edge)]">
             <TabsPanel value="intelligence" className="animate-fade-in-up">
               <IntelligencePanel report={jobReport} />
             </TabsPanel>
@@ -312,9 +315,12 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExist
           capped at --pane-reference-width but never exceeds 40% of the row
           (min(...)), so this pane can't grow past the report's own width
           even at the lg breakpoint floor — a plain fixed px value would
-          invert that priority right at 1024px, where the row is narrowest. */}
+          invert that priority right at 1024px, where the row is narrowest.
+          Right edge gets the same fixed --space-row-edge gutter as Home's
+          rail column at every width, instead of a max-width cap on the row
+          as a whole. */}
       <div
-        className="w-full lg:w-[min(var(--pane-reference-width),40%)] shrink-0 overflow-y-auto p-[var(--space-surface-spacious)] max-h-[45vh] lg:max-h-none border-t lg:border-t-0 lg:border-l border-[var(--border)]"
+        className="w-full lg:w-[min(var(--pane-reference-width),40%)] shrink-0 overflow-y-auto p-[var(--space-surface-spacious)] pr-[var(--space-row-edge)] max-h-[45vh] lg:max-h-none border-t lg:border-t-0 lg:border-l border-[var(--border)]"
         style={{ background: "var(--muted)" }}
       >
         <div className="flex items-center justify-between mb-5">

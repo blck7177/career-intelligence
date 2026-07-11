@@ -93,6 +93,15 @@
   --space-page-x: 1.75rem; /* 28px */
   --space-page-y: 1.5rem;  /* 24px */
 
+  /* Fixed outer edge for full-bleed multi-column rows (Home, job detail):
+     the browser-edge-facing side of the outermost column, deliberately a
+     constant px value instead of scaling with viewport — see
+     dev_note/career/UI/nav_home_jobdetail_polish_0708.md. Centering these
+     rows with a max-width instead (Every Layout's "Center" pattern) is
+     right for prose columns, not for a dense app row: it leaves a gap that
+     grows with monitor width instead of giving content more room to fill. */
+  --space-row-edge: 3.5rem; /* 56px */
+
   /* Stack — space *between* sibling blocks (title to next block, banner to
      list, row to row). Distinct from --space-surface-* above, which is
      padding *inside* a single container. Picked by role, not by number, same
@@ -109,10 +118,21 @@
   --pane-reference-width: 26.25rem; /* 420px — job detail JD reference pane */
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* Wrapped in Tailwind's own "base" layer (not left unlayered) so utility
+   classes in @layer utilities — .pl-5, .p-4, .mb-5, arbitrary padding/margin
+   values, etc. — can actually override this reset. An unlayered rule always
+   wins over ANY @layer'd rule regardless of selector specificity, so leaving
+   this bare silently zeroed out every padding/margin utility in the app; it
+   was only ever masked by gap-based layouts, borders, and backgrounds. See
+   dev_note/career/UI/nav_home_jobdetail_polish_0708.md for how this was
+   found (the --space-row-edge gutter was the first spacing large and
+   isolated enough to make the missing padding visually obvious). */
+@layer base {
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
 }
 
 body {

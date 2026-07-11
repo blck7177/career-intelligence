@@ -168,8 +168,12 @@ export default async function HomePage() {
             the right rail is a fixed-width column pinned to the grid's own
             edge, so letting this column fill the full 1fr track keeps the
             rail flush against it instead of leaving a growing gap between
-            capped content and the rail on wide screens. */}
-        <div className="lg:overflow-y-auto px-[var(--space-page-x)] py-[var(--space-page-y)]">
+            capped content and the rail on wide screens. The left edge (this
+            column's outer, browser-facing side) instead gets a fixed
+            --space-row-edge gutter at every width — constant regardless of
+            viewport size, rather than the growing margin a max-width cap
+            would add. */}
+        <div className="lg:overflow-y-auto pl-[var(--space-row-edge)] pr-[var(--space-page-x)] py-[var(--space-page-y)]">
 
           {fetchError && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700 mb-5">
@@ -248,9 +252,11 @@ export default async function HomePage() {
           <div className="h-9" />
         </div>
 
-        {/* Right rail */}
+        {/* Right rail — its own outer (right, browser-facing) edge gets the
+            same fixed --space-row-edge gutter as the main column's left edge,
+            for the same reason (see comment there). */}
         <div
-          className="lg:overflow-y-auto lg:min-h-0 bg-white px-5 py-6 flex flex-col gap-7 border-t lg:border-t-0 lg:border-l border-[var(--border)]"
+          className="lg:overflow-y-auto lg:min-h-0 bg-white pl-5 pr-[var(--space-row-edge)] py-6 flex flex-col gap-7 border-t lg:border-t-0 lg:border-l border-[var(--border)]"
         >
           {/* This search */}
           <div>
