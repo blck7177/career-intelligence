@@ -1,0 +1,786 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useTranslations } from "next-intl";
+import { useApiToken } from "@/hooks/useApiToken";
+import {
+  createRun,
+  listProfiles,
+  createProfile,
+  updateProfile,
+  deleteProfile,
+  uploadResume,
+  type ProfileRead,
+  type ProfileUpdate,
+} from "@/api/client";
+import { pollRunUntilDone } from "@/lib/pollRun";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogTrigger, DialogContent, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toaster";
+import { PageContainer } from "@/components/ui/page-container";
+import { cn } from "@/lib/utils";
+
+type FieldState = {
+  label: string;
+  summary: string;
+  experience_summary: string;
+  education_summary: string;
+  technical_skills: string;
+  subject_areas: string;
+  tools: string;
+  years_experience: string;
+};
+
+const EMPTY_FIELDS: FieldState = {
+  label: "",
+  summary: "",
+  experience_summary: "",
+  education_summary: "",
+  technical_skills: "",
+  subject_areas: "",
+  tools: "",
+  years_experience: "",
+};
+
+function profileToFields(p: ProfileRead): FieldState {
+  return {
+    label: p.label ?? "",
+    summary: p.summary ?? "",
+    experience_summary: p.experience_summary ?? "",
+    education_summary: p.education_summary ?? "",
+    technical_skills: ((p.technical_skills ?? []) as string[]).join(", "),
+    subject_areas: ((p.subject_areas ?? []) as string[]).join(", "),
+    tools: ((p.tools ?? []) as string[]).join(", "),
+    years_experience: p.years_experience != null ? String(p.years_experience) : "",
+  };
+}
+
+function fieldsToUpdate(f: FieldState, serverProfile: ProfileRead | null): ProfileUpdate {
+  const parseList = (s: string) =>
+    s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  return {
+    label: f.label || null,
+    summary: f.summary || null,
+    experience_summary: f.experience_summary || null,
+    education_summary: f.education_summary || null,
+    technical_skills: parseList(f.technical_skills).length ? parseList(f.technical_skills) : null,
+    subject_areas: parseList(f.subject_areas).length ? parseList(f.subject_areas) : null,
+    tools: parseList(f.tools).length ? parseList(f.tools) : null,
+    years_experience: f.years_experience ? parseInt(f.years_experience, 10) || null : null,
+    representative_projects: serverProfile?.representative_projects ?? null,
+  };
+}
+
+type ImportStatus = "idle" | "generating" | "ready" | "error";
+
+type ProfileDraft = {
+  summary?: string;
+  experience_summary?: string;
+  education_summary?: string;
+  years_experience?: number | null;
+  technical_skills?: string[];
+  subject_areas?: string[];
+  tools?: string[];
+  representative_projects?: unknown[];
+};
+
+type ParseNotes = {
+  low_confidence_items?: string[];
+  missing_information?: string[];
+  assumptions?: string[];
+};
+
+type CleanResumeSummary = {
+  markdown?: string;
+};
+
+function draftToFields(d: ProfileDraft, currentLabel: string): FieldState {
+  return {
+    label: currentLabel,
+    summary: d.summary ?? "",
+    experience_summary: d.experience_summary ?? "",
+    education_summary: d.education_summary ?? "",
+    technical_skills: (d.technical_skills ?? []).join(", "),
+    subject_areas: (d.subject_areas ?? []).join(", "),
+    tools: (d.tools ?? []).join(", "),
+    years_experience: d.years_experience != null ? String(d.years_experience) : "",
+  };
+}
+
+export default function ProfilePage() {
+  const t = useTranslations("profile");
+  const getToken = useApiToken();
+  const [fields, setFields] = useState<FieldState>(EMPTY_FIELDS);
+  const [allProfiles, setAllProfiles] = useState<ProfileRead[]>([]);
+  const [serverProfile, setServerProfile] = useState<ProfileRead | null>(null);
+  const [profileHash, setProfileHash] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Resume import state
+  const [resumeText, setResumeText] = useState("");
+  const [importStatus, setImportStatus] = useState<ImportStatus>("idle");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [parseNotes, setParseNotes] = useState<ParseNotes | null>(null);
+  const [cleanResume, setCleanResume] = useState<CleanResumeSummary | null>(null);
+  const [draftProjects, setDraftProjects] = useState<unknown[] | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const loadProfiles = useCallback(async (selectId?: string) => {
+    try {
+      const token = await getToken();
+      const profiles = await listProfiles(token);
+      setAllProfiles(profiles);
+      const target = selectId
+        ? profiles.find((p) => p.id === selectId) ?? profiles[0]
+        : profiles[0];
+      if (target) {
+        setFields(profileToFields(target));
+        setServerProfile(target);
+        setProfileHash(target.profile_hash);
+      }
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === "object" &&
+        "status" in err &&
+        (err as { status: number }).status === 404
+      ) {
+        // No profiles yet
+      } else {
+        setErrorMsg(t("failedToLoadProfiles"));
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [getToken, t]);
+
+  useEffect(() => {
+    loadProfiles();
+  }, [loadProfiles]);
+
+  const switchProfile = (profileId: string) => {
+    const target = allProfiles.find((p) => p.id === profileId);
+    if (target) {
+      setFields(profileToFields(target));
+      setServerProfile(target);
+      setProfileHash(target.profile_hash);
+      setStatus("idle");
+      setImportStatus("idle");
+      setResumeText("");
+      setParseNotes(null);
+      setCleanResume(null);
+      setDraftProjects(null);
+    }
+  };
+
+  const handleChange =
+    (key: keyof FieldState) =>
+    (e: React.ChangeEvent<HTMLTextAreaElement | HTMLInputElement>) =>
+      setFields((prev) => ({ ...prev, [key]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setStatus("idle");
+    setErrorMsg(null);
+    try {
+      const token = await getToken();
+      const payload = fieldsToUpdate(fields, serverProfile);
+      const updated = serverProfile
+        ? await updateProfile(serverProfile.id, payload, token)
+        : await createProfile(payload, token);
+      setFields(profileToFields(updated));
+      setServerProfile(updated);
+      setProfileHash(updated.profile_hash);
+      setStatus("saved");
+      await loadProfiles(updated.id);
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : t("saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleNewProfile = async () => {
+    setSaving(true);
+    setStatus("idle");
+    setErrorMsg(null);
+    try {
+      const token = await getToken();
+      const created = await createProfile({ label: `Profile ${allProfiles.length + 1}` }, token);
+      await loadProfiles(created.id);
+      setStatus("idle");
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : t("failedToCreateProfile"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!serverProfile) return;
+    if (allProfiles.length <= 1) return;
+    setSaving(true);
+    setErrorMsg(null);
+    try {
+      const token = await getToken();
+      await deleteProfile(serverProfile.id, token);
+      await loadProfiles();
+      setStatus("idle");
+      toast.success(t("deleteSuccessToast"));
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : t("deleteFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+
+    setUploadingFile(true);
+    setUploadError(null);
+    try {
+      const token = await getToken();
+      const result = await uploadResume(file, token);
+      setResumeText(result.resume_text);
+      setShowImport(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : t("uploadFailed");
+      try {
+        const parsed = JSON.parse(msg);
+        setUploadError(parsed.detail ?? msg);
+      } catch {
+        setUploadError(msg);
+      }
+    } finally {
+      setUploadingFile(false);
+    }
+  };
+
+  const handleImport = async () => {
+    if (!resumeText.trim()) return;
+    setImportStatus("generating");
+    setImportError(null);
+    setParseNotes(null);
+    setCleanResume(null);
+    setDraftProjects(null);
+
+    try {
+      const token = await getToken();
+      const run = await createRun(
+        {
+          run_type: "profile_import",
+          input_snapshot: { resume_text: resumeText.trim(), source_type: "paste" },
+        },
+        token,
+      );
+      const finished = await pollRunUntilDone(run.id, getToken, { intervalMs: 2000, timeoutMs: 120_000 });
+
+      if (finished.status !== "succeeded") {
+        setImportStatus("error");
+        setImportError(finished.error_message ?? `Import ${finished.status}`);
+        return;
+      }
+
+      const summary = finished.result_summary_json as Record<string, unknown> | null;
+      const draft = summary?.profile_draft as ProfileDraft | undefined;
+      const notes = summary?.parse_notes as ParseNotes | undefined;
+      const resume = summary?.clean_resume as CleanResumeSummary | undefined;
+
+      if (!draft) {
+        setImportStatus("error");
+        setImportError(t("noProfileDraft"));
+        return;
+      }
+
+      setFields(draftToFields(draft, fields.label));
+      setDraftProjects(draft.representative_projects ?? null);
+      if (notes) setParseNotes(notes);
+      if (resume) setCleanResume(resume);
+      setImportStatus("ready");
+    } catch (err: unknown) {
+      setImportStatus("error");
+      setImportError(err instanceof Error ? err.message : t("importFailedPeriod"));
+    }
+  };
+
+  const handleApplyAndSave = async () => {
+    setSaving(true);
+    setStatus("idle");
+    setErrorMsg(null);
+    try {
+      const token = await getToken();
+      const payload = fieldsToUpdate(fields, serverProfile);
+      if (draftProjects && draftProjects.length > 0) {
+        payload.representative_projects = draftProjects;
+      }
+      const updated = serverProfile
+        ? await updateProfile(serverProfile.id, payload, token)
+        : await createProfile(payload, token);
+      setFields(profileToFields(updated));
+      setServerProfile(updated);
+      setProfileHash(updated.profile_hash);
+      setDraftProjects(null);
+      setCleanResume(null);
+      setImportStatus("idle");
+      setResumeText("");
+      setParseNotes(null);
+      setStatus("saved");
+      await loadProfiles(updated.id);
+    } catch (err: unknown) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : t("saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <PageContainer variant="narrow" className="text-sm" style={{ color: "var(--muted-foreground)" }}>{t("loadingProfile")}</PageContainer>
+    );
+  }
+
+  const subjectAreaList = fields.subject_areas
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  const skillList = fields.technical_skills
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const hasProfileData =
+    profileHash && (subjectAreaList.length > 0 || skillList.length > 0 || fields.years_experience);
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <PageContainer variant="narrow">
+      <div className="mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold" style={{ color: "var(--ink-primary)" }}>{t("title")}</h1>
+            <p className="mt-1 text-sm" style={{ color: "var(--muted-foreground)" }}>
+              {t("subtitle")}
+            </p>
+          </div>
+          <button
+            onClick={handleNewProfile}
+            disabled={saving}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--muted)] disabled:opacity-50"
+            style={{ borderColor: "var(--border)", color: "var(--primary)" }}
+          >
+            {t("newProfile")}
+          </button>
+        </div>
+
+        {/* Profile tabs */}
+        {allProfiles.length > 1 && (
+          <div className="flex gap-1 mt-4 flex-wrap">
+            {allProfiles.map((p) => {
+              const active = serverProfile?.id === p.id;
+              const displayLabel = p.label || t("profileTabFallback", { n: allProfiles.indexOf(p) + 1 });
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => switchProfile(p.id)}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                  style={
+                    active
+                      ? { background: "var(--primary)", color: "#fff" }
+                      : { background: "var(--muted)", color: "var(--muted-foreground)" }
+                  }
+                >
+                  {displayLabel}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Profile Summary Card */}
+      {hasProfileData && (
+        <div className="mb-8 rounded-xl bg-white p-[var(--space-surface-default)] space-y-4" style={{ border: "1px solid var(--border)" }}>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-sm font-semibold" style={{ color: "var(--ink-secondary)" }}>{t("profileOverview")}</h2>
+            {profileHash && (
+              <span className="font-mono text-2xs px-1.5 py-0.5 rounded shrink-0" style={{ color: "var(--muted-foreground)", background: "var(--muted)" }}>
+                {profileHash.slice(0, 8)}
+              </span>
+            )}
+          </div>
+
+          {fields.years_experience && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-xs" style={{ color: "var(--ink-muted)" }}>{t("experience")}</span>
+              <span className="font-semibold" style={{ color: "var(--ink-primary)" }}>{t("years", { count: fields.years_experience })}</span>
+            </div>
+          )}
+
+          {subjectAreaList.length > 0 && (
+            <div>
+              <p className="text-xs mb-2" style={{ color: "var(--ink-muted)" }}>{t("subjectAreas")}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {subjectAreaList.map((d) => (
+                  <span
+                    key={d}
+                    className="px-2.5 py-1 rounded-full text-2xs font-medium"
+                    style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)", border: "1px solid var(--match-good-border)" }}
+                  >
+                    {d}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {skillList.length > 0 && (
+            <div>
+              <p className="text-xs mb-2" style={{ color: "var(--ink-muted)" }}>{t("technicalSkills")}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {skillList.map((s) => (
+                  <span
+                    key={s}
+                    className="px-2.5 py-1 rounded-full text-2xs font-medium"
+                    style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resume Import Section */}
+      <div className="mb-8">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-default)] space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--ink-secondary)] mb-1">{t("importFromResume")}</h2>
+            <p className="text-xs text-[var(--ink-muted)]">
+              {t("importHint")}
+            </p>
+          </div>
+
+          {/* File upload */}
+          <div>
+            <label
+              className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-4 text-sm cursor-pointer transition-colors ${
+                uploadingFile
+                  ? "border-[var(--border)] bg-[var(--muted)] text-[var(--ink-muted)] cursor-wait"
+                  : "border-[var(--border)] hover:border-[var(--primary)] hover:bg-[var(--muted)] text-[var(--ink-muted)]"
+              }`}
+            >
+              <input
+                type="file"
+                accept=".pdf,.docx"
+                onChange={handleFileUpload}
+                disabled={uploadingFile}
+                className="hidden"
+              />
+              {uploadingFile ? (
+                <span>{t("parsingFile")}</span>
+              ) : (
+                <span>{t("clickToUpload")}</span>
+              )}
+            </label>
+            {uploadError && (
+              <p className="text-xs text-rose-600 mt-1.5">{uploadError}</p>
+            )}
+          </div>
+
+          {/* Toggle for paste textarea */}
+          <button
+            onClick={() => setShowImport(!showImport)}
+            className="text-xs font-medium transition-colors hover:opacity-80"
+            style={{ color: "var(--primary)" }}
+          >
+            {showImport ? t("hideTextInput") : t("pasteManually")}
+          </button>
+
+          {showImport && (
+            <div className="space-y-3">
+              <textarea
+                rows={8}
+                value={resumeText}
+                onChange={(e) => setResumeText(e.target.value)}
+                placeholder={t("pastePlaceholder")}
+                disabled={importStatus === "generating"}
+                className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y disabled:opacity-50"
+              />
+            </div>
+          )}
+
+          {resumeText.trim() && (
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={handleImport}
+                disabled={!resumeText.trim()}
+                loading={importStatus === "generating"}
+              >
+                {importStatus === "generating" ? t("generating") : t("generateDraft")}
+              </Button>
+
+              <span className="text-xs text-[var(--ink-muted)]">
+                {t("charsCount", { count: resumeText.trim().length.toLocaleString() })}
+              </span>
+
+              {importStatus === "ready" && (
+                <span className="text-sm text-emerald-600">
+                  {t("draftLoaded")}
+                </span>
+              )}
+              {importStatus === "error" && (
+                <span className="text-sm text-rose-600">{importError ?? t("importFailedPeriod")}</span>
+              )}
+            </div>
+          )}
+
+          {/* Clean resume preview */}
+          {cleanResume?.markdown && (
+            <details className="rounded-md border border-[var(--border)] bg-[var(--muted)]">
+              <summary className="px-3 py-2 text-xs font-medium text-[var(--ink-muted)] cursor-pointer hover:text-[var(--ink-secondary)]">
+                {t("viewReconstructed")}
+              </summary>
+              <pre className="px-3 py-2 text-xs text-[var(--ink-secondary)] whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-[var(--border)]">
+                {cleanResume.markdown}
+              </pre>
+            </details>
+          )}
+
+          {/* Parse notes */}
+          {parseNotes && (
+            <div className="space-y-2">
+              {(parseNotes.assumptions ?? []).length > 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+                  <span className="font-medium">{t("assumptions")}</span>
+                  {parseNotes.assumptions!.join(" | ")}
+                </div>
+              )}
+              {(parseNotes.missing_information ?? []).length > 0 && (
+                <div className="text-xs text-[var(--ink-muted)] bg-[var(--muted)] rounded-md px-3 py-2">
+                  <span className="font-medium">{t("notFoundInResume")}</span>
+                  {parseNotes.missing_information!.join(" | ")}
+                </div>
+              )}
+              {(parseNotes.low_confidence_items ?? []).length > 0 && (
+                <div className="text-xs text-amber-700 bg-amber-50 rounded-md px-3 py-2">
+                  <span className="font-medium">{t("lowConfidence")}</span>
+                  {parseNotes.low_confidence_items!.join(" | ")}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Extracted projects preview */}
+          {draftProjects && draftProjects.length > 0 && (
+            <div>
+              <p className="text-xs text-[var(--ink-muted)] mb-2 font-medium">
+                {t("extractedProjects", { count: draftProjects.length })}
+              </p>
+              <div className="space-y-1.5">
+                {(draftProjects as Array<{ title?: string; description?: string }>).map(
+                  (p, i) => (
+                    <div key={i} className="text-xs text-[var(--ink-secondary)] bg-[var(--muted)] rounded px-3 py-2">
+                      <span className="font-medium">{p.title || t("projectFallback", { n: i + 1 })}</span>
+                      {p.description && (
+                        <span className="text-[var(--ink-muted)]"> — {p.description.slice(0, 120)}</span>
+                      )}
+                    </div>
+                  ),
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Edit form */}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h2 className="text-sm font-semibold text-[var(--ink-secondary)]">{t("editProfile")}</h2>
+        {allProfiles.length > 1 && (
+          <Dialog>
+            <DialogTrigger
+              disabled={saving}
+              className="text-xs text-rose-500 hover:text-rose-700 disabled:opacity-50"
+            >
+              {t("deleteThisProfile")}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogTitle>{t("deleteConfirmTitle")}</DialogTitle>
+              <DialogDescription>{t("deleteConfirmDescription")}</DialogDescription>
+              <div className="flex justify-end gap-2 mt-5">
+                <DialogClose className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--muted)] transition-colors">
+                  {t("deleteConfirmCancel")}
+                </DialogClose>
+                <DialogClose
+                  onClick={handleDeleteProfile}
+                  className="rounded-lg bg-rose-600 text-white px-3 py-2 text-sm hover:bg-rose-700 transition-colors"
+                >
+                  {t("deleteConfirmButton")}
+                </DialogClose>
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+
+      <div className="space-y-5">
+        <TextInput
+          label={t("labelLabel")}
+          hint={t("labelHint")}
+          value={fields.label}
+          onChange={handleChange("label")}
+        />
+
+        <Field
+          label={t("summaryLabel")}
+          hint={t("summaryHint")}
+          value={fields.summary}
+          onChange={handleChange("summary")}
+          rows={3}
+        />
+
+        <Field
+          label={t("experienceSummaryLabel")}
+          hint={t("experienceSummaryHint")}
+          value={fields.experience_summary}
+          onChange={handleChange("experience_summary")}
+          rows={4}
+        />
+
+        <Field
+          label={t("educationLabel")}
+          hint={t("educationHint")}
+          value={fields.education_summary}
+          onChange={handleChange("education_summary")}
+          rows={2}
+        />
+
+        <TextInput
+          label={t("yearsLabel")}
+          hint={t("yearsHint")}
+          type="number"
+          value={fields.years_experience}
+          onChange={handleChange("years_experience")}
+          inputClassName="w-28"
+        />
+
+        <Field
+          label={t("technicalSkills")}
+          hint={t("skillsHint")}
+          value={fields.technical_skills}
+          onChange={handleChange("technical_skills")}
+          rows={2}
+        />
+
+        <Field
+          label={t("subjectAreas")}
+          hint={t("subjectAreasHint")}
+          value={fields.subject_areas}
+          onChange={handleChange("subject_areas")}
+          rows={2}
+        />
+
+        <Field
+          label={t("toolsLabel")}
+          hint={t("toolsHint")}
+          value={fields.tools}
+          onChange={handleChange("tools")}
+          rows={2}
+        />
+      </div>
+
+      <div className="mt-8 flex items-center gap-4">
+        <Button onClick={importStatus === "ready" ? handleApplyAndSave : handleSave} loading={saving}>
+          {t("saveProfile")}
+        </Button>
+        {status === "saved" && (
+          <span className="text-sm text-emerald-600">{t("profileSaved")}</span>
+        )}
+        {status === "error" && (
+          <span className="text-sm text-rose-600">{errorMsg ?? t("saveFailed")}</span>
+        )}
+      </div>
+      </PageContainer>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+function Field({
+  label,
+  hint,
+  value,
+  onChange,
+  rows = 3,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  rows?: number;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-[var(--ink-secondary)] mb-1">{label}</label>
+      <p className="text-xs text-[var(--ink-muted)] mb-1.5">{hint}</p>
+      <textarea
+        rows={rows}
+        value={value}
+        onChange={onChange}
+        className="w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50 resize-y"
+      />
+    </div>
+  );
+}
+
+function TextInput({
+  label,
+  hint,
+  type = "text",
+  value,
+  onChange,
+  inputClassName,
+}: {
+  label: string;
+  hint: string;
+  type?: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  inputClassName?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-[var(--ink-secondary)] mb-1">{label}</label>
+      <p className="text-xs text-[var(--ink-muted)] mb-1.5">{hint}</p>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        className={cn(
+          "w-full rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50",
+          inputClassName,
+        )}
+      />
+    </div>
+  );
+}

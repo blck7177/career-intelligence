@@ -496,12 +496,15 @@ class DiscoveryEvidenceValidator(Validator):
     Only runs for DiscoveryManifest with status != "failed"
     (SchemaValidator has already caught explicitly-failed manifests).
 
-    State A (no candidates, no signed log)  → FAIL
-    State B (no candidates, signed log present) → handled by ToolLedgerValidator
-    State C (candidates > 0)
-      - Must have at least one candidate_log event with status="ok"
-      - Last candidate_log output_hash must match sha256(candidate_pool_path)
-      - Last candidate_log candidate_count must match pool line count
+    State A (no candidate_log event in the signed ledger, any candidate_count)
+      → FAIL. Catches placeholder runs that write a manifest without ever
+      calling career_log_candidates — including a claimed 0-result run with
+      no evidence anything was actually searched.
+    State B (candidate_log event present, candidate_count == 0)
+      → WARNING only. A genuinely-evidenced zero-result search is a normal
+      outcome (especially in a niche job market), not a fraud signal.
+    State C (candidate_log event present, candidate_count > 0)
+      → Last candidate_log output_hash must match sha256(candidate_pool_path).
     """
 
     name = "discovery_evidence"
@@ -540,7 +543,18 @@ class DiscoveryEvidenceValidator(Validator):
             e for e in events if e.event_type == "candidate_log" and e.status == "ok"
         ]
 
-        if manifest.candidate_count == 0:
+        if not candidate_log_events:
+            errors.append(
+                ValidationError(
+                    field="tool_events.jsonl",
+                    message=(
+                        f"candidate_count={manifest.candidate_count} but "
+                        "no candidate_log event found in signed ledger — "
+                        "discovery must use career_log_candidates wrapper"
+                    ),
+                )
+            )
+        elif manifest.candidate_count == 0:
             warnings.append(
                 ValidationWarning(
                     field="candidate_count",
@@ -548,24 +562,12 @@ class DiscoveryEvidenceValidator(Validator):
                 )
             )
         else:
-            if not candidate_log_events:
-                errors.append(
-                    ValidationError(
-                        field="tool_events.jsonl",
-                        message=(
-                            f"candidate_count={manifest.candidate_count} but "
-                            "no candidate_log event found in signed ledger — "
-                            "discovery must use career_log_candidates wrapper"
-                        ),
-                    )
+            last_event = candidate_log_events[-1]
+            pool_path_str = manifest.artifact_paths.get("candidate_pool")
+            if pool_path_str:
+                errors.extend(
+                    self._verify_pool_hash(last_event, pool_path_str)
                 )
-            else:
-                last_event = candidate_log_events[-1]
-                pool_path_str = manifest.artifact_paths.get("candidate_pool")
-                if pool_path_str:
-                    errors.extend(
-                        self._verify_pool_hash(last_event, pool_path_str)
-                    )
 
         status = "failed" if errors else ("warning" if warnings else "passed")
         return AgentValidationResult(

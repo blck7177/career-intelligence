@@ -25,10 +25,10 @@ Use the **read tool** on the artifact paths; do not exec scripts to load run dat
 
 ## Output Contract
 
-Write manifest to `output_manifest_path` containing:
+Call `career_write_manifest` (never write `output_manifest.json` directly with the `write` tool — including when you judge that no useful reflection can be produced). The manifest it writes must end up with:
 - `status`: `completed` | `failed`
-- `reflection_report_path`: path to `reflection_report.md`
-- `strategy_patch_path`: path to `strategy_patch.json`
+- `invocation_id`, `run_id` — copy from `input.json` top level. **Required in every case, including `status: failed`** — a manifest missing either fails `ReflectionManifest` schema validation and the run goes to `needs_review`.
+- `artifact_paths`: `{ "reflection_report": "<path to reflection_report.md>", "strategy_patch": "<path to strategy_patch.json>" }` — not top-level `reflection_report_path`/`strategy_patch_path` fields.
 - `stop_reason`
 
 `strategy_patch.json` must conform to `tools/schemas/strategy_patch.schema.json`.

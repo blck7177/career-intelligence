@@ -1,0 +1,61 @@
+# Per-tier, per-run_type monthly quotas + allowed search_depth values.
+#
+# TODO: job_research/run_reflection/candidate_story_build/resume_tailor/
+# job_report/fit_report/profile_import have no quota yet (unlimited on every
+# tier). See dev_note/career/phase20-launch-hardening/README.md for why, and
+# two cost-tracking gaps to fix before setting resume_tailor/candidate_story_build
+# numbers specifically.
+#
+# monthly_limit: max runs of this run_type per workspace per calendar month.
+#   Omit (or leave the run_type out entirely) for "unlimited".
+# allowed_search_depth: restricts JobDiscoveryFrontendInput.search_depth.
+#   Only meaningful for job_discovery. Omit for "no restriction".
+#
+# Real per-run cost (measured from llm_usage_events, see dev_note analysis
+# 2026-07-10): job_discovery quick ≈ $0.05, standard ≈ $0.29, deep ≈ $0.55-0.60
+# (extrapolated — no measured deep runs yet). job_discovery dominates cost by
+# 1-2 orders of magnitude over every other run_type, which is why it's the
+# only run_type with a depth restriction and why its limits are the tightest.
+#
+# job_report/fit_report limits are loose on purpose — real cost is
+# $0.001-0.004/run, the risk there is abuse/scripting, not spend.
+#
+# resume_tailor and candidate_story_build costs are likely understated (see
+# the llm_usage_events "unknown" call_site gap in the cost analysis) — treat
+# their numbers as provisional until that tracking gap is fixed.
+
+tiers:
+  new:
+    job_discovery: { monthly_limit: 10, allowed_search_depth: [quick] }
+    job_research: { monthly_limit: 20 }
+    run_reflection: { monthly_limit: 10 }
+    candidate_story_build: { monthly_limit: 5 }
+    resume_tailor: { monthly_limit: 20 }
+    job_report: { monthly_limit: 300 }
+    fit_report: { monthly_limit: 300 }
+    profile_import: { monthly_limit: 10 }
+
+  pro:
+    job_discovery: { monthly_limit: 30, allowed_search_depth: [quick, standard] }
+    job_research: { monthly_limit: 60 }
+    run_reflection: { monthly_limit: 30 }
+    candidate_story_build: { monthly_limit: 20 }
+    resume_tailor: { monthly_limit: 60 }
+    job_report: { monthly_limit: 1000 }
+    fit_report: { monthly_limit: 1000 }
+    profile_import: { monthly_limit: 30 }
+
+  max:
+    job_discovery: { monthly_limit: 100, allowed_search_depth: [quick, standard, deep] }
+    job_research: { monthly_limit: 200 }
+    run_reflection: { monthly_limit: 100 }
+    candidate_story_build: { monthly_limit: 60 }
+    resume_tailor: { monthly_limit: 200 }
+    job_report: { monthly_limit: 3000 }
+    fit_report: { monthly_limit: 3000 }
+    profile_import: { monthly_limit: 100 }
+
+  # Trusted test users. job_discovery matches pro exactly (quota + depth) —
+  # everything else intentionally left unrestricted (no key = no limit).
+  beta:
+    job_discovery: { monthly_limit: 30, allowed_search_depth: [quick, standard] }

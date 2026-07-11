@@ -48,7 +48,7 @@ def celery_queue_for_task_type(task_type: str) -> str:
     """
     Return the Celery queue name for a given task_type.
 
-    agent tasks  → "agent"  (worker-agent: concurrency=1, long-running OpenClaw jobs)
+    agent tasks  → "agent"  (worker-agent: concurrency=3, long-running OpenClaw jobs)
     fast tasks   → "fast"   (worker-fast: concurrency=2-4, deterministic short tasks)
 
     Used by the API when enqueuing tasks so agent and deterministic tasks are

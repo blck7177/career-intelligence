@@ -27,6 +27,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -135,6 +136,10 @@ class Workspace(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # "new" | "pro" | "max" | "beta" — governs per-run_type monthly quotas and
+    # allowed search_depth values. See configs/quotas.yaml and
+    # packages/domain/quota/tiers.py.
+    tier: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -528,6 +533,27 @@ class FitReport(Base):
     superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class JobFavorite(Base):
+    """Workspace-private bookmark on a job. Mirrors the FitReport split: Job is
+    global/shared, favorited-ness is per-workspace preference data."""
+
+    __tablename__ = "job_favorites"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "job_id", name="uq_job_favorites_workspace_job"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class CandidateProfile(Base):
     """Workspace-private career profile — single source of truth for both Discovery and FitReport.
 
@@ -555,7 +581,43 @@ class CandidateProfile(Base):
     # Quantitative
     years_experience: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     profile_hash: Mapped[str] = mapped_column(String(32), nullable=False, default="empty")
+    structured_resume_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     search_defaults: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class CompanySource(Base):
+    """ATS board auto-discovered from agent runs, used for API sync."""
+
+    __tablename__ = "company_sources"
+    __table_args__ = (
+        UniqueConstraint("ats_provider", "board_token", name="uq_company_sources_provider_token"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=True
+    )
+    company_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    ats_provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    board_token: Mapped[str] = mapped_column(String(255), nullable=False)
+    board_api_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    board_careers_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="discovered")
+    discovered_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    last_verified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_sync_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    job_count_last_sync: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

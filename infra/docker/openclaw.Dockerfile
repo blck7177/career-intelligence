@@ -6,7 +6,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip ca-certificates curl && \
     ln -sf /usr/bin/python3 /usr/local/bin/python3 && \
-    python3 -m pip install --break-system-packages --no-cache-dir click httpx pydantic && \
+    python3 -m pip install --break-system-packages --no-cache-dir click httpx pydantic redis && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

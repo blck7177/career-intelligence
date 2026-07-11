@@ -1,0 +1,297 @@
+"use client";
+
+import { useState } from "react";
+import { useTranslations } from "next-intl";
+import { useRouter } from "@/i18n/navigation";
+import { useApiToken } from "@/hooks/useApiToken";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { createRun, type RunCreate } from "@/api/client";
+import { Plus, X, ChevronDown } from "lucide-react";
+
+type FormMode = "none" | "job_report" | "fit_report" | "discovery";
+type T = ReturnType<typeof useTranslations>;
+
+// ---------------------------------------------------------------------------
+// Sub-forms
+// ---------------------------------------------------------------------------
+
+function JobReportForm({
+  onSubmit,
+  onCancel,
+  loading,
+  t,
+}: {
+  onSubmit: (body: RunCreate) => void;
+  onCancel: () => void;
+  loading: boolean;
+  t: T;
+}) {
+  const [jobId, setJobId] = useState("");
+  const [useResearch, setUseResearch] = useState(false);
+  const [researchArtifactId, setResearchArtifactId] = useState("");
+  const [forceRefresh, setForceRefresh] = useState(false);
+
+  const researchBlocked = useResearch && !researchArtifactId.trim();
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!jobId.trim() || researchBlocked) return;
+    onSubmit({
+      run_type: "job_report",
+      input_snapshot: {
+        job_id: jobId.trim(),
+        use_research: useResearch,
+        research_artifact_id: useResearch ? researchArtifactId.trim() : undefined,
+        force_refresh: forceRefresh,
+      },
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] space-y-3 text-sm">
+      <div className="flex items-center justify-between">
+        <p className="font-medium text-[var(--ink-secondary)]">{t("generateJobReport")}</p>
+        <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-xs text-[var(--ink-muted)]">{t("jobIdRequired")}</label>
+        <input
+          className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
+          placeholder="job_abc123"
+          value={jobId}
+          onChange={(e) => setJobId(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="flex gap-4">
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={useResearch}
+            onChange={(e) => setUseResearch(e.target.checked)}
+            className="rounded"
+          />
+          {t("useResearch")}
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
+          <input
+            type="checkbox"
+            checked={forceRefresh}
+            onChange={(e) => setForceRefresh(e.target.checked)}
+            className="rounded"
+          />
+          {t("forceRefresh")}
+        </label>
+      </div>
+
+      {useResearch && (
+        <div className="space-y-1">
+          <label className="text-xs text-[var(--ink-muted)]">{t("researchArtifactIdRequired")}</label>
+          <input
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
+            placeholder="art_abc123"
+            value={researchArtifactId}
+            onChange={(e) => setResearchArtifactId(e.target.value)}
+          />
+          <p className="text-xs text-[var(--ink-muted)]">
+            {t("researchArtifactHint")}
+          </p>
+          {researchBlocked && (
+            <p className="text-xs text-rose-600">
+              {t("researchArtifactRequiredError")}
+            </p>
+          )}
+        </div>
+      )}
+
+      <Button type="submit" disabled={!jobId.trim() || researchBlocked} loading={loading} size="sm" className="w-full">
+        {!loading && <Plus size={13} className="mr-1.5" />}
+        {t("startJobReportRun")}
+      </Button>
+    </form>
+  );
+}
+
+function FitReportForm({
+  onSubmit,
+  onCancel,
+  loading,
+  t,
+}: {
+  onSubmit: (body: RunCreate) => void;
+  onCancel: () => void;
+  loading: boolean;
+  t: T;
+}) {
+  const [jobId, setJobId] = useState("");
+  const [jobReportId, setJobReportId] = useState("");
+  const [forceRefresh, setForceRefresh] = useState(false);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!jobId.trim()) return;
+    onSubmit({
+      run_type: "fit_report",
+      input_snapshot: {
+        job_id: jobId.trim(),
+        job_report_id: jobReportId.trim() || undefined,
+        force_refresh: forceRefresh,
+      },
+    });
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--muted)] p-[var(--space-surface-compact)] space-y-3 text-sm">
+      <div className="flex items-center justify-between">
+        <p className="font-medium text-[var(--ink-secondary)]">{t("generateFitReport")}</p>
+        <button type="button" onClick={onCancel} className="text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">
+          <X size={14} />
+        </button>
+      </div>
+
+      <p className="text-xs text-[var(--ink-muted)]">
+        {t("usesSavedProfile")}{" "}
+        <a href="/profile" className="underline text-[var(--ink-muted)] hover:text-[var(--ink-secondary)]">{t("editProfileLink")}</a>
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <label className="text-xs text-[var(--ink-muted)]">{t("jobIdRequired")}</label>
+          <input
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
+            placeholder="job_abc123"
+            value={jobId}
+            onChange={(e) => setJobId(e.target.value)}
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-[var(--ink-muted)]">{t("jobReportIdOptional")}</label>
+          <input
+            className="w-full rounded border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/40"
+            placeholder={t("useLatestActive")}
+            value={jobReportId}
+            onChange={(e) => setJobReportId(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <label className="flex items-center gap-1.5 text-xs text-[var(--ink-secondary)] cursor-pointer">
+        <input
+          type="checkbox"
+          checked={forceRefresh}
+          onChange={(e) => setForceRefresh(e.target.checked)}
+          className="rounded"
+        />
+        {t("forceRefresh")}
+      </label>
+
+      <Button type="submit" disabled={!jobId.trim()} loading={loading} size="sm" className="w-full">
+        {!loading && <Plus size={13} className="mr-1.5" />}
+        {t("startFitReportRun")}
+      </Button>
+    </form>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+export function StartRunButton() {
+  const t = useTranslations("runs");
+  const router = useRouter();
+  const getToken = useApiToken();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [formMode, setFormMode] = useState<FormMode>("none");
+
+  async function startRun(body: RunCreate) {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const run = await createRun(body, token);
+      setFormMode("none");
+      router.push(`/runs/${run.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("failedToStartRun"));
+      setLoading(false);
+    }
+  }
+
+  function openForm(mode: FormMode) {
+    setFormMode(mode);
+    setError(null);
+  }
+
+  return (
+    <div className="relative">
+      {/* Button group */}
+      <div className="flex items-center gap-1">
+        <Button
+          onClick={() => router.push("/workspace")}
+          disabled={loading}
+          size="sm"
+        >
+          <Plus size={14} className="mr-1.5" />
+          {t("newRun")}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="outline" size="sm" disabled={loading} className="px-2" aria-label={t("runTypeMenu")}>
+                <ChevronDown size={14} />
+              </Button>
+            }
+          />
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => router.push("/workspace")}>{t("runDiscovery")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openForm("job_report")}>{t("runJobReport")}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => openForm("fit_report")}>{t("candidateFitReport")}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Inline forms — absolutely positioned so they float below the
+          trigger instead of expanding it in-flow. Matters now that this
+          button lives in the fixed-height top bar rather than a page's own
+          (naturally growable) header. */}
+      {(formMode !== "none" || error) && (
+        <div className="absolute right-0 top-full mt-2 w-80 z-20">
+          {formMode === "job_report" && (
+            <JobReportForm
+              loading={loading}
+              onCancel={() => { setFormMode("none"); setError(null); }}
+              onSubmit={(body) => startRun(body)}
+              t={t}
+            />
+          )}
+          {formMode === "fit_report" && (
+            <FitReportForm
+              loading={loading}
+              onCancel={() => { setFormMode("none"); setError(null); }}
+              onSubmit={(body) => startRun(body)}
+              t={t}
+            />
+          )}
+          {error && (
+            <p className="text-xs text-rose-600 mt-1 bg-white rounded-md px-2 py-1 shadow-md border border-[var(--border)]">
+              {error}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -12,6 +12,7 @@ export interface RecentRun {
   run_type: string;
   status: string;
   error_code: string | null;
+  error_message: string | null;
   created_at: string | null;
   prompt_tokens: number;
   completion_tokens: number;
@@ -30,3 +31,25 @@ export interface UsageEvent {
   estimated_cost_usd: number | null;
   created_at: string | null;
 }
+
+export interface Workspace {
+  id: string;
+  name: string;
+}
+
+export interface RunError {
+  task_id: string;
+  task_type: string;
+  task_status: string;
+  task_error_code: string | null;
+  task_error_message: string | null;
+  attempt_count: number;
+  invocation_id: string | null;
+  agent_id: string | null;
+  exit_code: number | null;
+  agent_error_code: string | null;
+  agent_error_message: string | null;
+  agent_status: string | null;
+}
+
+export type TimeRange = "24h" | "7d" | "30d" | "all";

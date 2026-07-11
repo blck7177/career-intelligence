@@ -23,13 +23,35 @@ class ParseNotes(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
 
+class ResumeExperience(BaseModel):
+    """A single work experience entry with preserved bullet points."""
+    employer: str = ""
+    title: str = ""
+    location: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    bullets: list[str] = Field(default_factory=list)
+
+
+class ResumeEducation(BaseModel):
+    institution: str = ""
+    degree: str = ""
+    graduation_date: str = ""
+    coursework: list[str] = Field(default_factory=list)
+
+
+class ResumeSkillGroup(BaseModel):
+    category: str = ""
+    items: list[str] = Field(default_factory=list)
+
+
 class CleanResume(BaseModel):
     """LLM-reconstructed resume — faithful to the original, not synthesized for job search."""
 
     markdown: str = ""
-    experiences: list[dict] = Field(default_factory=list)
-    education: list[dict] = Field(default_factory=list)
-    skills: list[dict] = Field(default_factory=list)
+    experiences: list[ResumeExperience] = Field(default_factory=list)
+    education: list[ResumeEducation] = Field(default_factory=list)
+    skills: list[ResumeSkillGroup] = Field(default_factory=list)
 
 
 class ImportProject(BaseModel):

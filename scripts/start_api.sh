@@ -13,5 +13,5 @@ echo "[start_api] Starting API server..."
 if [ "${DEV_MODE}" = "1" ]; then
   exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
 else
-  exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
+  exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --workers "${UVICORN_WORKERS:-4}"
 fi

@@ -73,6 +73,7 @@ class ProfileUpdate(BaseModel):
     subject_areas: Optional[list] = None
     tools: Optional[list] = None
     representative_projects: Optional[list] = None
+    structured_resume_json: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,7 @@ def upsert_profile(
         tools=body.tools,
         representative_projects=body.representative_projects,
         profile_hash=profile_hash,
+        structured_resume_json=body.structured_resume_json,
     )
     db.commit()
     logger.info("profile: upserted for workspace %s (hash=%s)", workspace.id, profile_hash)

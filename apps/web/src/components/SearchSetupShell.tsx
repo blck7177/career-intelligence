@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useTranslations } from "next-intl";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createRun, getProfile, listProfiles, listRuns, updateSearchDefaults } from "@/api/client";
 import type { ProfileRead, RunRead } from "@/api/client";
 import { pollRunUntilDone } from "@/lib/pollRun";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select } from "@/components/ui/select";
+import { PageContainer } from "@/components/ui/page-container";
 import {
   Loader2,
   Play,
@@ -66,26 +69,42 @@ function csvToList(val: string): string[] {
     .filter(Boolean);
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  queued: "Queued",
-  running: "In Progress",
-  succeeded: "Completed",
-  failed: "Failed",
-  needs_review: "Needs Review",
-  cancelled: "Cancelled",
+const STATUS_KEY_MAP: Record<string, string> = {
+  queued: "statusQueued",
+  running: "statusRunning",
+  succeeded: "statusSucceeded",
+  failed: "statusFailed",
+  needs_review: "statusNeedsReview",
+  cancelled: "statusCancelled",
 };
-
-function humanStatus(s: string) {
-  return STATUS_LABELS[s] ?? s.replace(/_/g, " ");
-}
 
 function statusBadgeClass(status: string): string {
   if (status === "succeeded") return "bg-emerald-100 text-emerald-700";
   if (status === "running") return "bg-blue-100 text-blue-700";
-  if (status === "queued") return "bg-zinc-100 text-zinc-600";
+  if (status === "queued") return "bg-[var(--muted)] text-[var(--ink-secondary)]";
   if (status === "needs_review") return "bg-amber-100 text-amber-700";
   if (status === "failed") return "bg-rose-100 text-rose-700";
-  return "bg-zinc-100 text-zinc-500";
+  return "bg-[var(--muted)] text-[var(--ink-muted)]";
+}
+
+// Wizard step header: a numbered badge makes "step 1 of 3" legible at a glance
+// instead of relying on copy alone, and the larger/bolder title gives each
+// phase of the wizard a real heading instead of a same-weight caption line.
+function StepHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <span
+        className="flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0 mt-0.5"
+        style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+      >
+        {step}
+      </span>
+      <div>
+        <h2 className="text-lg font-bold leading-tight" style={{ color: "var(--ink-primary)" }}>{title}</h2>
+        <p className="text-xs mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>{subtitle}</p>
+      </div>
+    </div>
+  );
 }
 
 function StatusIcon({ status }: { status: string }) {
@@ -93,7 +112,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === "failed") return <XCircle size={13} className="text-rose-500 shrink-0" />;
   if (status === "needs_review") return <AlertCircle size={13} className="text-amber-500 shrink-0" />;
   if (status === "running") return <Circle size={13} className="text-blue-500 animate-pulse shrink-0" />;
-  return <Clock size={13} className="text-zinc-400 shrink-0" />;
+  return <Clock size={13} className="text-[var(--ink-muted)] shrink-0" />;
 }
 
 function resolveSearchMode(source: SearchSource, criteriaMode: SearchMode): SearchMode {
@@ -110,49 +129,49 @@ function resolveRawRequest(source: SearchSource, userRequest: string): string {
 const SOURCE_OPTIONS: Array<{
   id: SearchSource;
   icon: React.ReactNode;
-  title: string;
-  subtitle: string;
+  titleKey: string;
+  subtitleKey: string;
 }> = [
   {
     id: "instruction_plus_profile",
     icon: <Compass size={18} />,
-    title: "Criteria + profile",
-    subtitle: "Your direction leads; profile enriches search lanes",
+    titleKey: "sourceCriteriaProfileTitle",
+    subtitleKey: "sourceCriteriaProfileSubtitle",
   },
   {
     id: "instruction_only",
     icon: <Sliders size={18} />,
-    title: "Criteria only",
-    subtitle: "Search from your written criteria",
+    titleKey: "sourceCriteriaOnlyTitle",
+    subtitleKey: "sourceCriteriaOnlySubtitle",
   },
   {
     id: "profile_only",
     icon: <BookUser size={18} />,
-    title: "Profile only",
-    subtitle: "Explore roles aligned with your saved profile",
+    titleKey: "sourceProfileOnlyTitle",
+    subtitleKey: "sourceProfileOnlySubtitle",
   },
 ];
 
 const HOW_IT_WORKS = [
   {
     icon: <Search size={16} className="text-[var(--primary)]" />,
-    title: "Choose your search source",
-    desc: "Pick profile-guided, criteria-only, or a combination based on how you want to search.",
+    titleKey: "step1HowTitle",
+    descKey: "step1HowDesc",
   },
   {
     icon: <Sparkles size={16} className="text-amber-500" />,
-    title: "Run discovery",
-    desc: "The career-search agent browses job boards and company career pages.",
+    titleKey: "step2HowTitle",
+    descKey: "step2HowDesc",
   },
   {
     icon: <Inbox size={16} className="text-emerald-500" />,
-    title: "Review Role Inbox",
-    desc: "Verified candidates land in your inbox — sort and analyze fit from there.",
+    titleKey: "step3HowTitle",
+    descKey: "step3HowDesc",
   },
   {
     icon: <FileText size={16} className="text-blue-500" />,
-    title: "Analyze fit",
-    desc: "Generate Job Intelligence Reports and Fit Reports for decision-making.",
+    titleKey: "step4HowTitle",
+    descKey: "step4HowDesc",
   },
 ];
 
@@ -161,6 +180,8 @@ const HOW_IT_WORKS = [
 // ---------------------------------------------------------------------------
 
 export function SearchSetupShell() {
+  const t = useTranslations("searchSetup");
+  const tRuns = useTranslations("runs");
   const router = useRouter();
   const getToken = useApiToken();
 
@@ -279,21 +300,21 @@ export function SearchSetupShell() {
 
   async function handleStartDiscovery() {
     if (!profile?.id) {
-      setError("Set up your profile before starting discovery.");
+      setError(t("setProfileBeforeStarting"));
       setPhase("error");
       return;
     }
 
     const request = resolveRawRequest(searchSource, rawUserRequest);
     if (request.length < 5) {
-      setError("Please describe what you're looking for (at least 5 characters).");
+      setError(t("describeWhatLooking"));
       return;
     }
 
     setLoading(true);
     setError(null);
     setPhase("polling");
-    setPollStatus("Starting discovery…");
+    setPollStatus(t("startingDiscoveryEllipsis"));
 
     try {
       const token = await getToken();
@@ -324,7 +345,7 @@ export function SearchSetupShell() {
         token,
       );
 
-      setPollStatus("Searching for roles…");
+      setPollStatus(t("searchingForRoles"));
       const finished = await pollRunUntilDone(run.id, getToken);
 
       if (finished.status !== "succeeded") {
@@ -343,7 +364,7 @@ export function SearchSetupShell() {
       setPhase("done");
       loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start discovery run");
+      setError(err instanceof Error ? err.message : t("failedToStartDiscovery"));
       setPhase("error");
     } finally {
       setLoading(false);
@@ -364,18 +385,30 @@ export function SearchSetupShell() {
   function renderWizardCard() {
     if (profileLoading) {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-8 flex justify-center">
-          <Loader2 size={20} className="animate-spin text-zinc-400" />
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
+          <div className="flex items-start gap-2.5">
+            <Skeleton className="w-6 h-6 rounded-full shrink-0" />
+            <div className="space-y-1.5 flex-1">
+              <Skeleton className="h-4 w-1/3" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          </div>
+          <Skeleton className="h-16 w-full rounded-lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
         </div>
       );
     }
 
     if (!profile) {
       return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 space-y-3">
-          <p className="text-sm text-amber-800">No profile found. Set up your candidate profile first.</p>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-[var(--space-surface-spacious)] space-y-[var(--space-stack-sm)]">
+          <p className="text-sm text-amber-800">{t("noProfileFound")}</p>
           <Link href="/profile">
-            <Button size="sm">Set up Profile</Button>
+            <Button size="sm">{t("setUpProfile")}</Button>
           </Link>
         </div>
       );
@@ -383,11 +416,11 @@ export function SearchSetupShell() {
 
     if (phase === "polling") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-8 text-center space-y-4">
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] text-center space-y-4">
           <Loader2 size={28} className="animate-spin text-[var(--primary)] mx-auto" />
           <div>
-            <p className="text-sm font-medium text-zinc-800">{pollStatus}</p>
-            <p className="text-xs text-zinc-500 mt-1">This may take a few minutes.</p>
+            <p className="text-sm font-medium text-[var(--ink-primary)]">{pollStatus}</p>
+            <p className="text-xs text-[var(--ink-muted)] mt-1">{t("thisMayTakeAFewMinutes")}</p>
           </div>
         </div>
       );
@@ -395,22 +428,22 @@ export function SearchSetupShell() {
 
     if (phase === "done") {
       return (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-6 space-y-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-[var(--space-surface-spacious)] space-y-4">
           <div className="flex items-center gap-2">
             <CheckCircle2 size={20} className="text-emerald-600" />
-            <p className="text-sm font-semibold text-emerald-900">Discovery complete</p>
+            <p className="text-sm font-semibold text-emerald-900">{t("discoveryComplete")}</p>
           </div>
           <p className="text-sm text-emerald-800">
             {candidateCount != null
-              ? `${candidateCount} role${candidateCount === 1 ? "" : "s"} added to your Role Inbox.`
-              : "New roles have been added to your Role Inbox."}
+              ? t("rolesAdded", { count: candidateCount })
+              : t("newRolesAdded")}
           </p>
           <div className="flex gap-2 flex-wrap">
             <Button size="sm" onClick={() => router.push("/jobs")}>
-              Go to Role Inbox
+              {t("goToRoleInbox")}
             </Button>
             <Button size="sm" variant="outline" onClick={resetWizard}>
-              Start another search
+              {t("startAnotherSearch")}
             </Button>
           </div>
         </div>
@@ -419,10 +452,10 @@ export function SearchSetupShell() {
 
     if (phase === "error") {
       return (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 space-y-4">
-          <p className="text-sm text-rose-800">{error ?? "Something went wrong."}</p>
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-[var(--space-surface-spacious)] space-y-4">
+          <p className="text-sm text-rose-800">{error ?? t("somethingWentWrong")}</p>
           <Button size="sm" variant="outline" onClick={resetWizard}>
-            Try again
+            {t("tryAgain")}
           </Button>
         </div>
       );
@@ -430,50 +463,46 @@ export function SearchSetupShell() {
 
     if (phase === "source-select") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-800">Step 1 — Search source</h2>
-            <p className="text-xs text-zinc-500 mt-1">What should drive this discovery run?</p>
-          </div>
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
+          <StepHeader step={1} title={t("step1Title")} subtitle={t("step1Subtitle")} />
 
           {profileNeedsSetup && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-              Your profile still looks like the default template.{" "}
+              {t("profileDefaultWarning")}{" "}
               <Link href="/profile" className="font-medium underline">
-                Personalize it
+                {t("personalizeIt")}
               </Link>{" "}
-              for better profile-guided results.
+              {t("forBetterResults")}
             </div>
           )}
 
-          <div className="rounded-lg border border-zinc-100 bg-zinc-50 px-4 py-3 text-xs text-zinc-600 space-y-2">
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-4 py-3 text-xs text-[var(--ink-secondary)] space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium text-zinc-700">
-                {allProfiles.length > 1 ? "Selected profile:" : "Your profile:"}
+              <span className="font-medium text-[var(--ink-secondary)]">
+                {allProfiles.length > 1 ? t("selectedProfile") : t("yourProfile")}
               </span>
               <Link href="/profile" className="text-[var(--primary)] hover:underline">
-                Edit
+                {t("edit")}
               </Link>
             </div>
             {allProfiles.length > 1 && (
-              <select
+              <Select
+                size="sm"
                 value={profile.id}
-                onChange={(e) => {
-                  const p = allProfiles.find((x) => x.id === e.target.value);
+                onValueChange={(id) => {
+                  const p = allProfiles.find((x) => x.id === id);
                   if (p) {
                     setProfile(p);
                     applySearchDefaults((p as ProfileRead & { search_defaults?: Record<string, unknown> }).search_defaults);
                   }
                 }}
-                className="w-full rounded-md border border-zinc-200 px-2 py-1.5 text-xs text-zinc-800 bg-white focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-              >
-                {allProfiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label || `Profile (${p.id.slice(0, 8)})`}
-                    {p.summary ? ` — ${p.summary.slice(0, 50)}` : ""}
-                  </option>
-                ))}
-              </select>
+                options={allProfiles.map((p) => ({
+                  value: p.id,
+                  label:
+                    (p.label || t("profileFallback", { id: p.id.slice(0, 8) })) +
+                    (p.summary ? ` — ${p.summary.slice(0, 50)}` : ""),
+                }))}
+              />
             )}
             {allProfiles.length <= 1 && (
               <div>
@@ -493,15 +522,15 @@ export function SearchSetupShell() {
                   "w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all",
                   searchSource === opt.id
                     ? "border-[var(--primary)] bg-[var(--secondary)]"
-                    : "border-zinc-200 hover:border-zinc-300 bg-white",
+                    : "border-[var(--border)] hover:border-[var(--ink-faint)] bg-white",
                 ].join(" ")}
               >
-                <span className={searchSource === opt.id ? "text-[var(--primary)]" : "text-zinc-400"}>
+                <span className={searchSource === opt.id ? "text-[var(--primary)]" : "text-[var(--ink-muted)]"}>
                   {opt.icon}
                 </span>
                 <span>
-                  <span className="block text-sm font-medium text-zinc-800">{opt.title}</span>
-                  <span className="block text-xs text-zinc-500 mt-0.5">{opt.subtitle}</span>
+                  <span className="block text-sm font-medium text-[var(--ink-primary)]">{t(opt.titleKey)}</span>
+                  <span className="block text-xs text-[var(--ink-muted)] mt-0.5">{t(opt.subtitleKey)}</span>
                 </span>
               </button>
             ))}
@@ -511,7 +540,7 @@ export function SearchSetupShell() {
             className="w-full"
             onClick={() => setPhase(needsCriteria ? "criteria" : "depth-submit")}
           >
-            Continue
+            {t("continueBtn")}
             <ChevronRight size={14} className="ml-1" />
           </Button>
         </div>
@@ -520,35 +549,32 @@ export function SearchSetupShell() {
 
     if (phase === "criteria") {
       return (
-        <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-800">Step 2 — Search criteria</h2>
-            <p className="text-xs text-zinc-500 mt-1">Describe the roles you want to find.</p>
-          </div>
+        <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
+          <StepHeader step={2} title={t("step2Title")} subtitle={t("step2Subtitle")} />
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium text-zinc-700">
-              What are you looking for?{" "}
-              <span className="text-rose-400 font-normal">required</span>
+            <label className="text-sm font-medium text-[var(--ink-secondary)]">
+              {t("whatLookingFor")}{" "}
+              <span className="text-rose-400 font-normal">{t("required")}</span>
             </label>
             <textarea
               rows={4}
-              placeholder="e.g. Market risk VP roles at mid-size banks in NYC, quantitative background preferred..."
+              placeholder={t("criteriaPlaceholder")}
               value={rawUserRequest}
               onChange={(e) => setRawUserRequest(e.target.value)}
-              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
+              className="w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2.5 text-sm text-[var(--ink-primary)] placeholder-[var(--ink-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/40 focus:bg-white transition-colors resize-none"
             />
-            <p className="text-xs text-zinc-400">
+            <p className="text-xs text-[var(--ink-muted)]">
               {rawUserRequest.trim().length < 5
-                ? `${5 - rawUserRequest.trim().length} more characters needed`
-                : `${rawUserRequest.trim().length} characters`}
+                ? t("moreCharsNeeded", { count: 5 - rawUserRequest.trim().length })
+                : t("charsCount", { count: rawUserRequest.trim().length })}
             </p>
           </div>
 
           {searchSource === "instruction_only" && (
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-zinc-700">Search style</label>
-              <div className="grid grid-cols-2 gap-2">
+              <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchStyle")}</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {(["direct", "exploratory"] as const).map((mode) => (
                   <button
                     key={mode}
@@ -558,17 +584,17 @@ export function SearchSetupShell() {
                       "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                       criteriaMode === mode
                         ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
-                        : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
+                        : "border-[var(--border)] text-[var(--ink-secondary)] hover:border-[var(--ink-faint)] bg-white",
                     ].join(" ")}
                   >
-                    <span className="block font-medium capitalize">{mode}</span>
+                    <span className="block font-medium">{mode === "direct" ? t("modeDirectLabel") : t("modeExploratoryLabel")}</span>
                     <span
                       className={[
-                        "block text-[11px] mt-0.5",
-                        criteriaMode === mode ? "text-white/60" : "text-zinc-400",
+                        "block text-2xs mt-0.5",
+                        criteriaMode === mode ? "text-white/60" : "text-[var(--ink-muted)]",
                       ].join(" ")}
                     >
-                      {mode === "direct" ? "Exact match" : "Broader search"}
+                      {mode === "direct" ? t("exactMatch") : t("broaderSearch")}
                     </span>
                   </button>
                 ))}
@@ -582,14 +608,14 @@ export function SearchSetupShell() {
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setPhase("source-select")}>
               <ChevronLeft size={14} className="mr-1" />
-              Back
+              {t("back")}
             </Button>
             <Button
               className="flex-1"
               disabled={!canProceedCriteria}
               onClick={() => setPhase("depth-submit")}
             >
-              Continue
+              {t("continueBtn")}
               <ChevronRight size={14} className="ml-1" />
             </Button>
           </div>
@@ -599,22 +625,19 @@ export function SearchSetupShell() {
 
     // depth-submit
     return (
-      <div className="rounded-xl border border-zinc-200 bg-white p-6 space-y-5">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-800">Step 3 — Depth & launch</h2>
-          <p className="text-xs text-zinc-500 mt-1">How thoroughly should the agent search?</p>
-        </div>
+      <div className="rounded-xl border border-[var(--border)] bg-white p-[var(--space-surface-spacious)] space-y-[var(--space-stack-md)]">
+        <StepHeader step={3} title={t("step3Title")} subtitle={t("step3Subtitle")} />
 
         <div className="space-y-1.5">
-          <label className="text-sm font-medium text-zinc-700">Search Depth</label>
-          <div className="grid grid-cols-3 gap-2">
+          <label className="text-sm font-medium text-[var(--ink-secondary)]">{t("searchDepthLabel")}</label>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             {(
               [
-                { val: "quick" as const, hint: "~20 candidates" },
-                { val: "standard" as const, hint: "~50 candidates" },
-                { val: "deep" as const, hint: "~100 candidates" },
+                { val: "quick" as const, labelKey: "depthQuickLabel", hintKey: "depthQuickHint" },
+                { val: "standard" as const, labelKey: "depthStandardLabel", hintKey: "depthStandardHint" },
+                { val: "deep" as const, labelKey: "depthDeepLabel", hintKey: "depthDeepHint" },
               ] as const
-            ).map(({ val, hint }) => (
+            ).map(({ val, labelKey, hintKey }) => (
               <button
                 key={val}
                 type="button"
@@ -623,17 +646,17 @@ export function SearchSetupShell() {
                   "py-2 px-3 text-sm rounded-lg border transition-all text-left",
                   searchDepth === val
                     ? "border-[var(--primary)] bg-[var(--primary)] text-white font-medium"
-                    : "border-zinc-200 text-zinc-600 hover:border-zinc-400 bg-white",
+                    : "border-[var(--border)] text-[var(--ink-secondary)] hover:border-[var(--ink-faint)] bg-white",
                 ].join(" ")}
               >
-                <span className="block font-medium capitalize">{val}</span>
+                <span className="block font-medium">{t(labelKey)}</span>
                 <span
                   className={[
-                    "block text-[11px] mt-0.5",
-                    searchDepth === val ? "text-white/60" : "text-zinc-400",
+                    "block text-2xs mt-0.5",
+                    searchDepth === val ? "text-white/60" : "text-[var(--ink-muted)]",
                   ].join(" ")}
                 >
-                  {hint}
+                  {t(hintKey)}
                 </span>
               </button>
             ))}
@@ -660,18 +683,15 @@ export function SearchSetupShell() {
             onClick={() => setPhase(needsCriteria ? "criteria" : "source-select")}
           >
             <ChevronLeft size={14} className="mr-1" />
-            Back
+            {t("back")}
           </Button>
-          <Button className="flex-1" disabled={loading} onClick={handleStartDiscovery}>
+          <Button className="flex-1" loading={loading} shimmer onClick={handleStartDiscovery}>
             {loading ? (
-              <>
-                <Loader2 size={14} className="animate-spin mr-2" />
-                Starting…
-              </>
+              t("starting")
             ) : (
               <>
                 <Play size={14} className="mr-2" />
-                Start Discovery
+                {t("startDiscovery")}
               </>
             )}
           </Button>
@@ -682,92 +702,93 @@ export function SearchSetupShell() {
 
   function renderConstraintsSection() {
     return (
-      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+      <div className="rounded-lg border border-[var(--border)] overflow-hidden">
         <button
           type="button"
           onClick={() => setConstraintsOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
         >
-          <span>Hard Constraints</span>
-          <span className="flex items-center gap-1 text-xs text-zinc-400">
-            {constraintsOpen ? "hide" : "show"}
+          <span>{t("hardConstraints")}</span>
+          <span className="flex items-center gap-1 text-xs text-[var(--ink-muted)]">
+            {constraintsOpen ? t("hide") : t("show")}
             {constraintsOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
 
         {constraintsOpen && (
-          <div className="px-4 pb-4 space-y-3 border-t border-zinc-100 bg-zinc-50">
-            <div className="grid grid-cols-2 gap-3 pt-3">
+          <div className="px-4 pb-4 space-y-3 border-t border-[var(--border)] bg-[var(--muted)]">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Location</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("location")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="NYC, remote US..."
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  placeholder={t("locationPlaceholder")}
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Work Arrangement</label>
-                <select
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("workArrangement")}</label>
+                <Select
+                  size="sm"
                   value={workArrangement}
-                  onChange={(e) => setWorkArrangement(e.target.value as WorkArrangement)}
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                >
-                  <option value="">No preference</option>
-                  <option value="hybrid">Hybrid</option>
-                  <option value="remote">Remote</option>
-                  <option value="onsite">Onsite</option>
-                  <option value="any">Any</option>
-                </select>
+                  onValueChange={(v) => setWorkArrangement(v as WorkArrangement)}
+                  options={[
+                    { value: "", label: t("noPreference") },
+                    { value: "hybrid", label: t("hybrid") },
+                    { value: "remote", label: t("remote") },
+                    { value: "onsite", label: t("onsite") },
+                    { value: "any", label: t("any") },
+                  ]}
+                />
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Seniority (comma-separated)</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("seniorityCsv")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="analyst, associate, avp, vp"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                placeholder={t("seniorityPlaceholder")}
                 value={seniority}
                 onChange={(e) => setSeniority(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Must include keywords</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("mustIncludeKeywords")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="market risk, quantitative"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                placeholder={t("mustIncludePlaceholder")}
                 value={mustIncludeKeywords}
                 onChange={(e) => setMustIncludeKeywords(e.target.value)}
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">Exclude role types</label>
+              <label className="text-xs font-medium text-[var(--ink-muted)]">{t("excludeRoleTypes")}</label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="model_validation, pure_audit"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                placeholder={t("excludePlaceholder")}
                 value={excludeRoleTypes}
                 onChange={(e) => setExcludeRoleTypes(e.target.value)}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Compensation range</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("compensationRange")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="$120k–$160k"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  placeholder={t("compensationPlaceholder")}
                   value={compensationRange}
                   onChange={(e) => setCompensationRange(e.target.value)}
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-zinc-500">Visa note</label>
+                <label className="text-xs font-medium text-[var(--ink-muted)]">{t("visaNote")}</label>
                 <input
-                  className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                  placeholder="H1B transfer only"
+                  className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                  placeholder={t("visaPlaceholder")}
                   value={visaNote}
                   onChange={(e) => setVisaNote(e.target.value)}
                 />
@@ -781,34 +802,33 @@ export function SearchSetupShell() {
 
   function renderSoftPreferencesSection() {
     return (
-      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+      <div className="rounded-lg border border-[var(--border)] overflow-hidden">
         <button
           type="button"
           onClick={() => setSoftPreferencesOpen((o) => !o)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-[var(--ink-secondary)] hover:bg-[var(--muted)] transition-colors"
         >
-          <span>Soft Preferences</span>
-          <span className="flex items-center gap-1 text-xs text-zinc-400">
-            {softPreferencesOpen ? "hide" : "show"}
+          <span>{t("softPreferences")}</span>
+          <span className="flex items-center gap-1 text-xs text-[var(--ink-muted)]">
+            {softPreferencesOpen ? t("hide") : t("show")}
             {softPreferencesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           </span>
         </button>
 
         {softPreferencesOpen && (
-          <div className="px-4 pb-4 space-y-2 border-t border-zinc-100 bg-zinc-50 pt-3">
+          <div className="px-4 pb-4 space-y-2 border-t border-[var(--border)] bg-[var(--muted)] pt-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500">
-                Soft preferences (prefer / ideally)
+              <label className="text-xs font-medium text-[var(--ink-muted)]">
+                {t("softPreferencesLabel")}
               </label>
               <input
-                className="w-full rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
-                placeholder="prefer buy-side, market-facing analytics, automation-heavy workflow"
+                className="w-full rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-[var(--primary)]/50"
+                placeholder={t("softPreferencesPlaceholder")}
                 value={softPreferences}
                 onChange={(e) => setSoftPreferences(e.target.value)}
               />
-              <p className="text-[11px] text-zinc-400">
-                Influence ranking and expansion; do not exclude jobs. Use &quot;Exclude role
-                types&quot; for hard exclusions.
+              <p className="text-2xs text-[var(--ink-muted)]">
+                {t("softPreferencesHint")}
               </p>
             </div>
           </div>
@@ -818,35 +838,36 @@ export function SearchSetupShell() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-10">
+    <div className="flex-1 overflow-y-auto">
+    <PageContainer variant="narrow" className="space-y-[var(--space-stack-xl)]">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900">Search Setup</h1>
-        <p className="text-zinc-500 text-sm mt-1">
-          Choose a profile, set your direction, and launch discovery into your Role Inbox.
+        <h1 className="text-2xl font-bold text-[var(--ink-primary)]">{t("title")}</h1>
+        <p className="text-[var(--ink-muted)] text-sm mt-[var(--space-stack-xs)]">
+          {t("subtitle")}
         </p>
       </div>
 
       {renderWizardCard()}
 
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">How it works</h2>
+        <h2 className="text-sm font-semibold text-[var(--ink-secondary)] uppercase tracking-wider">{t("howItWorks")}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {HOW_IT_WORKS.map((step, i) => (
             <div
               key={i}
-              className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-4"
+              className="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-white p-[var(--space-surface-compact)]"
             >
-              <div className="w-8 h-8 rounded-lg bg-zinc-50 border border-zinc-100 flex items-center justify-center shrink-0">
+              <div className="w-8 h-8 rounded-lg bg-[var(--muted)] border border-[var(--border)] flex items-center justify-center shrink-0">
                 {step.icon}
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  <span className="text-2xs font-bold text-[var(--ink-muted)] uppercase tracking-wider">
                     {i + 1}
                   </span>
-                  <p className="text-sm font-medium text-zinc-800">{step.title}</p>
+                  <p className="text-sm font-medium text-[var(--ink-primary)]">{t(step.titleKey)}</p>
                 </div>
-                <p className="text-xs text-zinc-500 leading-relaxed">{step.desc}</p>
+                <p className="text-xs text-[var(--ink-muted)] leading-relaxed">{t(step.descKey)}</p>
               </div>
             </div>
           ))}
@@ -855,46 +876,46 @@ export function SearchSetupShell() {
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-zinc-700 uppercase tracking-wider">Recent Searches</h2>
-          <Link href="/runs" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">
-            View all →
+          <h2 className="text-sm font-semibold text-[var(--ink-secondary)] uppercase tracking-wider">{t("recentSearches")}</h2>
+          <Link href="/runs" className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink-secondary)] transition-colors">
+            {t("viewAll")}
           </Link>
         </div>
 
         {runsLoading && (
           <div className="space-y-2">
             {[...Array(3)].map((_, i) => (
-              <div key={i} className="h-14 rounded-lg border border-zinc-100 bg-zinc-50 animate-pulse" />
+              <div key={i} className="h-14 rounded-lg border border-[var(--border)] bg-[var(--muted)] animate-pulse" />
             ))}
           </div>
         )}
 
         {!runsLoading && recentRuns.length === 0 && (
-          <div className="rounded-lg border border-dashed border-zinc-200 py-8 text-center">
-            <p className="text-xs text-zinc-400">No discovery runs yet. Start your first search above.</p>
+          <div className="rounded-lg border border-dashed border-[var(--border)] py-8 text-center">
+            <p className="text-xs text-[var(--ink-muted)]">{t("noDiscoveryRunsYet")}</p>
           </div>
         )}
 
         {!runsLoading && recentRuns.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-100 overflow-hidden">
+          <div className="rounded-xl border border-[var(--border)] bg-white divide-y divide-[var(--border)] overflow-hidden">
             {recentRuns.map((run) => (
               <Link
                 key={run.id}
                 href={run.status === "succeeded" ? "/jobs" : `/runs/${run.id}`}
-                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-zinc-50 transition-colors"
+                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--muted)] transition-colors"
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <StatusIcon status={run.status} />
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-zinc-700 truncate">Discovery Run</p>
-                    <p className="text-[10px] text-zinc-400">{fmtTs(run.created_at)}</p>
+                    <p className="text-xs font-medium text-[var(--ink-secondary)] truncate">{t("discoveryRun")}</p>
+                    <p className="text-2xs text-[var(--ink-muted)]">{fmtTs(run.created_at)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <Badge className={statusBadgeClass(run.status) + " text-[10px]"}>
-                    {humanStatus(run.status)}
+                  <Badge className={statusBadgeClass(run.status) + " text-2xs"}>
+                    {tRuns(STATUS_KEY_MAP[run.status] ?? "statusQueued")}
                   </Badge>
-                  <ChevronRight size={13} className="text-zinc-300" />
+                  <ChevronRight size={13} className="text-[var(--ink-faint)]" />
                 </div>
               </Link>
             ))}
@@ -902,18 +923,19 @@ export function SearchSetupShell() {
         )}
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 flex items-center justify-between gap-4">
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-4 py-3 flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <Star size={13} className="text-zinc-400 shrink-0" />
-          <p className="text-xs text-zinc-500">
-            After discovery, review roles in{" "}
+          <Star size={13} className="text-[var(--ink-muted)] shrink-0" />
+          <p className="text-xs text-[var(--ink-muted)]">
+            {t("afterDiscoveryPrefix")}{" "}
             <Link href="/jobs" className="font-medium text-[var(--primary)] hover:underline">
-              Role Inbox
+              {t("roleInboxLink")}
             </Link>
             .
           </p>
         </div>
       </div>
+    </PageContainer>
     </div>
   );
 }

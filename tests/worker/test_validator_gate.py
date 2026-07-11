@@ -2,13 +2,19 @@
 Unit tests for the Validator Gate and individual validators.
 No IO — uses temp files and mocked manifests.
 
-Key behaviour changes tested (validator v3):
-  - stop_reason missing → SchemaValidator FAIL
+Key behaviour tested (validator v3):
+  - stop_reason missing → SchemaValidator WARNING (informational only, doesn't block)
   - GatewayTransportValidator: embedded/fallback transport → FAIL; absent file → PASS
   - ToolLedgerValidator: missing file → FAIL; bad sig → FAIL; broken chain → FAIL
-  - DiscoveryEvidenceValidator: 0-result → FAIL; candidates with valid log → PASS
-  - ProvenanceValidator requires coverage_report artifact on non-failed discovery runs
-  - DiscoveryCountValidator: manifest.candidate_count must match pool line count
+  - DiscoveryEvidenceValidator: no candidate_log event at all → FAIL (State A, catches
+    placeholder runs incl. an unevidenced 0-result claim); candidate_log present with
+    candidate_count == 0 → WARNING (State B, genuine evidenced zero-result search);
+    candidates with valid log → PASS (State C)
+  - ProvenanceValidator: missing coverage_report → WARNING (self-authored by the agent,
+    never independently verified even when this was a hard fail)
+  - DiscoveryCountValidator: mismatches are WARNING only — the authoritative check is
+    DiscoveryEvidenceValidator's ledger hash verification, and job persistence reads
+    candidate_pool.jsonl directly rather than trusting manifest.candidate_count
 """
 
 from __future__ import annotations
@@ -197,13 +203,14 @@ class TestSchemaValidator:
         assert result.status == "warning"
         assert any("partial" in w.message.lower() for w in result.warnings)
 
-    def test_fails_when_stop_reason_missing(self):
-        """Missing stop_reason is a hard error."""
+    def test_warns_when_stop_reason_missing(self):
+        """Missing stop_reason is a soft warning — informational only, doesn't
+        block persistence (it's debugging metadata, not evidence integrity)."""
         spec = make_spec()
         manifest = make_discovery_manifest(stop_reason="")
         result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("stop_reason" in e.field for e in result.errors)
+        assert result.status == "warning"
+        assert any("stop_reason" in w.field for w in result.warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -215,12 +222,14 @@ class TestProvenanceValidator:
     def setup_method(self):
         self.v = ProvenanceValidator()
 
-    def test_fails_when_no_coverage_report_for_completed_discovery(self):
+    def test_warns_when_no_coverage_report_for_completed_discovery(self):
+        """coverage_report is a self-authored summary, never independently
+        verified — its absence is a hygiene warning, not a blocking error."""
         spec = make_spec()
         manifest = make_discovery_manifest(artifact_paths={})
         result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("coverage_report" in e.field for e in result.errors)
+        assert result.status == "warning"
+        assert any("coverage_report" in w.field for w in result.warnings)
 
     def test_passes_when_coverage_report_present(self, tmp_path):
         spec = make_spec()
@@ -482,16 +491,31 @@ class TestDiscoveryEvidenceValidator:
     def setup_method(self):
         self.v = DiscoveryEvidenceValidator()
 
-    def test_discovery_evidence_zero_candidates(self, tmp_path, monkeypatch):
-        """0-result run: no signed search proof in v1 → failed."""
+    def test_discovery_evidence_zero_candidates_with_signed_log(self, tmp_path, monkeypatch):
+        """0-result run WITH a real candidate_log event in the signed ledger
+        (State B) → warning only, not failed. A genuinely-evidenced search
+        that honestly found nothing is a normal outcome, not a fraud signal —
+        see docs/runbook.md's three-state discovery gate."""
         monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
         pool = write_pool(tmp_path, 0)
         write_ledger(tmp_path, pool_path=pool, candidate_count=0)
         spec = make_spec(tmp_path=tmp_path)
         manifest = make_discovery_manifest(candidate_count=0)
         result = self.v.validate(manifest, spec)
+        assert result.status == "warning"
+        assert any("0-result" in w.message for w in result.warnings)
+
+    def test_discovery_evidence_zero_candidates_no_signed_log_fails(self, tmp_path, monkeypatch):
+        """0-result run with NO candidate_log event anywhere in the ledger
+        (State A) → failed. Without this, an agent could write a manifest
+        claiming "0 candidates" without ever calling career_log_candidates —
+        indistinguishable from not having searched at all."""
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
+        spec = make_spec(tmp_path=tmp_path)
+        manifest = make_discovery_manifest(candidate_count=0)
+        result = self.v.validate(manifest, spec)
         assert result.status == "failed"
-        assert any("0-result" in e.message for e in result.errors)
+        assert any("candidate_log" in e.message for e in result.errors)
 
     def test_discovery_evidence_no_candidates_no_signed_log(self, tmp_path, monkeypatch):
         """Candidates > 0 but no ledger file → failed (State A)."""
@@ -579,7 +603,11 @@ class TestDiscoveryCountValidator:
         result = self.v.validate(manifest, spec)
         assert result.status == "passed"
 
-    def test_fails_when_count_exceeds_pool_lines(self, tmp_path):
+    def test_warns_when_count_exceeds_pool_lines(self, tmp_path):
+        """Mismatch is a warning, not a block — DiscoveryEvidenceValidator's
+        ledger hash check is the authoritative anti-fabrication gate, and job
+        persistence reads candidate_pool.jsonl directly rather than trusting
+        this field (see search_run.py::_persist_discovered_jobs)."""
         pool = write_pool(tmp_path, 2)
         spec = make_spec()
         manifest = make_discovery_manifest(
@@ -587,15 +615,15 @@ class TestDiscoveryCountValidator:
             artifact_paths={"candidate_pool": str(pool)},
         )
         result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("candidate_count" in e.field for e in result.errors)
+        assert result.status == "warning"
+        assert any("candidate_count" in w.field for w in result.warnings)
 
-    def test_fails_when_count_is_positive_but_no_pool(self):
+    def test_warns_when_count_is_positive_but_no_pool(self):
         spec = make_spec()
         manifest = make_discovery_manifest(candidate_count=3, artifact_paths={})
         result = self.v.validate(manifest, spec)
-        assert result.status == "failed"
-        assert any("candidate_pool" in e.field for e in result.errors)
+        assert result.status == "warning"
+        assert any("candidate_pool" in w.field for w in result.warnings)
 
     def test_passes_non_discovery_manifest(self):
         spec = make_spec()
@@ -677,15 +705,19 @@ class TestValidatorGate:
         assert results[0].status == "failed"
         assert not gate.all_passed(results)
 
-    def test_discovery_count_mismatch_fails_gate(self, tmp_path, monkeypatch):
-        """manifest.candidate_count != pool lines → gate rejects."""
+    def test_discovery_count_mismatch_warns_but_gate_passes(self, tmp_path, monkeypatch):
+        """manifest.candidate_count != pool lines → discovery_count warns but
+        does not block the gate. The pool file itself is real and hash-verified
+        by DiscoveryEvidenceValidator (it wasn't tampered with — just
+        mis-reported in the manifest's own count field), and job persistence
+        ingests directly from candidate_pool.jsonl, never from this field."""
         monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _TEST_SIGNING_KEY)
         pool = write_pool(tmp_path, 2)
         report = write_coverage_report(tmp_path)
         write_ledger(tmp_path, pool_path=pool, candidate_count=2)
         spec = make_spec(tmp_path=tmp_path)
         manifest = make_discovery_manifest(
-            candidate_count=5,  # lies about count
+            candidate_count=5,  # doesn't match pool — but nothing trusts this field
             artifact_paths={
                 "candidate_pool": str(pool),
                 "coverage_report": str(report),
@@ -693,9 +725,9 @@ class TestValidatorGate:
         )
         gate = ValidatorGate()
         results = gate.run(manifest, spec)
-        assert gate.all_passed(results) is False
-        failed_names = {r.validator_name for r in results if r.status == "failed"}
-        assert "discovery_count" in failed_names
+        assert gate.all_passed(results) is True
+        warned_names = {r.validator_name for r in results if r.status == "warning"}
+        assert "discovery_count" in warned_names
 
     def test_embedded_transport_fails_gate(self, tmp_path, monkeypatch):
         """Embedded transport in gateway summary → gate rejects."""

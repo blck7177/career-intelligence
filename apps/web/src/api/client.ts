@@ -110,6 +110,10 @@ export async function cancelRun(runId: string, token?: string | null): Promise<R
   return req<RunRead>(`/api/app/runs/${runId}/cancel`, { method: "POST" }, token);
 }
 
+export async function getResumeDraft(runId: string, token?: string | null): Promise<Record<string, unknown>> {
+  return req<Record<string, unknown>>(`/api/app/runs/${runId}/resume-draft`, undefined, token);
+}
+
 // ---------------------------------------------------------------------------
 // Reports  (/api/app/*)
 // ---------------------------------------------------------------------------
@@ -153,12 +157,21 @@ export async function getLatestJobReport(jobId: string, token?: string | null): 
 // ---------------------------------------------------------------------------
 
 export async function listJobs(
-  params?: { status?: string; include_report_summary?: boolean },
+  params?: {
+    status?: string;
+    include_report_summary?: boolean;
+    favorites_only?: boolean;
+    limit?: number;
+    offset?: number;
+  },
   token?: string | null,
 ): Promise<JobList> {
   const qs = new URLSearchParams();
   if (params?.status) qs.set("status", params.status);
   if (params?.include_report_summary) qs.set("include_report_summary", "true");
+  if (params?.favorites_only) qs.set("favorites_only", "true");
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();
   return req<JobList>(`/api/app/jobs${query ? `?${query}` : ""}`, undefined, token);
 }
@@ -169,6 +182,59 @@ export async function getJob(jobId: string, token?: string | null): Promise<JobR
 
 export async function archiveJob(jobId: string, token?: string | null): Promise<void> {
   await req<void>(`/api/app/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }, token);
+}
+
+export async function favoriteJob(
+  jobId: string,
+  token?: string | null,
+): Promise<{ favorited: boolean }> {
+  return req<{ favorited: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/favorite`,
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function unfavoriteJob(
+  jobId: string,
+  token?: string | null,
+): Promise<{ favorited: boolean }> {
+  return req<{ favorited: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/favorite`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
+export async function batchArchiveJobs(
+  jobIds: string[],
+  token?: string | null,
+): Promise<{ archived_count: number }> {
+  return req<{ archived_count: number }>("/api/app/jobs/batch-archive", {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds }),
+  }, token);
+}
+
+export async function importJob(
+  url: string,
+  token?: string | null,
+): Promise<{ job: JobRead; created: boolean; jd_fetched: boolean }> {
+  return req<{ job: JobRead; created: boolean; jd_fetched: boolean }>("/api/app/jobs/import", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  }, token);
+}
+
+export async function batchAnalyzeJobs(
+  jobIds: string[],
+  profileId?: string | null,
+  token?: string | null,
+): Promise<{ run_ids: string[]; skipped: string[]; report_first?: string[] }> {
+  return req<{ run_ids: string[]; skipped: string[]; report_first?: string[] }>("/api/app/jobs/batch-analyze", {
+    method: "POST",
+    body: JSON.stringify({ job_ids: jobIds, profile_id: profileId }),
+  }, token);
 }
 
 // ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ from apps.worker.router import dispatch
 from apps.worker.tasks.fit_report import handle_fit_report
 from apps.worker.tasks.job_report import handle_job_report
 from apps.worker.tasks.profile_import import handle_profile_import
+from apps.worker.tasks.resume_tailor import handle_resume_tailor
 from apps.worker.tasks.reflect_run import handle_reflect_run
 from apps.worker.tasks.research_run import handle_research_run
 from apps.worker.tasks.search_run import handle_search_run
@@ -29,6 +30,7 @@ from packages.domain.agent_jobs.routing import ExecutionMode
 from packages.infrastructure.db.repositories import RunRepository, TaskEventRepository, TaskRepository
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.observability.logging import set_correlation_id
+from packages.infrastructure.redis.locks import WorkspaceLock
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ _DETERMINISTIC_HANDLERS = {
     "job_report": handle_job_report,
     "fit_report": handle_fit_report,
     "profile_import": handle_profile_import,
+    "resume_tailor": handle_resume_tailor,
 }
 
 
@@ -65,51 +68,79 @@ def execute_task(self, *, envelope: dict) -> dict:
         env.attempt,
     )
 
-    with get_session() as session:
-        task_repo = TaskRepository(session)
-        run_repo = RunRepository(session)
-        event_repo = TaskEventRepository(session)
+    lock = WorkspaceLock()
+    lock_owner = f"task:{env.task_id}"
 
-        task_repo.mark_running(env.task_id)
-        run_repo.set_status(env.run_id, "running")
-        event_repo.append(
-            task_id=env.task_id,
-            run_id=env.run_id,
-            event_type="task_claimed",
-            message=f"Worker claimed task (attempt {env.attempt})",
-        )
+    # Per-job lock for job_report/fit_report; per-workspace lock for everything else.
+    lock_scope = env.task_type
+    if env.task_type in ("job_report", "fit_report"):
+        with get_session() as _ls:
+            _run = RunRepository(_ls).get(env.run_id)
+            _job_id = (_run.input_snapshot_json or {}).get("job_id") if _run else None
+        if _job_id:
+            lock_scope = f"{env.task_type}:{_job_id}"
 
-    mode = dispatch(env)
+    with lock.held(env.workspace_id, lock_scope, owner=lock_owner) as acquired:
+        if not acquired:
+            logger.warning(
+                "Lock conflict: workspace=%s task_type=%s already running, failing task %s",
+                env.workspace_id, env.task_type, env.task_id,
+            )
+            with get_session() as session:
+                TaskRepository(session).mark_failed(
+                    env.task_id,
+                    error_code="WORKSPACE_LOCK_CONFLICT",
+                    error_message=f"Another {env.task_type} task is already running for this workspace.",
+                )
+                RunRepository(session).set_status(env.run_id, "failed")
+                TaskEventRepository(session).append(
+                    task_id=env.task_id,
+                    run_id=env.run_id,
+                    event_type="task_skipped",
+                    message=f"Lock conflict: {env.task_type} already running for workspace",
+                )
+            return {"status": "failed", "task_id": env.task_id, "error": "workspace_lock_conflict"}
 
-    try:
-        if mode == ExecutionMode.OPENCLAW:
-            result = _run_openclaw_task(env)
-        else:
-            result = _run_deterministic_task(env)
-    except Exception as exc:
-        # Mark task and run as failed, then return without retrying.
-        # Retrying after an explicit failure would create zombie runs where
-        # the DB already shows "failed" but Celery re-executes the task.
-        # Handlers are responsible for calling _mark_failed for expected
-        # error cases; this catch handles unhandled/unexpected exceptions.
-        logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
         with get_session() as session:
             task_repo = TaskRepository(session)
             run_repo = RunRepository(session)
             event_repo = TaskEventRepository(session)
-            task_repo.mark_failed(
-                env.task_id,
-                error_code="TASK_EXCEPTION",
-                error_message=str(exc)[:500],
-            )
-            run_repo.set_status(env.run_id, "failed")
+
+            task_repo.mark_running(env.task_id)
+            run_repo.set_status(env.run_id, "running")
             event_repo.append(
                 task_id=env.task_id,
                 run_id=env.run_id,
-                event_type="task_failed",
-                message=str(exc)[:500],
+                event_type="task_claimed",
+                message=f"Worker claimed task (attempt {env.attempt})",
             )
-        return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
+
+        mode = dispatch(env)
+
+        try:
+            if mode == ExecutionMode.OPENCLAW:
+                result = _run_openclaw_task(env)
+            else:
+                result = _run_deterministic_task(env)
+        except Exception as exc:
+            logger.exception("Task raised unexpectedly: task_id=%s error=%s", env.task_id, exc)
+            with get_session() as session:
+                task_repo = TaskRepository(session)
+                run_repo = RunRepository(session)
+                event_repo = TaskEventRepository(session)
+                task_repo.mark_failed(
+                    env.task_id,
+                    error_code="TASK_EXCEPTION",
+                    error_message=str(exc)[:500],
+                )
+                run_repo.set_status(env.run_id, "failed")
+                event_repo.append(
+                    task_id=env.task_id,
+                    run_id=env.run_id,
+                    event_type="task_failed",
+                    message=str(exc)[:500],
+                )
+            return {"status": "failed", "task_id": env.task_id, "error": str(exc)[:200]}
 
     return result
 

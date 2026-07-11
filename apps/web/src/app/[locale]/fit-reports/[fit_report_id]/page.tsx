@@ -1,0 +1,62 @@
+import { notFound } from "next/navigation";
+import { getTranslations } from "next-intl/server";
+import { Link } from "@/i18n/navigation";
+import { getFitReport, getJob, getProfile } from "@/api/client";
+import { getServerToken } from "@/lib/server-auth";
+import { FitReportTabs } from "@/components/FitReportTabs";
+import { PageContainer } from "@/components/ui/page-container";
+
+export const dynamic = "force-dynamic";
+
+interface PageProps {
+  params: Promise<{ fit_report_id: string }>;
+}
+
+export default async function FitReportPage({ params }: PageProps) {
+  const { fit_report_id } = await params;
+  const token = await getServerToken();
+  const t = await getTranslations("fitReport");
+
+  const report = await getFitReport(fit_report_id, token).catch(() => null);
+  if (!report) notFound();
+
+  const [job, profile] = await Promise.all([
+    getJob(report.job_id, token).catch(() => null),
+    getProfile(token).catch(() => null),
+  ]);
+
+  return (
+    <>
+      <header
+        className="h-14 flex items-center px-7 bg-white shrink-0 gap-4"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
+        <Link
+          href={job ? `/jobs/${report.job_id}` : "/"}
+          className="text-sm hover:underline"
+          style={{ color: "var(--primary)" }}
+        >
+          {job ? t("backToJobDetail") : t("backToInboxShort")}
+        </Link>
+      </header>
+
+      <div className="flex-1 overflow-y-auto">
+        <PageContainer variant="wide" className="space-y-[var(--space-stack-lg)]">
+          <div className="space-y-[var(--space-stack-xs)]">
+            <h1 className="text-lg font-semibold" style={{ color: "var(--ink-primary)" }}>
+              {t("title")}
+            </h1>
+            {job && (
+              <p className="text-sm" style={{ color: "var(--ink-muted)" }}>
+                {job.title} · {job.company}
+                {job.location && <> · {job.location}</>}
+              </p>
+            )}
+          </div>
+
+          <FitReportTabs report={report} job={job} profile={profile} />
+        </PageContainer>
+      </div>
+    </>
+  );
+}

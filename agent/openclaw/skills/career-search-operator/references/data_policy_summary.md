@@ -20,9 +20,9 @@ From `payload.budget`:
 
 | Field | Meaning | Default |
 |-------|---------|---------|
-| `max_tool_calls` | Total tool call limit | 30 |
-| `max_candidates` | Max candidates to log | 50 |
+| `max_tool_calls` | Hard limit on total tool calls | 30 |
+| `max_candidates` | **Target** candidate count — keep searching until close to this number | 50 |
 | `max_new_sources` | Max new sources to add | 10 |
 | `timeout_seconds` | Wall clock timeout (platform enforced) | 900 |
 
-Use `career_search_status` periodically to check usage.
+`max_candidates` is your search **target**, not just a ceiling. Use `career_search_status` after every 5 tool calls to check progress toward this target.

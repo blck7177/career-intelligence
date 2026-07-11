@@ -1,0 +1,181 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap');
+@import "tailwindcss";
+
+/* Type scale — one modular ladder instead of one-off px values tuned by eye
+   per component (13px/12.5px/11.5px etc. used to be scattered across ~90
+   call sites). Whole ladder shifted ~1-2px tighter than Tailwind's stock
+   sizes to match this app's actual density (13px body copy, not 16px) —
+   xs and xl are the only two rungs left at Tailwind's defaults. */
+@theme {
+  --text-2xs: 0.6875rem;   /* 11px — footnotes, mono ids, timestamps */
+  --text-2xs--line-height: 1rem;
+
+  --text-sm: 0.8125rem;    /* 13px — secondary/dense body copy (was 14px) */
+  --text-sm--line-height: 1.125rem;
+
+  --text-base: 0.9375rem;  /* 15px — primary body copy (was 16px) */
+  --text-base--line-height: 1.375rem;
+
+  --text-lg: 1.0625rem;    /* 17px — section subheads (was 18px) */
+  --text-lg--line-height: 1.625rem;
+
+  --text-2xl: 1.375rem;    /* 22px — page headings (was 24px) */
+  --text-2xl--line-height: 1.875rem;
+
+  --text-4xl: 2.5rem;      /* 40px — Metric "hero" size, one big score number per page */
+  --text-4xl--line-height: 1;
+}
+
+:root {
+  --background: oklch(97.5% 0.007 285);
+  --foreground: oklch(18% 0.015 275);
+  --muted: oklch(95% 0.007 285);
+  --muted-foreground: oklch(50% 0.01 275);
+  --border: oklch(91.5% 0.01 280);
+  --card: #ffffff;
+  --card-foreground: oklch(18% 0.015 275);
+  --primary: oklch(52% 0.2 285);
+  --primary-foreground: #ffffff;
+  --secondary: oklch(95.5% 0.033 285);
+  --secondary-foreground: oklch(42% 0.2 285);
+  --accent: oklch(95.5% 0.034 285);
+  --accent-foreground: oklch(44% 0.18 285);
+  --radius: 0.5rem;
+
+  /* Ink scale — one legibility ladder instead of one-off grays scattered
+     per component. Pick by role, not by eyeballing a lightness number. */
+  --ink-primary: oklch(20% 0.015 275);   /* titles, high-emphasis values */
+  --ink-secondary: oklch(36% 0.012 275); /* body copy, list content */
+  --ink-muted: oklch(46% 0.01 275);      /* captions, meta, labels — still clears AA */
+  --ink-faint: oklch(60% 0.008 275);     /* decorative/disabled only, never body text */
+
+  --sidebar-bg: #ffffff;
+  --sidebar-fg: oklch(33% 0.014 275);
+  --sidebar-border: oklch(91.5% 0.01 280);
+  --sidebar-item-hover: oklch(97% 0.007 285);
+  --sidebar-item-active-bg: oklch(95.5% 0.033 285);
+  --sidebar-item-active-fg: oklch(42% 0.2 285);
+
+  --match-strong-bg: oklch(95.5% 0.034 155);
+  --match-strong-fg: oklch(38% 0.12 155);
+  --match-strong-border: oklch(85% 0.04 155);
+  --match-good-bg: oklch(95.5% 0.034 285);
+  --match-good-fg: oklch(44% 0.18 285);
+  --match-good-border: oklch(85% 0.04 285);
+  --match-partial-bg: oklch(96% 0.004 275);
+  --match-partial-fg: oklch(54% 0.01 275);
+  --match-partial-border: oklch(88% 0.008 275);
+
+  /* Button depth — 3-tier shadow used by ui/button.tsx's buttonVariants() */
+  --shadow-btn-rest: 0 1px 2px oklch(0% 0 0 / 0.08), 0 1px 1px oklch(0% 0 0 / 0.04);
+  --shadow-btn-hover: 0 4px 10px oklch(52% 0.2 285 / 0.22), 0 2px 4px oklch(0% 0 0 / 0.06);
+  --shadow-btn-active: 0 1px 2px oklch(0% 0 0 / 0.1);
+  --shadow-btn-rest-soft: 0 1px 2px oklch(0% 0 0 / 0.03);
+  --shadow-btn-hover-soft: 0 3px 8px oklch(0% 0 0 / 0.07);
+  --shadow-btn-hover-outline: 0 2px 6px oklch(0% 0 0 / 0.05);
+  --shadow-btn-hover-destructive: 0 4px 10px oklch(58% 0.2 20 / 0.25), 0 2px 4px oklch(0% 0 0 / 0.06);
+
+  /* Surface padding — picked by density role, same "pick by role, not by
+     number" logic as the ink scale above. */
+  --space-surface-compact: 1rem;      /* 16px — filter panels, inline forms, status/error banners */
+  --space-surface-default: 1.25rem;   /* 20px — Card component default padding */
+  --space-surface-spacious: 1.5rem;   /* 24px — dialogs, sheets, wizard steps, split-pane columns */
+
+  /* Row/hero cards — Home top picks, Jobs/Runs list row cards */
+  --space-row-card-y: 1.25rem;  /* 20px */
+  --space-row-card-x: 1.375rem; /* 22px */
+
+  /* Rail cards — Home's right sidebar rail, denser than main-content cards */
+  --space-rail-card-y: 0.875rem; /* 14px */
+  --space-rail-card-x: 1rem;     /* 16px */
+
+  /* PageContainer's own default gutters */
+  --space-page-x: 1.75rem; /* 28px */
+  --space-page-y: 1.5rem;  /* 24px */
+
+  /* Fixed outer edge for full-bleed multi-column rows (Home, job detail):
+     the browser-edge-facing side of the outermost column, deliberately a
+     constant px value instead of scaling with viewport — see
+     dev_note/career/UI/nav_home_jobdetail_polish_0708.md. Centering these
+     rows with a max-width instead (Every Layout's "Center" pattern) is
+     right for prose columns, not for a dense app row: it leaves a gap that
+     grows with monitor width instead of giving content more room to fill. */
+  --space-row-edge: 3.5rem; /* 56px */
+
+  /* Stack — space *between* sibling blocks (title to next block, banner to
+     list, row to row). Distinct from --space-surface-* above, which is
+     padding *inside* a single container. Picked by role, not by number, same
+     logic as the ink scale. */
+  --space-stack-xs: 0.5rem;  /* 8px  — a caption/subtitle directly under its heading */
+  --space-stack-sm: 0.75rem; /* 12px — items within one visual cluster (tab strip, list rows) */
+  --space-stack-md: 1.25rem; /* 20px — default: adjacent blocks with distinct semantics */
+  --space-stack-lg: 1.5rem;  /* 24px — a major block's closing gap (hero, section break) */
+  --space-stack-xl: 2.5rem;  /* 40px — before the first substantive content of a page (e.g. a wizard's entry card) */
+
+  /* Container / pane widths */
+  --container-narrow: 42rem;        /* 672px, same as max-w-2xl */
+  --container-wide: 64rem;          /* 1024px, same as max-w-5xl */
+  --pane-reference-width: 26.25rem; /* 420px — job detail JD reference pane */
+}
+
+/* Wrapped in Tailwind's own "base" layer (not left unlayered) so utility
+   classes in @layer utilities — .pl-5, .p-4, .mb-5, arbitrary padding/margin
+   values, etc. — can actually override this reset. An unlayered rule always
+   wins over ANY @layer'd rule regardless of selector specificity, so leaving
+   this bare silently zeroed out every padding/margin utility in the app; it
+   was only ever masked by gap-based layouts, borders, and backgrounds. See
+   dev_note/career/UI/nav_home_jobdetail_polish_0708.md for how this was
+   found (the --space-row-edge gutter was the first spacing large and
+   isolated enough to make the missing padding visually obvious). */
+@layer base {
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+}
+
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(87% 0.01 280); border-radius: 3px; }
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.28s ease-out both;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-skeleton-pulse {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes button-shimmer {
+  from { transform: translateX(-150%) skewX(-20deg); }
+  to { transform: translateX(150%) skewX(-20deg); }
+}
+
+.animate-button-shimmer {
+  animation: button-shimmer 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up { animation: none; }
+  .animate-skeleton-pulse { animation: none; }
+  .animate-button-shimmer { animation: none; }
+}

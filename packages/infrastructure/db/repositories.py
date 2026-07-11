@@ -9,6 +9,7 @@ Rules:
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -20,8 +21,10 @@ from packages.infrastructure.db.models import (
     AgentValidationResult,
     Artifact,
     CandidateProfile,
+    CompanySource,
     FitReport,
     Job,
+    JobFavorite,
     JobReport,
     LLMUsageEvent,
     Run,
@@ -100,6 +103,24 @@ class WorkspaceRepository:
 
     def get(self, workspace_id: str) -> Optional[Workspace]:
         return self._s.get(Workspace, workspace_id)
+
+    def get_for_update(self, workspace_id: str) -> Optional[Workspace]:
+        """
+        Row-lock this workspace for the rest of the current transaction.
+
+        Used by create_run() to serialize its quota check-then-insert
+        (count_this_month_for_workspace + RunRepository.create) per workspace,
+        closing the race where concurrent requests all read the same
+        under-limit count before any of them commits. See
+        dev_note/career/phase20-launch-hardening/concurrency_test_0711/README.md
+        for the real-concurrency test that demonstrated the race (8 concurrent
+        requests, quota room for 1, all 8 created).
+
+        Blocks the caller if another transaction already holds the lock
+        (e.g. a concurrent create_run for the same workspace) until that
+        transaction commits or rolls back — this is the intended effect.
+        """
+        return self._s.query(Workspace).filter(Workspace.id == workspace_id).with_for_update().one_or_none()
 
     def get_or_raise(self, workspace_id: str) -> Workspace:
         ws = self.get(workspace_id)
@@ -190,6 +211,38 @@ class RunRepository:
         run.result_summary_json = result_summary
         self._s.flush()
         return run
+
+    def get_active_for_workspace(self, workspace_id: str, run_type: str) -> Optional[Run]:
+        """
+        Return the queued/running run of this type for this workspace, if any.
+        Used to report the conflicting run when uq_active_agent_run_per_workspace_type
+        rejects a duplicate insert.
+        """
+        return (
+            self._s.query(Run)
+            .filter(
+                Run.workspace_id == workspace_id,
+                Run.run_type == run_type,
+                Run.status.in_(("queued", "running")),
+            )
+            .order_by(Run.created_at.desc())
+            .first()
+        )
+
+    def count_this_month_for_workspace(self, workspace_id: str, run_type: str) -> int:
+        """Count runs of this type created since the start of the current calendar month (UTC)."""
+        month_start = datetime.now(timezone.utc).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        return (
+            self._s.query(Run)
+            .filter(
+                Run.workspace_id == workspace_id,
+                Run.run_type == run_type,
+                Run.created_at >= month_start,
+            )
+            .count()
+        )
 
     def list_for_workspace(self, workspace_id: str, limit: int = 50) -> list[Run]:
         return (
@@ -546,6 +599,21 @@ class AgentValidationResultRepository:
 # Job
 # ---------------------------------------------------------------------------
 
+_COMPANY_SUFFIX_RE = re.compile(r"\s*[.,]?\s*&?\s*(co|inc|llc|ltd|corp|corporation)\.?$")
+
+
+def _normalize_company_name(name: str) -> str:
+    """
+    Lowercase + strip punctuation and common corporate suffixes so
+    "JPMorgan Chase" and "JPMorgan Chase & Co." compare equal. Company names
+    are extracted independently per source and vary in formatting even for
+    the same employer, so exact string matching under-detects duplicates.
+    """
+    n = name.lower().strip()
+    n = re.sub(r"[.,]", "", n)
+    n = _COMPANY_SUFFIX_RE.sub("", n)
+    return re.sub(r"\s+", " ", n).strip()
+
 
 class JobRepository:
     def __init__(self, session: Session) -> None:
@@ -581,10 +649,12 @@ class JobRepository:
         run_ids: Optional[list[str]] = None,
         status: Optional[str] = None,
         include_archived: bool = False,
+        job_ids: Optional[set[str]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[Job], int]:
-        """List jobs, optionally filtered by run_ids and/or status."""
+        """List jobs, optionally filtered by run_ids, status, and/or an explicit job_id set
+        (the latter used for favorites_only)."""
         from sqlalchemy import select, func
         stmt = select(Job)
         if run_ids is not None:
@@ -593,6 +663,8 @@ class JobRepository:
             stmt = stmt.where(Job.status == status)
         elif not include_archived:
             stmt = stmt.where(Job.status != "archived")
+        if job_ids is not None:
+            stmt = stmt.where(Job.id.in_(job_ids))
         stmt = stmt.order_by(Job.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = self._s.execute(count_stmt).scalar_one()
@@ -645,6 +717,76 @@ class JobRepository:
         job = self.get_or_raise(job_id)
         job.jd_text = jd_text
         job.jd_hash = jd_hash
+        self._s.flush()
+
+    def merge_raw_payload(self, job_id: str, updates: dict) -> None:
+        """Shallow-merge `updates` into the job's existing raw_payload_json."""
+        job = self.get_or_raise(job_id)
+        job.raw_payload_json = {**(job.raw_payload_json or {}), **updates}
+        self._s.flush()
+
+    def has_company_title_collision(self, company: str, title: str, exclude_job_id: str) -> bool:
+        """
+        True if another job (different id) shares the same title at what
+        looks like the same company (see _normalize_company_name — company
+        names vary in formatting per source, e.g. "JPMorgan Chase" vs
+        "JPMorgan Chase & Co.", so this isn't an exact string match).
+
+        Used to gate auto-promotion of research-backfilled JD text: fetched
+        text can't be reliably tied to one specific posting when the employer
+        has multiple concurrent postings with an identical title (e.g.
+        several req numbers for the same role name).
+        """
+        from sqlalchemy import select
+        stmt = select(Job.company).where(
+            Job.title == title,
+            Job.id != exclude_job_id,
+        )
+        target = _normalize_company_name(company)
+        return any(
+            _normalize_company_name(other_company) == target
+            for (other_company,) in self._s.execute(stmt).all()
+        )
+
+
+# ---------------------------------------------------------------------------
+# JobFavorite — workspace-private bookmark on a (global) job
+# ---------------------------------------------------------------------------
+
+
+class JobFavoriteRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def is_favorited(self, workspace_id: str, job_id: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(JobFavorite.id).where(
+            JobFavorite.workspace_id == workspace_id,
+            JobFavorite.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        from sqlalchemy import select
+
+        stmt = select(JobFavorite.job_id).where(JobFavorite.workspace_id == workspace_id)
+        return set(self._s.execute(stmt).scalars().all())
+
+    def add(self, workspace_id: str, job_id: str) -> None:
+        if self.is_favorited(workspace_id, job_id):
+            return
+        self._s.add(JobFavorite(workspace_id=workspace_id, job_id=job_id))
+        self._s.flush()
+
+    def remove(self, workspace_id: str, job_id: str) -> None:
+        from sqlalchemy import delete
+
+        stmt = delete(JobFavorite).where(
+            JobFavorite.workspace_id == workspace_id,
+            JobFavorite.job_id == job_id,
+        )
+        self._s.execute(stmt)
         self._s.flush()
 
 
@@ -1013,6 +1155,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         """Create or update the default (most recent) profile for a workspace."""
         profile = self.get_for_workspace(workspace_id)
@@ -1029,6 +1172,8 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        if structured_resume_json is not None:
+            profile.structured_resume_json = structured_resume_json
 
         self._s.flush()
         return profile
@@ -1085,6 +1230,100 @@ class SearchStrategyStateRepository:
             last_reflection_task_id=row.last_reflection_task_id,
             updated_at=row.updated_at,
         )
+
+
+# ---------------------------------------------------------------------------
+# Company Sources (ATS board registry)
+# ---------------------------------------------------------------------------
+
+
+class CompanySourceRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_by_board(self, provider: str, token: str) -> Optional[CompanySource]:
+        return (
+            self._s.query(CompanySource)
+            .filter(CompanySource.ats_provider == provider, CompanySource.board_token == token)
+            .first()
+        )
+
+    def list_syncable(self) -> list[CompanySource]:
+        return (
+            self._s.query(CompanySource)
+            .filter(CompanySource.status.in_(("verified", "active")))
+            .all()
+        )
+
+    def list_known(self) -> list[CompanySource]:
+        """All non-blocked boards, plus blocked boards older than 7 days (auto-retry)."""
+        from sqlalchemy import or_
+        retry_cutoff = datetime.now(timezone.utc) - __import__("datetime").timedelta(days=7)
+        return (
+            self._s.query(CompanySource)
+            .filter(
+                or_(
+                    CompanySource.status.in_(("verified", "active", "discovered")),
+                    # blocked boards become retryable after 7 days
+                    (CompanySource.status == "blocked") & (CompanySource.updated_at < retry_cutoff),
+                )
+            )
+            .all()
+        )
+
+    def create(
+        self,
+        *,
+        company_name: str,
+        ats_provider: str,
+        board_token: str,
+        board_api_url: str | None = None,
+        board_careers_url: str | None = None,
+        status: str = "discovered",
+        discovered_run_id: str | None = None,
+        workspace_id: str | None = None,
+        last_verified_at: datetime | None = None,
+        metadata_json: dict | None = None,
+    ) -> CompanySource:
+        row = CompanySource(
+            workspace_id=workspace_id,
+            company_name=company_name,
+            ats_provider=ats_provider,
+            board_token=board_token,
+            board_api_url=board_api_url,
+            board_careers_url=board_careers_url,
+            status=status,
+            discovered_run_id=discovered_run_id,
+            last_verified_at=last_verified_at,
+            metadata_json=metadata_json,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def update_sync_result(
+        self,
+        source_id: str,
+        *,
+        job_count: int,
+        sync_at: datetime,
+        status: str | None = None,
+    ) -> None:
+        row = self._s.query(CompanySource).get(source_id)
+        if row is None:
+            return
+        row.last_sync_at = sync_at
+        row.job_count_last_sync = job_count
+        if status:
+            row.status = status
+        self._s.flush()
+
+    def set_status(self, source_id: str, status: str) -> None:
+        row = self._s.query(CompanySource).get(source_id)
+        if row is None:
+            return
+        row.status = status
+        self._s.flush()
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ import uuid
 
 from celery import Celery
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from apps.api.dependencies.auth import get_current_workspace
@@ -32,10 +33,12 @@ from packages.contracts.api.runs import (
     RunRead,
 )
 from packages.contracts.tasks.envelopes import TaskEnvelope
+from packages.domain.quota.tiers import get_quota_rule
 from packages.infrastructure.db.models import Workspace
 from packages.infrastructure.db.repositories import (
     RunRepository,
     TaskRepository,
+    WorkspaceRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,7 @@ _TASK_TYPE_MAP: dict[str, str] = {
     "job_report": "job_report",
     "fit_report": "fit_report",
     "profile_import": "profile_import",
+    "resume_tailor": "resume_tailor",
 }
 
 
@@ -84,16 +88,66 @@ def create_run(
     run_repo = RunRepository(db)
     task_repo = TaskRepository(db)
 
+    # Row-lock the workspace for the rest of this transaction so the quota
+    # check (count_this_month_for_workspace) and the run insert below happen
+    # atomically w.r.t. any other concurrent create_run for this workspace.
+    # Without this, concurrent requests can all read the same under-limit
+    # count before any of them commits — real-concurrency-tested and
+    # confirmed exploitable (8 concurrent requests, quota room for 1, all 8
+    # created). See
+    # dev_note/career/phase20-launch-hardening/concurrency_test_0711/README.md
+    WorkspaceRepository(db).get_for_update(workspace.id)
+
     task_type = _TASK_TYPE_MAP[body.run_type]
+
+    quota_rule = get_quota_rule(workspace.tier, body.run_type)
+    if quota_rule is not None:
+        search_depth = getattr(body.input_snapshot, "search_depth", None)
+        if (
+            search_depth is not None
+            and quota_rule.allowed_search_depth is not None
+            and search_depth not in quota_rule.allowed_search_depth
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"search_depth={search_depth!r} is not available on the "
+                    f"{workspace.tier!r} tier. Allowed: {list(quota_rule.allowed_search_depth)}."
+                ),
+            )
+
+        if quota_rule.monthly_limit is not None:
+            used = run_repo.count_this_month_for_workspace(workspace.id, body.run_type)
+            if used >= quota_rule.monthly_limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Monthly quota reached for {body.run_type} on the "
+                        f"{workspace.tier!r} tier ({used}/{quota_rule.monthly_limit})."
+                    ),
+                )
 
     correlation_id = str(uuid.uuid4())
 
-    run = run_repo.create(
-        workspace_id=workspace.id,
-        run_type=body.run_type,
-        input_snapshot_json=body.input_snapshot.model_dump(mode="json"),
-        correlation_id=correlation_id,
-    )
+    try:
+        run = run_repo.create(
+            workspace_id=workspace.id,
+            run_type=body.run_type,
+            input_snapshot_json=body.input_snapshot.model_dump(mode="json"),
+            correlation_id=correlation_id,
+        )
+    except IntegrityError:
+        # uq_active_agent_run_per_workspace_type — a queued/running run of this
+        # type already exists for this workspace (see migration x5y6z7a8b9c0).
+        db.rollback()
+        existing = run_repo.get_active_for_workspace(workspace.id, body.run_type)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"A {body.run_type} run is already in progress for this workspace.",
+                "existing_run_id": existing.id if existing else None,
+            },
+        )
 
     idempotency_key = f"{task_type}:{workspace.id}:{run.id}"
 
@@ -154,6 +208,28 @@ def get_run(
         raise HTTPException(status_code=404, detail="Run not found")
     _assert_run_owned(run, workspace)
     return RunRead.model_validate(run)
+
+
+@router.get("/{run_id}/resume-draft")
+def get_resume_draft(
+    run_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+):
+    """Return the resume tailor draft for a completed resume_tailor run."""
+    run = RunRepository(db).get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    _assert_run_owned(run, workspace)
+    if run.run_type != "resume_tailor":
+        raise HTTPException(status_code=400, detail="Not a resume_tailor run")
+    if run.status != "succeeded":
+        raise HTTPException(status_code=409, detail=f"Run not yet complete: {run.status}")
+    summary = run.result_summary_json or {}
+    draft = summary.get("draft", {})
+    if not draft:
+        raise HTTPException(status_code=404, detail="No draft found in run result")
+    return draft
 
 
 @router.post("/{run_id}/cancel", response_model=RunRead)
