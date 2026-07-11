@@ -160,6 +160,7 @@
     "stale": "已过期",
     "invalid": "无效",
     "archived": "已归档",
+    "jdFromMirror": "JD 来自第三方转发，非雇主原始页面",
     "viewPosting": "查看原始职位 →",
     "refreshReport": "刷新报告",
     "generateReport": "生成报告",

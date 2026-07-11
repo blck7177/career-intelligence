@@ -62,7 +62,7 @@ export default async function JobDetailPage({ params }: PageProps) {
     <>
       {/* Header — fixed at top */}
       <header
-        className="shrink-0 bg-white px-7 py-4"
+        className="shrink-0 bg-white px-[var(--space-row-edge)] py-4"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <div className="flex items-center justify-between gap-4">
@@ -78,6 +78,11 @@ export default async function JobDetailPage({ params }: PageProps) {
                 <Badge className={jobStatusBg(job.status) + " text-2xs shrink-0"}>
                   {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
                 </Badge>
+                {job.jd_source === "research_mirror" && (
+                  <Badge className="bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)] text-2xs shrink-0">
+                    {t("jdFromMirror")}
+                  </Badge>
+                )}
               </div>
               <div className="flex items-center gap-2.5 text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
                 <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{job.company}</span>

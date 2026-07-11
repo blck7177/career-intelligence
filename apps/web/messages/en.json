@@ -159,6 +159,7 @@
     "stale": "Stale",
     "invalid": "Invalid",
     "archived": "Archived",
+    "jdFromMirror": "JD from a third-party repost, not the employer's original page",
     "viewPosting": "View posting →",
     "refreshReport": "Refresh Report",
     "generateReport": "Generate Report",
