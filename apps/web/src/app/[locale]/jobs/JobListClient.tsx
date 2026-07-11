@@ -55,7 +55,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<{ message: string; jobId?: string } | null>(null);
   const [pendingRunIds, setPendingRunIds] = useState<string[]>([]);
   const [showImportInput, setShowImportInput] = useState(false);
   const [importUrl, setImportUrl] = useState("");
@@ -150,8 +150,8 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
     }
   }
 
-  function showBanner(msg: string) {
-    setBanner(msg);
+  function showBanner(msg: string, jobId?: string) {
+    setBanner({ message: msg, jobId });
     setTimeout(() => setBanner(null), 6000);
   }
 
@@ -169,6 +169,7 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           company: result.job.company,
           jd,
         }),
+        result.job.id,
       );
       setImportUrl("");
       setShowImportInput(false);
@@ -237,7 +238,14 @@ export function JobListClient({ jobs, fitMap, hasProfile, profileId, favoritesOn
           className="flex items-center justify-between gap-3 mb-3 px-4 py-2.5 rounded-lg text-sm font-medium"
           style={{ background: "oklch(96% 0.015 145)", color: "oklch(30% 0.08 145)", border: "1px solid oklch(88% 0.04 145)" }}
         >
-          <span>{banner}</span>
+          <span className="flex items-center gap-2">
+            {banner.message}
+            {banner.jobId && (
+              <Link href={`/jobs/${banner.jobId}`} className="font-semibold hover:underline">
+                {tCommon("viewRole")}
+              </Link>
+            )}
+          </span>
           <button onClick={() => setBanner(null)} className="text-2xs opacity-60 hover:opacity-100">{t("dismiss")}</button>
         </div>
       )}
