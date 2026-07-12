@@ -35,6 +35,7 @@ from pathlib import Path
 
 import click
 
+from _manifest_identity import resolve_invocation_id
 
 VALID_STATUSES = {"completed", "partial", "failed"}
 _DEFAULT_ARTIFACTS_DIR = "/app/data/agent_artifacts"
@@ -87,6 +88,9 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, manifest_output_path, f"status must be one of {VALID_STATUSES}, got: {status!r}")
         sys.exit(1)
 
+    artifacts_dir = Path(spec.get("artifacts_dir") or os.environ.get("AGENT_ARTIFACTS_DIR", _DEFAULT_ARTIFACTS_DIR))
+    invocation_id = resolve_invocation_id(spec, artifacts_dir)
+
     summary = spec.get("summary", {})
 
     # Promote discovery summary fields to top-level so DiscoveryManifest.model_validate()
@@ -108,7 +112,7 @@ def main(task_spec: str, output: str) -> None:
     patches_proposed = spec.get("patches_proposed", summary.get("patches_proposed", 0))
 
     manifest = {
-        "invocation_id": spec.get("invocation_id", ""),
+        "invocation_id": invocation_id,
         "status": status,
         "stop_reason": spec.get("stop_reason", ""),
         "artifact_paths": spec.get("artifact_paths", {}),
@@ -155,7 +159,6 @@ def main(task_spec: str, output: str) -> None:
             from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
 
             manifest_hash = "sha256:" + hashlib.sha256(manifest_output_path.read_bytes()).hexdigest()
-            invocation_id = spec.get("invocation_id", "")
             run_id = spec.get("run_id", "")
             task_id = spec.get("task_id", "")
             append_signed_event(

@@ -169,3 +169,68 @@ class TestCareerWriteManifestCanonicalWrite:
         assert payload["invocation_id"] == spec["invocation_id"]
         assert payload["candidate_count"] == 2
         assert "manifest_path" not in payload, "ack must not overwrite platform manifest"
+
+
+class TestInvocationIdCorrection:
+    """
+    Regression coverage for the real failure found in 2026-07-11 5-round testing:
+    the agent wrote run_id's value into invocation_id in 4/5 real discovery runs,
+    which SchemaValidator correctly rejects and which silently corrupts
+    DiscoveryEvidenceValidator's ledger-hash check (see _manifest_identity.py).
+    """
+
+    def test_wrong_invocation_id_gets_corrected_from_input_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir()
+        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _KEY)
+
+        real_invocation_id = "d1b5c5d0-3ee4-4caa-81c3-e4ba8ef05271"
+        run_dir = artifacts_root / _CORRECT_RUN_ID / _TASK_ID
+        run_dir.mkdir(parents=True)
+        (run_dir / "input.json").write_text(
+            json.dumps({"invocation_id": real_invocation_id, "run_id": _CORRECT_RUN_ID, "task_id": _TASK_ID})
+        )
+
+        spec = _base_spec(artifacts_root)
+        spec["invocation_id"] = _CORRECT_RUN_ID  # the exact real-world mistake: run_id's value
+        canonical = Path(spec["output_paths"]["output_manifest_path"])
+
+        spec_path = tmp_path / "manifest_spec.json"
+        spec_path.write_text(json.dumps(spec))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--task-spec", str(spec_path), "--output", str(tmp_path / "ack.json")])
+
+        assert result.exit_code == 0, result.output
+        manifest = json.loads(canonical.read_text())
+        assert manifest["invocation_id"] == real_invocation_id, "must be corrected, not the agent's run_id typo"
+
+        tool_events_path = Path(spec["output_paths"]["tool_events_path"])
+        ledger_lines = [json.loads(line) for line in tool_events_path.read_text().splitlines() if line.strip()]
+        manifest_events = [e for e in ledger_lines if e.get("event_type") == "manifest_write"]
+        assert manifest_events[0]["invocation_id"] == real_invocation_id, "ledger event must also carry the corrected id"
+
+    def test_no_input_json_falls_back_to_agent_reported_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """No behavior change when input.json isn't there — purely additive robustness."""
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir()
+        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _KEY)
+
+        spec = _base_spec(artifacts_root)
+        canonical = Path(spec["output_paths"]["output_manifest_path"])
+
+        spec_path = tmp_path / "manifest_spec.json"
+        spec_path.write_text(json.dumps(spec))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--task-spec", str(spec_path), "--output", str(tmp_path / "ack.json")])
+
+        assert result.exit_code == 0, result.output
+        manifest = json.loads(canonical.read_text())
+        assert manifest["invocation_id"] == spec["invocation_id"]

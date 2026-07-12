@@ -23,6 +23,7 @@ from pathlib import Path
 
 import click
 
+from _manifest_identity import resolve_invocation_id
 
 REQUIRED_CANDIDATE_FIELDS = {"url", "title", "company", "source_type"}
 
@@ -111,7 +112,7 @@ def main(task_spec: str, output: str) -> None:
             # DiscoveryEvidenceValidator.candidate_count == pool actual lines even when
             # career_log_candidates is called multiple times across a run.
             pool_count = sum(1 for line in pool_bytes.decode().splitlines() if line.strip())
-            invocation_id = spec.get("invocation_id", "")
+            invocation_id = resolve_invocation_id(spec, artifacts_dir)
             append_signed_event(
                 Path(tool_events_path_str),
                 {
