@@ -44,7 +44,7 @@ from packages.domain.strategy_state import (
     normalize_strategy_patch_raw,
     validate_strategy_patch,
 )
-from packages.infrastructure.agent_runtime.openclaw import create_runtime
+from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
@@ -166,7 +166,7 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = create_runtime()
+    runtime = create_http_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)

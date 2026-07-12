@@ -34,7 +34,7 @@ from packages.contracts.agents.manifests import AgentOutputManifest, ResearchMan
 from packages.contracts.api.runs import JobResearchInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
-from packages.infrastructure.agent_runtime.openclaw import create_runtime
+from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
@@ -185,7 +185,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = create_runtime()
+    runtime = create_http_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)
