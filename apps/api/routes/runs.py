@@ -36,6 +36,7 @@ from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.quota.tiers import get_quota_rule
 from packages.infrastructure.db.models import Workspace
 from packages.infrastructure.db.repositories import (
+    ProfileRepository,
     RunRepository,
     TaskRepository,
     WorkspaceRepository,
@@ -99,6 +100,32 @@ def create_run(
     WorkspaceRepository(db).get_for_update(workspace.id)
 
     task_type = _TASK_TYPE_MAP[body.run_type]
+
+    # Cross-workspace reference checks. body.input_snapshot can carry a
+    # client-supplied id pointing at another workspace's private resource
+    # (a prior run, a candidate profile) — these are not global/shared data
+    # like `jobs`/`job_reports`, so unlike job_id they must be verified to
+    # belong to the calling workspace before use. Found via real-data
+    # incident analysis, not a hypothetical: see
+    # dev_note/career/phase20-launch-hardening/openclaw_http_migration_0712/README.md
+    if body.run_type == "run_reflection":
+        reflected_run_id = getattr(body.input_snapshot, "run_id", None)
+        reflected_run = run_repo.get(reflected_run_id) if reflected_run_id else None
+        if reflected_run is None or reflected_run.workspace_id != workspace.id:
+            raise HTTPException(
+                status_code=403,
+                detail="run_id does not belong to this workspace.",
+            )
+
+    if body.run_type == "job_discovery":
+        profile_id = getattr(body.input_snapshot, "profile_id", None)
+        if profile_id:
+            profile = ProfileRepository(db).get_by_id(profile_id)
+            if profile is None or profile.workspace_id != workspace.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="profile_id does not belong to this workspace.",
+                )
 
     quota_rule = get_quota_rule(workspace.tier, body.run_type)
     if quota_rule is not None:
