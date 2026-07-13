@@ -15,8 +15,51 @@ Trust that over whatever the agent's own spec JSON claims.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+
+
+def resolve_run_task_ids(spec: dict) -> tuple[str, str, bool]:
+    """
+    Return the authoritative (run_id, task_id, trusted) for this wrapper invocation.
+
+    Reads CAREER_TRUE_RUN_ID / CAREER_TRUE_TASK_ID, injected by the
+    career-exec-identity-guard OpenClaw plugin's resolve_exec_env hook from
+    the worker-authoritative session_key (built server-side in
+    packages/domain/agent_jobs/planner.py::build_session_key, never accepted
+    from the agent) — independent of anything the agent typed into its
+    task-spec JSON.
+
+    Fixes the run_reflection failure mode where the agent has two distinct
+    run identities in context (its own run vs. payload.reflected_run_id, the
+    discovery run being analyzed) and sometimes writes the wrong one into
+    run_id/task_id/output_paths.output_manifest_path (see
+    dev_note/career/phase20-launch-hardening/openclaw_http_migration_0712).
+
+    Falls back to the agent-reported spec values when either env var is
+    absent (e.g. the plugin isn't installed in this environment), so this is
+    purely additive robustness — never a new hard-failure mode for the
+    wrapper. `trusted` tells the caller whether the returned ids came from
+    the env (True) or are just the agent's own claim (False).
+    """
+    agent_run_id = str(spec.get("run_id", "") or "")
+    agent_task_id = str(spec.get("task_id", "") or "")
+
+    true_run_id = os.environ.get("CAREER_TRUE_RUN_ID", "")
+    true_task_id = os.environ.get("CAREER_TRUE_TASK_ID", "")
+
+    if not true_run_id or not true_task_id:
+        return agent_run_id, agent_task_id, False
+
+    if true_run_id != agent_run_id or true_task_id != agent_task_id:
+        print(
+            f"INFO: correcting run_id/task_id — agent reported "
+            f"({agent_run_id!r}, {agent_task_id!r}), env says "
+            f"({true_run_id!r}, {true_task_id!r})",
+            file=sys.stderr,
+        )
+    return true_run_id, true_task_id, True
 
 
 def resolve_invocation_id(spec: dict, artifacts_dir: Path) -> str:

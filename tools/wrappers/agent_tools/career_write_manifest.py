@@ -13,8 +13,13 @@ task-spec JSON must contain:
   - output_paths.output_manifest_path (preferred canonical path)
 
 The manifest is always written to the platform-derived canonical path:
-  1. spec["output_paths"]["output_manifest_path"]
-  2. AGENT_ARTIFACTS_DIR / run_id / task_id / "output_manifest.json"
+  1. AGENT_ARTIFACTS_DIR / run_id / task_id / "output_manifest.json", using the
+     worker-authoritative run_id/task_id (CAREER_TRUE_RUN_ID/CAREER_TRUE_TASK_ID env
+     vars, injected by the career-exec-identity-guard OpenClaw plugin) when present
+  2. spec["output_paths"]["output_manifest_path"], only when that trusted identity
+     is unavailable
+  3. AGENT_ARTIFACTS_DIR / run_id / task_id / "output_manifest.json", from the
+     agent-reported run_id/task_id, as a last resort
 
 --output is optional and workspace-relative; it receives a small ack JSON only.
 Agents must not construct manifest paths manually.
@@ -35,28 +40,40 @@ from pathlib import Path
 
 import click
 
-from _manifest_identity import resolve_invocation_id
+from _manifest_identity import resolve_invocation_id, resolve_run_task_ids
 
 VALID_STATUSES = {"completed", "partial", "failed"}
 _DEFAULT_ARTIFACTS_DIR = "/app/data/agent_artifacts"
 
 
-def resolve_manifest_output_path(spec: dict) -> Path:
-    """Derive the canonical output_manifest.json path from task spec (never from CLI)."""
+def resolve_manifest_output_path(
+    spec: dict, run_id: str, task_id: str, trusted: bool, artifacts_dir: Path
+) -> Path:
+    """Derive the canonical output_manifest.json path (never from CLI, never hand-copied).
+
+    When `trusted` is True (worker-authoritative run_id/task_id were resolved via
+    resolve_run_task_ids), the path is always derived from them —
+    spec["output_paths"]["output_manifest_path"] is ignored even if present, because
+    that field is exactly what a confused agent can point at a different run's
+    directory (see resolve_run_task_ids docstring and
+    dev_note/career/phase20-launch-hardening/openclaw_http_migration_0712). Otherwise,
+    falls back to the pre-existing behavior: prefer
+    spec["output_paths"]["output_manifest_path"], else derive from the agent-reported
+    run_id/task_id.
+    """
+    if trusted:
+        return artifacts_dir / run_id / task_id / "output_manifest.json"
+
     output_paths = spec.get("output_paths") or {}
     manifest_path = output_paths.get("output_manifest_path")
     if manifest_path:
         return Path(manifest_path)
 
-    run_id = spec.get("run_id", "")
-    task_id = spec.get("task_id", "")
     if not run_id or not task_id:
         raise ValueError(
             "task spec must include output_paths.output_manifest_path "
             "or both run_id and task_id"
         )
-
-    artifacts_dir = Path(spec.get("artifacts_dir") or os.environ.get("AGENT_ARTIFACTS_DIR", _DEFAULT_ARTIFACTS_DIR))
     return artifacts_dir / run_id / task_id / "output_manifest.json"
 
 
@@ -77,8 +94,11 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, None, f"Failed to read task spec: {exc}")
         sys.exit(1)
 
+    artifacts_dir = Path(spec.get("artifacts_dir") or os.environ.get("AGENT_ARTIFACTS_DIR", _DEFAULT_ARTIFACTS_DIR))
+    run_id, task_id, trusted_ids = resolve_run_task_ids(spec)
+
     try:
-        manifest_output_path = resolve_manifest_output_path(spec)
+        manifest_output_path = resolve_manifest_output_path(spec, run_id, task_id, trusted_ids, artifacts_dir)
     except ValueError as exc:
         _fail(output, None, str(exc))
         sys.exit(1)
@@ -88,7 +108,6 @@ def main(task_spec: str, output: str) -> None:
         _fail(output, manifest_output_path, f"status must be one of {VALID_STATUSES}, got: {status!r}")
         sys.exit(1)
 
-    artifacts_dir = Path(spec.get("artifacts_dir") or os.environ.get("AGENT_ARTIFACTS_DIR", _DEFAULT_ARTIFACTS_DIR))
     invocation_id = resolve_invocation_id(spec, artifacts_dir)
 
     summary = spec.get("summary", {})
@@ -107,8 +126,10 @@ def main(task_spec: str, output: str) -> None:
     jd_text = spec.get("jd_text", summary.get("jd_text"))
 
     # Promote reflect summary fields to top-level so ReflectionManifest.model_validate()
-    # can read them.
-    reflect_run_id = spec.get("run_id", summary.get("run_id"))
+    # can read them. When run_id/task_id are trusted (see resolve_run_task_ids), this
+    # is this reflection task's own run_id, never the agent's self-reported value —
+    # closes the run_id/reflected_run_id mixup described there.
+    reflect_run_id = run_id if trusted_ids else spec.get("run_id", summary.get("run_id"))
     patches_proposed = spec.get("patches_proposed", summary.get("patches_proposed", 0))
 
     manifest = {
@@ -147,6 +168,17 @@ def main(task_spec: str, output: str) -> None:
     # checks every declared path, so phantom entries cause needless failures.
     manifest["artifact_paths"] = _filter_existing_artifacts(manifest["artifact_paths"])
 
+    # With a trusted run_id/task_id, also drop any artifact_paths entry that
+    # resolves outside this run's own directory — the same agent confusion that
+    # can misdirect output_manifest_path can also point reflection_report/
+    # strategy_patch absolute paths into a different run's directory (observed in
+    # dev_note/career/phase20-launch-hardening/openclaw_http_migration_0712). A
+    # manifest must never vouch for another run's files as its own artifacts.
+    if trusted_ids:
+        manifest["artifact_paths"] = _filter_foreign_artifacts(
+            manifest["artifact_paths"], artifacts_dir, run_id, task_id
+        )
+
     manifest_output_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_output_path.write_text(json.dumps(manifest, indent=2))
 
@@ -159,8 +191,6 @@ def main(task_spec: str, output: str) -> None:
             from packages.infrastructure.tool_ledger import append_signed_event  # noqa: PLC0415
 
             manifest_hash = "sha256:" + hashlib.sha256(manifest_output_path.read_bytes()).hexdigest()
-            run_id = spec.get("run_id", "")
-            task_id = spec.get("task_id", "")
             append_signed_event(
                 Path(tool_events_path_str),
                 {
@@ -222,6 +252,23 @@ def _filter_existing_artifacts(artifact_paths: dict) -> dict:
             click.echo(
                 f"INFO: dropping artifact_paths.{artifact_type} — "
                 f"file does not exist: {path_str}",
+                err=True,
+            )
+    return filtered
+
+
+def _filter_foreign_artifacts(artifact_paths: dict, artifacts_dir: Path, run_id: str, task_id: str) -> dict:
+    """Drop artifact_paths entries that resolve outside this run's own directory."""
+    own_dir = (artifacts_dir / run_id / task_id).resolve()
+    filtered = {}
+    for artifact_type, path_str in artifact_paths.items():
+        resolved = Path(path_str).resolve()
+        if resolved.parent == own_dir or own_dir in resolved.parents:
+            filtered[artifact_type] = path_str
+        else:
+            click.echo(
+                f"WARNING: dropping artifact_paths.{artifact_type} — resolves "
+                f"outside this run's directory ({own_dir}): {path_str}",
                 err=True,
             )
     return filtered

@@ -54,18 +54,32 @@ class TestResolveManifestOutputPath:
             "task_id": _TASK_ID,
             "output_paths": {"output_manifest_path": str(tmp_path / "custom" / "manifest.json")},
         }
-        assert resolve_manifest_output_path(spec) == tmp_path / "custom" / "manifest.json"
+        assert resolve_manifest_output_path(spec, _CORRECT_RUN_ID, _TASK_ID, False, tmp_path) == (
+            tmp_path / "custom" / "manifest.json"
+        )
 
-    def test_fallback_artifacts_dir_run_task(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(tmp_path))
+    def test_fallback_artifacts_dir_run_task(self, tmp_path: Path):
         spec = {"run_id": _CORRECT_RUN_ID, "task_id": _TASK_ID}
-        assert resolve_manifest_output_path(spec) == (
+        assert resolve_manifest_output_path(spec, _CORRECT_RUN_ID, _TASK_ID, False, tmp_path) == (
             tmp_path / _CORRECT_RUN_ID / _TASK_ID / "output_manifest.json"
         )
 
-    def test_missing_run_id_raises(self):
+    def test_missing_run_id_raises(self, tmp_path: Path):
         with pytest.raises(ValueError, match="output_manifest_path"):
-            resolve_manifest_output_path({"task_id": _TASK_ID})
+            resolve_manifest_output_path({"task_id": _TASK_ID}, "", _TASK_ID, False, tmp_path)
+
+    def test_trusted_ids_ignore_output_paths(self, tmp_path: Path):
+        """When run_id/task_id are trusted (env-injected), output_paths.output_manifest_path
+        must be ignored even if the agent supplied one — that field is exactly what a
+        confused agent can point at a different run's directory."""
+        spec = {
+            "run_id": "agent-typo-run-id",
+            "task_id": _TASK_ID,
+            "output_paths": {"output_manifest_path": str(tmp_path / "some-other-runs-dir" / "manifest.json")},
+        }
+        assert resolve_manifest_output_path(spec, _CORRECT_RUN_ID, _TASK_ID, True, tmp_path) == (
+            tmp_path / _CORRECT_RUN_ID / _TASK_ID / "output_manifest.json"
+        )
 
 
 class TestCareerWriteManifestCanonicalWrite:
@@ -234,3 +248,109 @@ class TestInvocationIdCorrection:
         assert result.exit_code == 0, result.output
         manifest = json.loads(canonical.read_text())
         assert manifest["invocation_id"] == spec["invocation_id"]
+
+
+class TestRunTaskIdCorrection:
+    """
+    Regression coverage for the real failure found in 2026-07-12 HTTP-path testing:
+    the reflect agent wrote the discovery run's id (payload.reflected_run_id) into
+    run_id/output_paths.output_manifest_path, and wrote reflection_report.md/
+    strategy_patch.json straight into the discovery run's own directory — landing
+    real files in a different run's task directory (see
+    dev_note/career/phase20-launch-hardening/openclaw_http_migration_0712 and
+    _manifest_identity.py::resolve_run_task_ids).
+    """
+
+    def test_wrong_run_id_and_foreign_artifact_get_corrected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir()
+        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _KEY)
+        monkeypatch.setenv("CAREER_TRUE_RUN_ID", _CORRECT_RUN_ID)
+        monkeypatch.setenv("CAREER_TRUE_TASK_ID", _TASK_ID)
+
+        reflected_run_id = "faa66b08-9d36-4ac0-bf57-90142e55350e"  # a *different* run
+        reflected_task_id = "0f4f1927-0000-4000-8000-000000000000"
+
+        # A real file sitting in the OTHER run's directory — simulates the agent
+        # having written reflection_report.md there by mistake.
+        foreign_dir = artifacts_root / reflected_run_id / reflected_task_id
+        foreign_dir.mkdir(parents=True)
+        foreign_report = foreign_dir / "reflection_report.md"
+        foreign_report.write_text("misplaced report")
+
+        canonical = artifacts_root / _CORRECT_RUN_ID / _TASK_ID / "output_manifest.json"
+        tool_events = artifacts_root / _CORRECT_RUN_ID / _TASK_ID / "tool_events.jsonl"
+
+        spec = {
+            "invocation_id": "07843787-69f7-44ac-b294-adcfcee989ab",
+            # the exact real-world mistake: run_id/output path point at the
+            # reflected (discovery) run instead of this reflection's own run
+            "run_id": reflected_run_id,
+            "task_id": _TASK_ID,
+            "status": "completed",
+            "stop_reason": "test",
+            "artifact_paths": {"reflection_report": str(foreign_report)},
+            "summary": {},
+            "output_paths": {
+                "output_manifest_path": str(
+                    artifacts_root / reflected_run_id / _TASK_ID / "output_manifest.json"
+                ),
+                "tool_events_path": str(tool_events),
+            },
+        }
+        spec_path = tmp_path / "manifest_spec.json"
+        spec_path.write_text(json.dumps(spec))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--task-spec", str(spec_path), "--output", str(tmp_path / "ack.json")])
+
+        assert result.exit_code == 0, result.output
+        assert canonical.exists(), "manifest must land under the trusted run/task directory"
+
+        manifest = json.loads(canonical.read_text())
+        assert manifest["run_id"] == _CORRECT_RUN_ID, "run_id must be the trusted one, not reflected_run_id"
+        assert manifest["artifact_paths"] == {}, "artifact pointing into the other run's dir must be dropped"
+
+        ledger_lines = [json.loads(line) for line in tool_events.read_text().splitlines() if line.strip()]
+        manifest_events = [e for e in ledger_lines if e.get("event_type") == "manifest_write"]
+        assert manifest_events[0]["run_id"] == _CORRECT_RUN_ID
+        assert manifest_events[0]["task_id"] == _TASK_ID
+
+    def test_own_artifact_paths_survive_when_trusted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """Trusted-ids correction must not collateral-damage artifacts that are
+        genuinely inside this run's own directory."""
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir()
+        monkeypatch.setenv("AGENT_ARTIFACTS_DIR", str(artifacts_root))
+        monkeypatch.setenv("TOOL_LEDGER_SIGNING_KEY", _KEY)
+        monkeypatch.setenv("CAREER_TRUE_RUN_ID", _CORRECT_RUN_ID)
+        monkeypatch.setenv("CAREER_TRUE_TASK_ID", _TASK_ID)
+
+        own_dir = artifacts_root / _CORRECT_RUN_ID / _TASK_ID
+        own_dir.mkdir(parents=True)
+        own_report = own_dir / "reflection_report.md"
+        own_report.write_text("real report")
+
+        tool_events = own_dir / "tool_events.jsonl"
+        spec = {
+            "invocation_id": "07843787-69f7-44ac-b294-adcfcee989ab",
+            "run_id": _CORRECT_RUN_ID,
+            "task_id": _TASK_ID,
+            "status": "completed",
+            "stop_reason": "test",
+            "artifact_paths": {"reflection_report": str(own_report)},
+            "summary": {},
+            "output_paths": {"tool_events_path": str(tool_events)},
+        }
+        spec_path = tmp_path / "manifest_spec.json"
+        spec_path.write_text(json.dumps(spec))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["--task-spec", str(spec_path), "--output", str(tmp_path / "ack.json")])
+
+        assert result.exit_code == 0, result.output
+        manifest = json.loads((own_dir / "output_manifest.json").read_text())
+        assert manifest["artifact_paths"] == {"reflection_report": str(own_report)}

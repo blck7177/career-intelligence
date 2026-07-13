@@ -54,6 +54,11 @@
       "extraDirs": ["/app/agent/openclaw/skills"]
     }
   },
+  "plugins": {
+    "load": {
+      "paths": ["/app/agent/openclaw/plugins/career-exec-identity-guard"]
+    }
+  },
   "tools": {
     "web": {
       "search": {
