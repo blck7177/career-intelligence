@@ -138,10 +138,12 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
-    # gevent pool + small concurrency to validate the pipeline (httpx +
-    # psycogreen-patched psycopg2 cooperating correctly) before tuning up —
-    # see dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --pool=gevent --concurrency=2
+    # gevent pool. Concurrency matches OpenClaw gateway's own
+    # agents.defaults.maxConcurrent default (4, not overridden in our
+    # openclaw.json) — going higher than the gateway's own ceiling just
+    # queues extra greenlets at the gateway, not more real throughput. See
+    # dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --pool=gevent --concurrency=4
     network_mode: "service:openclaw-gateway"
     init: true
     cap_drop:

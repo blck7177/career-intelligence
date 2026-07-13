@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -333,6 +334,11 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             message=f"OpenClaw invoked: agent={spec.agent_id} session={spec.session_key[:60]}",
         )
 
+    # Anchors the continuation loop's timeout-vs-remaining-budget math below —
+    # budget.timeout_seconds governs total agent invocation time (this call
+    # plus any continuations), not the whole Celery task's wall clock.
+    invoke_budget_start = time.monotonic()
+
     result = runtime.invoke(spec)
 
     # Record usage BEFORE any other post-invoke step. result.usage reflects
@@ -401,7 +407,18 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # inflation and doubling LLM processing time per turn.
     # ------------------------------------------------------------------
     _CONT_LIMITS_BY_DEPTH = {"quick": 1, "standard": 2, "deep": 2}
-    _CONT_TIMEOUT = 240
+    # A continuation's timeout tracks whatever's actually left of the run's
+    # own timeout budget instead of a flat constant — a fixed 240s cut off
+    # continuations that were still doing real, billed work (observed
+    # directly: 2026-07-12 deep-depth test, candidates still being logged
+    # right up to the 240s mark while ~1660s of the 1800s deep budget sat
+    # unused). Floored so we don't bother starting a continuation with too
+    # little time to do anything; capped so one continuation can't consume
+    # the whole remaining budget when there's a lot of it (deep depth) —
+    # continuations are meant to be quick top-ups, not full re-runs. See
+    # dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
+    _MIN_CONT_TIMEOUT = 60
+    _MAX_CONT_TIMEOUT = 600
     max_continuations = _CONT_LIMITS_BY_DEPTH.get(frontend_input.search_depth, 2)
     candidate_pool_path = run_dir / "candidate_pool.jsonl"
 
@@ -415,10 +432,21 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         if tool_calls_remaining <= 5:
             break
 
+        remaining_budget_seconds = budget.timeout_seconds - (time.monotonic() - invoke_budget_start)
+        if remaining_budget_seconds < _MIN_CONT_TIMEOUT:
+            logger.info(
+                "search_run: skipping continuation %d/%d — only %.0fs left of the %ds budget",
+                continuation, max_continuations, remaining_budget_seconds, budget.timeout_seconds,
+            )
+            break
+        cont_timeout = min(remaining_budget_seconds, _MAX_CONT_TIMEOUT)
+
         logger.info(
-            "search_run: continuation %d/%d — %d candidates (target %d), %d tool calls remaining",
+            "search_run: continuation %d/%d — %d candidates (target %d), %d tool calls remaining, "
+            "%.0fs timeout (%.0fs left of budget)",
             continuation, max_continuations,
             candidates_so_far, budget.max_candidates, tool_calls_remaining,
+            cont_timeout, remaining_budget_seconds,
         )
         with get_session() as session:
             TaskEventRepository(session).append(
@@ -444,7 +472,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         cont_session_key = f"{spec.session_key}:cont{continuation}"
         cont_spec = spec.model_copy(update={
             "session_key": cont_session_key,
-            "timeout_seconds": _CONT_TIMEOUT,
+            "timeout_seconds": int(cont_timeout),
         })
 
         cont_result = runtime.invoke(cont_spec, message_override=cont_msg)
