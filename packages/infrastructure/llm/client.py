@@ -275,6 +275,19 @@ class LLMClient:
             choice.finish_reason,
         )
 
+        # Emit usage now, before any of the validation checks below can raise.
+        # The API call above already succeeded and OpenAI has already billed
+        # these tokens regardless of whether the output turns out to be
+        # truncated, filtered, refused, or unparseable — recording usage must
+        # not be contingent on the response also being usable.
+        self._emit_usage(LLMResponse(
+            content="",
+            model=response.model,
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
+        ))
+
         if choice.finish_reason == "length":
             raise LLMCallError(
                 f"LLM output truncated (finish_reason=length). "
@@ -320,13 +333,6 @@ class LLMClient:
                 len(content),
             )
 
-        self._emit_usage(LLMResponse(
-            content="",
-            model=response.model,
-            prompt_tokens=usage.prompt_tokens if usage else 0,
-            completion_tokens=usage.completion_tokens if usage else 0,
-            total_tokens=usage.total_tokens if usage else 0,
-        ))
         return parsed  # type: ignore[return-value]
 
 

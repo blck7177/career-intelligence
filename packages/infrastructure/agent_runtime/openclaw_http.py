@@ -199,7 +199,21 @@ class OpenClawHttpRuntime(AgentRuntime):
             duration, spec.invocation_id,
         )
 
-        usage = self._extract_usage(payload)
+        # A 200 OK here means the LLM call already round-tripped and was
+        # billed — an unexpected payload shape must not raise past this
+        # point, or an already-successful, already-paid-for response gets
+        # discarded entirely (content included) instead of just losing its
+        # usage figure.
+        try:
+            usage = self._extract_usage(payload)
+        except Exception:
+            logger.warning(
+                "Failed to extract usage from a 200 OK response (invocation_id=%s) — "
+                "continuing without usage; the underlying call was still billed.",
+                spec.invocation_id,
+                exc_info=True,
+            )
+            usage = None
 
         return AgentInvocationResult(
             invocation_id=spec.invocation_id,
@@ -212,23 +226,33 @@ class OpenClawHttpRuntime(AgentRuntime):
             usage=usage,
         )
 
-    def _extract_usage(self, payload: dict) -> AgentUsageSummary | None:
+    def _extract_usage(self, payload: object) -> AgentUsageSummary | None:
+        if not isinstance(payload, dict):
+            return None
         usage = payload.get("usage")
         if not isinstance(usage, dict):
             return None
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
+        if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
+            return None
         if input_tokens == 0 and output_tokens == 0:
             return None
-        cache_read = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
-        reasoning = (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)
+        prompt_details = usage.get("prompt_tokens_details")
+        completion_details = usage.get("completion_tokens_details")
+        cache_read = prompt_details.get("cached_tokens", 0) if isinstance(prompt_details, dict) else 0
+        reasoning = (
+            completion_details.get("reasoning_tokens", 0)
+            if isinstance(completion_details, dict)
+            else 0
+        )
         return AgentUsageSummary(
             model=self._model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            cache_read_tokens=cache_read,
+            cache_read_tokens=cache_read if isinstance(cache_read, int) else 0,
             cache_write_tokens=0,
-            reasoning_tokens=reasoning,
+            reasoning_tokens=reasoning if isinstance(reasoning, int) else 0,
             session_file=None,
             llm_calls=1,
         )

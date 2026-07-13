@@ -335,6 +335,19 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 
     result = runtime.invoke(spec)
 
+    # Record usage BEFORE any other post-invoke step. result.usage reflects
+    # a real, already-billed charge the moment invoke() returns — a disk
+    # write or DB error further down must not be able to drop it.
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.job_discovery",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cache_read_tokens=result.usage.cache_read_tokens,
+        )
+
     # ------------------------------------------------------------------
     # Step 6: Update invocation record with result
     # ------------------------------------------------------------------
@@ -359,15 +372,6 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             stderr_uri=stderr_path,
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
-        )
-
-    if result.usage:
-        from packages.infrastructure.llm.usage_writer import persist_agent_usage
-        persist_agent_usage(
-            run_id=env.run_id, task_id=env.task_id,
-            workspace_id=env.workspace_id, call_site="agent.job_discovery",
-            model=result.usage.model, input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
         )
 
     if result.exit_code != 0 or result.timed_out:
@@ -445,9 +449,9 @@ def handle_search_run(env: TaskEnvelope) -> dict:
 
         cont_result = runtime.invoke(cont_spec, message_override=cont_msg)
 
-        if cont_result.stdout:
-            p = run_dir / f"stdout_cont{continuation}.txt"
-            p.write_text(cont_result.stdout)
+        # Record usage before the disk write below — same reasoning as the
+        # original invocation above: a real charge is already incurred the
+        # moment invoke() returns, regardless of what happens next.
         if cont_result.usage:
             from packages.infrastructure.llm.usage_writer import persist_agent_usage
             persist_agent_usage(
@@ -457,7 +461,12 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 model=cont_result.usage.model,
                 input_tokens=cont_result.usage.input_tokens,
                 output_tokens=cont_result.usage.output_tokens,
+                cache_read_tokens=cont_result.usage.cache_read_tokens,
             )
+
+        if cont_result.stdout:
+            p = run_dir / f"stdout_cont{continuation}.txt"
+            p.write_text(cont_result.stdout)
 
         if cont_result.exit_code != 0:
             logger.warning(
