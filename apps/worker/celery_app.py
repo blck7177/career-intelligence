@@ -5,9 +5,15 @@ Broker:  Redis (REDIS_URL)
 Backend: Redis (REDIS_URL) — only used for task result tracking, not business state
 
 Queue names:
-  fast   — deterministic tasks: job_report, fit_report (concurrency: 2-4, low latency)
+  fast   — deterministic tasks: job_report, fit_report (prefork pool, low latency)
   agent  — OpenClaw agent tasks: job_discovery, job_research, run_reflection
-            (concurrency: 1, can run 5-15 minutes)
+            (gevent pool — a single invoke() call blocks on network I/O for
+            up to the run's full timeout budget, so prefork would tie up a
+            whole OS process per in-flight call; gevent holds many
+            concurrent invocations per process instead). See
+            docker-compose.dev.yml for the current --pool/--concurrency
+            values, and dev_note/career/phase20-launch-hardening/
+            gevent_pool_plan_0713/README.md for why.
 
 Two separate worker services prevent agent tasks from blocking fast deterministic tasks.
 See docker-compose.dev.yml: worker-fast + worker-agent.
@@ -32,6 +38,28 @@ from packages.infrastructure.observability.logging import configure_logging
 def _setup_logging(**_kwargs) -> None:
     """Configure structured logging for every Celery worker process."""
     configure_logging()
+
+
+@worker_process_init.connect
+def _patch_psycopg_for_gevent(**_kwargs) -> None:
+    """
+    Patch psycopg2 to cooperate with gevent's monkey-patched socket layer.
+
+    psycopg2 is a C extension that talks to libpq directly, bypassing
+    Python's socket module — gevent's monkey-patch has no effect on it, so
+    a blocked query would otherwise stall every other greenlet in the
+    process. No-op when this worker isn't running under the gevent pool
+    (gevent.monkey.patch_all() only runs when Celery's gevent pool starts).
+    """
+    try:
+        from gevent import monkey
+    except ImportError:
+        return
+    if not monkey.is_module_patched("socket"):
+        return
+    from psycogreen.gevent import patch_psycopg
+
+    patch_psycopg()
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 

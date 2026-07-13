@@ -138,7 +138,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=3
+    # gevent pool + small concurrency to validate the pipeline (httpx +
+    # psycogreen-patched psycopg2 cooperating correctly) before tuning up —
+    # see dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --pool=gevent --concurrency=2
     network_mode: "service:openclaw-gateway"
     init: true
     cap_drop:
