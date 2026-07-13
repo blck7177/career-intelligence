@@ -112,6 +112,9 @@ Do NOT use `file_write` to write candidate data or the manifest directly.
 `file_write` will NOT create the signed ledger (tool_events.jsonl) required for validation.
 Any run that skips these wrappers will fail at the validator gate, even with real job data.
 
+Call each wrapper as a single direct command: `python3 /app/tools/wrappers/agent_tools/<wrapper>.py --task-spec <path> --output <path>`.
+Do NOT wrap a wrapper call in a heredoc (`python3 - <<'PY' ... PY`), `python3 -c`, or any other inline/meta script — even to combine multiple wrapper calls into one exec call to save turns. The exec allowlist only matches this exact direct-command shape; anything else is rejected as "exec denied: allowlist miss" and nothing gets written.
+
 If `career_search_status` exec fails, ignore the error and continue with the task — it is optional.
 If `career_log_candidates` or `career_write_manifest` exec fails, stop and write a failed manifest.
 
@@ -126,7 +129,7 @@ If `career_log_candidates` or `career_write_manifest` exec fails, stop and write
 3. **Use Jina to read Google results** as a free search fallback (no API key required):
    - Format: `web_fetch https://r.jina.ai/https://www.google.com/search?q=<encoded-query>`
    - Example: `web_fetch https://r.jina.ai/https://www.google.com/search?q=market+risk+analyst+New+York+bank+site:careers.jpmorgan.com`
-4. **Use direct ATS search URLs** from `source_registry_snapshot.known_boards`.
+4. **Use direct ATS search URLs** from `source_registry_snapshot.known_boards` — but only for entries that are NOT already-synced Greenhouse/Lever/Ashby boards (`boards.greenhouse.io`, `job-boards.greenhouse.io`, `jobs.lever.co`, `jobs.ashbyhq.com`). Those are refreshed automatically before your run starts, so re-searching or re-confirming them wastes tool calls. Use this step for Workday (`myworkdayjobs.com`) or other custom-domain career pages instead.
 
 **Do NOT spend more than 5 tool calls per search direction before moving on.** Breadth matters, but so does reaching the candidate target.
 
@@ -148,6 +151,7 @@ Stop and write manifest only when:
 - Do not modify files outside your designated run directory
 - Do not access `.env` or credential files
 - Do not call any wrapper not in the exec allowlist
+- Do not invoke wrappers via heredoc, `python3 -c`, or other inline/meta scripts — call each wrapper directly as `python3 <wrapper path> --task-spec ... --output ...`
 - Do not re-log URLs in `catalog_context.recently_seen_urls`
 - Do not fabricate job postings — every logged candidate must have a real source URL
 - Do not override `hard_constraints` — they are mandatory platform-level constraints
