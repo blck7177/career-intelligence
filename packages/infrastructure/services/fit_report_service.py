@@ -172,7 +172,12 @@ def create_fit_report(
         }
 
     # 8. Generate fit report
-    fit_report_id = "fit_" + uuid.uuid4().hex[:8]
+    # Pre-generate the real row id so the value echoed into the LLM prompt
+    # (and persisted into structured_json['fit_report_id']) is the same value
+    # as the FitReport primary key (same pattern as
+    # AgentInvocationRepository.create(id=...)) — avoids a second,
+    # differently-formatted "fit_report_id" living inside structured_json.
+    fit_report_id = str(uuid.uuid4())
     llm = get_llm_client()
 
     logger.info("fit_report: generating fit_report_id=%s job_id=%s", fit_report_id, job_id)
@@ -232,6 +237,7 @@ def create_fit_report(
         profile_hash=profile_hash,
     )
     fit_row = fit_repo.create(
+        id=fit_report_id,
         workspace_id=workspace_id,
         job_id=job_id,
         job_report_id=job_report_id,

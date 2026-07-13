@@ -863,8 +863,9 @@ class JobReportRepository:
         structured_json: Optional[dict] = None,
         summary_json: Optional[dict] = None,
         status: str = "active",
+        id: str | None = None,
     ) -> JobReport:
-        row = JobReport(
+        kwargs: dict = dict(
             job_id=job_id,
             jd_hash=jd_hash,
             prompt_version=prompt_version,
@@ -878,6 +879,9 @@ class JobReportRepository:
             summary_json=summary_json,
             status=status,
         )
+        if id is not None:
+            kwargs["id"] = id
+        row = JobReport(**kwargs)
         self._s.add(row)
         self._s.flush()
         return row
@@ -1012,8 +1016,9 @@ class FitReportRepository:
         structured_json: Optional[dict] = None,
         summary_json: Optional[dict] = None,
         status: str = "active",
+        id: str | None = None,
     ) -> FitReport:
-        row = FitReport(
+        kwargs: dict = dict(
             workspace_id=workspace_id,
             job_id=job_id,
             job_report_id=job_report_id,
@@ -1027,6 +1032,9 @@ class FitReportRepository:
             summary_json=summary_json,
             status=status,
         )
+        if id is not None:
+            kwargs["id"] = id
+        row = FitReport(**kwargs)
         self._s.add(row)
         self._s.flush()
         return row

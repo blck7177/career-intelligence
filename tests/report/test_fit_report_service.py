@@ -276,3 +276,49 @@ class TestFitReportDbRow:
         assert structured_artifact is not None
         assert structured_artifact.metadata_json is not None
         assert structured_artifact.metadata_json.get("job_id") == seeded_db["job_id"]
+
+
+# ---------------------------------------------------------------------------
+# Test 5: fit_report_id has no separate decoy value — the id echoed into the
+# LLM prompt (and therefore into structured_json['fit_report_id']) is the
+# exact same value as the FitReport DB row's real primary key. Regression
+# test for the "fit_"+hex local variable that used to be a distinct string
+# from FitReport.id, persisted verbatim into structured_json.
+# ---------------------------------------------------------------------------
+
+
+class TestFitReportIdIsRealDbId:
+    def test_generate_fit_report_receives_the_real_db_id(
+        self, db_session: Session, seeded_db, tmp_path
+    ):
+        structured = _make_structured_fit()
+
+        with patch(
+            "packages.infrastructure.services.fit_report_service.generate_fit_report",
+            return_value=(structured, "# narrative"),
+        ) as mock_gen, patch(
+            "packages.infrastructure.services.fit_report_service._ARTIFACTS_DIR",
+            str(tmp_path),
+        ):
+            result = create_fit_report(
+                session=db_session,
+                run_id="run_1",
+                task_id="task_1",
+                workspace_id=seeded_db["workspace_id"],
+                job_id=seeded_db["job_id"],
+                profile_snapshot=SAMPLE_PROFILE,
+            )
+
+        row = db_session.get(FitReport, result["fit_report_id"])
+        assert row is not None
+        assert not result["fit_report_id"].startswith("fit_"), (
+            "fit_report_id must be the real uuid4 DB id, not the old 'fit_'+hex decoy"
+        )
+        passed_fit_report_id = mock_gen.call_args.kwargs["fit_report_id"]
+        assert passed_fit_report_id == result["fit_report_id"] == row.id, (
+            "the id echoed into the LLM prompt (and thus persisted into "
+            "structured_json['fit_report_id']) must match the real DB primary key"
+        )
+        assert (tmp_path / "run_1" / "task_1" / result["fit_report_id"]).is_dir(), (
+            "artifact directory must be named after the real DB id"
+        )

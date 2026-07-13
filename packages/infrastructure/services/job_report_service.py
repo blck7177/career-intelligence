@@ -156,7 +156,11 @@ def create_job_report(
         )
 
     # 8. Write artifacts
-    job_report_id = "rpt_" + uuid.uuid4().hex[:8]
+    # Pre-generate the real row id so the artifact directory name and the
+    # JobReport primary key are the same value (same pattern as
+    # AgentInvocationRepository.create(id=...)) — avoids a second,
+    # differently-formatted "job_report_id" that only ever names a directory.
+    job_report_id = str(uuid.uuid4())
     artifact_dir = Path(_ARTIFACTS_DIR) / run_id / task_id / job_report_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
@@ -189,6 +193,7 @@ def create_job_report(
     # 9. Supersede prior + create DB row
     report_repo.supersede_prior(job_id)
     job_report_row = report_repo.create(
+        id=job_report_id,
         job_id=job_id,
         jd_hash=jd_hash,
         prompt_version=prompt_version,
