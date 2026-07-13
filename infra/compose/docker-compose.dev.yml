@@ -88,6 +88,14 @@ services:
       DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-}"
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/configs edits are picked up on container restart,
+      # without rebuilding the image (matches openclaw-gateway's approach
+      # for agent/openclaw/ — see docker-compose.dev.yml history/dev_note
+      # id_audit_0713 for why api/worker previously required a rebuild).
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,6 +122,13 @@ services:
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -169,6 +184,13 @@ services:
       - openclaw_state:/openclaw/state
       # Read-only: CLI needs to read agent definitions to route gateway calls.
       - openclaw_config:/openclaw/config:ro
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -241,6 +263,14 @@ services:
       - ../../.env
     environment:
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       redis:
         condition: service_healthy
