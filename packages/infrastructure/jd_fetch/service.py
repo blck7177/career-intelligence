@@ -105,6 +105,46 @@ def _is_closed_posting(text: str) -> bool:
     return any(marker in low for marker in _CLOSED_POSTING_MARKERS)
 
 
+_SHELL_STUB_MARKERS = (
+    "enable javascript",
+    "please enable js",
+    "javascript is required",
+    "loading...",
+    "please wait",
+)
+
+# Real JDs measure < 2 CSS/JS markup tokens per 1000 chars; unrendered SPA
+# shells measure 30+. The threshold sits in the wide empty gap between them
+# (calibrated on production data: real JDs 0.0-1.8, shells 30.6-37.2), so a
+# genuine posting is never dropped as a shell.
+_SHELL_DENSITY_THRESHOLD = 10.0
+
+
+def is_shell_text(text: str) -> bool:
+    """High-confidence page-shell detection: the fetched text is mostly CSS/JS
+    chrome (an unrendered single-page-app), not job-description prose. Used so a
+    50KB blob of stylesheet isn't accepted as a valid JD just for being long.
+    """
+    if not text:
+        return False
+    low = text.lower()
+    if len(text) < 2000 and any(m in low for m in _SHELL_STUB_MARKERS):
+        return True
+    tokens = (
+        text.count("{")
+        + text.count("}")
+        + text.count(";")
+        + low.count("function")
+        + low.count("px;")
+        + low.count("rgba")
+        + low.count("@media")
+        + low.count("var ")
+        + low.count("</")
+        + low.count("/>")
+    )
+    return tokens / (len(text) / 1000.0) > _SHELL_DENSITY_THRESHOLD
+
+
 def _validate_jd_text(jd_text: str) -> JdFetchResult:
     if len(jd_text) < MIN_JD_TEXT_LEN:
         return JdFetchResult(
@@ -114,6 +154,15 @@ def _validate_jd_text(jd_text: str) -> JdFetchResult:
             error=f"JD text too short ({len(jd_text)} chars, min {MIN_JD_TEXT_LEN})",
             source=None,
             fetch_status="too_short",
+        )
+    if is_shell_text(jd_text):
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error="Fetched text looks like a page shell (CSS/JS), not a JD",
+            source=None,
+            fetch_status="shell",
         )
     capped = jd_text[:_MAX_JD_TEXT_CHARS]
     jd_hash = compute_jd_hash(capped)

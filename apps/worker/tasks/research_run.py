@@ -46,7 +46,7 @@ from packages.infrastructure.db.repositories import (
     TaskRepository,
 )
 from packages.infrastructure.db.session import get_session
-from packages.infrastructure.jd_fetch.service import MIN_JD_TEXT_LEN
+from packages.infrastructure.jd_fetch.service import MIN_JD_TEXT_LEN, is_shell_text
 
 logger = logging.getLogger(__name__)
 
@@ -356,7 +356,11 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         # (e.g. multiple concurrent postings with an identical title), so it
         # stays in 'discovered' for review regardless of claimed source_type.
         promoted = False
-        if manifest.jd_text and len(manifest.jd_text) >= MIN_JD_TEXT_LEN:
+        if (
+            manifest.jd_text
+            and len(manifest.jd_text) >= MIN_JD_TEXT_LEN
+            and not is_shell_text(manifest.jd_text)
+        ):
             jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()[:16]
             job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
             job_repo.merge_raw_payload(job_id, {"jd_source": f"research_{manifest.jd_source_type}"})

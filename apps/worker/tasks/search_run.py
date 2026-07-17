@@ -65,7 +65,7 @@ from packages.infrastructure.db.repositories import (
 )
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.llm.client import get_llm_client
-from packages.infrastructure.jd_fetch import resolve_jd
+from packages.infrastructure.jd_fetch import is_shell_text, resolve_jd
 from packages.infrastructure.llm.jd_extractor import extract_jd_fields
 from packages.infrastructure.llm.intent_translator import (
     IntentTranslationError,
@@ -1617,7 +1617,7 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                     continue
                 company = bj.company or src["company_name"]
                 jd_text = (bj.jd_plain or "").strip()
-                has_jd = len(jd_text) >= 200
+                has_jd = len(jd_text) >= 200 and not is_shell_text(jd_text)
                 jd_hash = None
                 if has_jd:
                     import hashlib as _hl
