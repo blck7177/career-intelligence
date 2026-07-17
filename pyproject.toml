@@ -62,7 +62,6 @@ dev = [
 
 [project.scripts]
 # Platform CLI tools (deterministic, no agent)
-career-query-jobs = "tools.cli.query_jobs:main"
 career-validate-run = "tools.cli.validate_run:main"
 career-summarize-run = "tools.cli.summarize_run:main"
 career-register-board = "tools.cli.register_board:main"
