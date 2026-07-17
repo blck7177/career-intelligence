@@ -1219,7 +1219,7 @@
           "profile"
         ],
         "summary": "Upsert Profile",
-        "description": "Create or update the default profile for the current workspace.",
+        "description": "Create or update the default profile for the current workspace.\n\n\"Default\" = the most-recently-updated profile for this workspace (see\nProfileRepository.get_for_workspace) \u2014 ambiguous the moment a workspace has\nmore than one profile, since which row that resolves to depends on edit\norder, not caller intent. In a multi-profile workspace, target a specific\nprofile deterministically via PUT /api/app/profiles/{profile_id} instead.",
         "operationId": "upsert_profile_api_app_profile_put",
         "parameters": [
           {
@@ -2575,6 +2575,17 @@
             "type": "boolean",
             "title": "Force Refresh",
             "default": false
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
           }
         },
         "type": "object",
@@ -3616,6 +3627,18 @@
               }
             ],
             "title": "Search Defaults"
+          },
+          "structured_resume_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Resume Json"
           }
         },
         "type": "object",

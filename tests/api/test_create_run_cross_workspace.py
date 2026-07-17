@@ -68,6 +68,16 @@ _DISCOVERY_BODY_NO_PROFILE = {
     },
 }
 
+_FIT_BODY_WITH_PROFILE = {
+    "run_type": "fit_report",
+    "input_snapshot": {"job_id": "job-1", "profile_id": "profile-target"},
+}
+
+_FIT_BODY_NO_PROFILE = {
+    "run_type": "fit_report",
+    "input_snapshot": {"job_id": "job-1"},
+}
+
 
 @pytest.fixture()
 def make_client():
@@ -197,6 +207,72 @@ class TestJobDiscoveryProfileCrossWorkspace:
             MockTaskRepo.return_value.create.return_value = SimpleNamespace(id="task-new")
 
             resp = client.post("/api/app/runs", json=_DISCOVERY_BODY_NO_PROFILE)
+
+        assert resp.status_code == 201, resp.text
+        MockProfileRepo.return_value.get_by_id.assert_not_called()
+
+
+class TestFitReportProfileCrossWorkspace:
+    """fit_report.profile_id is now honored by the worker (selects which profile
+    to score against), so create_run must verify workspace ownership up front —
+    same treatment as job_discovery.profile_id."""
+
+    def test_fit_report_with_another_workspaces_profile_returns_403(self, make_client):
+        client = make_client()
+        other_profile = _profile("profile-target", workspace_id=OTHER_WS_ID)
+
+        with patch("apps.api.routes.runs.ProfileRepository") as MockProfileRepo:
+            MockProfileRepo.return_value.get_by_id.return_value = other_profile
+            resp = client.post("/api/app/runs", json=_FIT_BODY_WITH_PROFILE)
+
+        assert resp.status_code == 403, resp.text
+        assert "profile_id" in resp.json()["detail"]
+
+    def test_fit_report_with_nonexistent_profile_returns_403_not_404(self, make_client):
+        client = make_client()
+
+        with patch("apps.api.routes.runs.ProfileRepository") as MockProfileRepo:
+            MockProfileRepo.return_value.get_by_id.return_value = None
+            resp = client.post("/api/app/runs", json=_FIT_BODY_WITH_PROFILE)
+
+        assert resp.status_code == 403, resp.text
+
+    def test_fit_report_with_own_profile_proceeds(self, make_client):
+        client = make_client()
+        own_profile = _profile("profile-target", workspace_id=WS_ID)
+
+        with (
+            patch("apps.api.routes.runs.ProfileRepository") as MockProfileRepo,
+            patch("apps.api.routes.runs.RunRepository") as MockRunRepo,
+            patch("apps.api.routes.runs.TaskRepository") as MockTaskRepo,
+            patch("apps.api.routes.runs.get_quota_rule") as mock_rule,
+            patch("apps.api.routes.runs._get_celery"),
+        ):
+            mock_rule.return_value = None
+            MockProfileRepo.return_value.get_by_id.return_value = own_profile
+            MockRunRepo.return_value.create.return_value = _created_run("fit_report")
+            MockTaskRepo.return_value.create.return_value = SimpleNamespace(id="task-new")
+
+            resp = client.post("/api/app/runs", json=_FIT_BODY_WITH_PROFILE)
+
+        assert resp.status_code == 201, resp.text
+
+    def test_fit_report_without_profile_id_skips_check(self, make_client):
+        """profile_id omitted → default profile path, no ownership lookup."""
+        client = make_client()
+
+        with (
+            patch("apps.api.routes.runs.ProfileRepository") as MockProfileRepo,
+            patch("apps.api.routes.runs.RunRepository") as MockRunRepo,
+            patch("apps.api.routes.runs.TaskRepository") as MockTaskRepo,
+            patch("apps.api.routes.runs.get_quota_rule") as mock_rule,
+            patch("apps.api.routes.runs._get_celery"),
+        ):
+            mock_rule.return_value = None
+            MockRunRepo.return_value.create.return_value = _created_run("fit_report")
+            MockTaskRepo.return_value.create.return_value = SimpleNamespace(id="task-new")
+
+            resp = client.post("/api/app/runs", json=_FIT_BODY_NO_PROFILE)
 
         assert resp.status_code == 201, resp.text
         MockProfileRepo.return_value.get_by_id.assert_not_called()

@@ -40,6 +40,7 @@ from packages.infrastructure.db.repositories import (
     JobFavoriteRepository,
     JobRepository,
     JobReportRepository,
+    ProfileRepository,
     RunRepository,
     TaskRepository,
 )
@@ -376,6 +377,20 @@ def batch_analyze(
 
     workspace_run_ids = {r.id for r in run_repo.list_for_workspace(workspace.id, limit=10_000)}
     profile_id = body.profile_id
+
+    # A client-supplied profile_id is threaded into the fit_report (directly,
+    # and via job_report's auto_fit_profile_id auto-chain) and now actually
+    # selects which profile the fit is scored against — so verify ownership
+    # here, at the entry point, rather than only failing the async run in the
+    # worker. Mirrors the job_discovery/run_reflection cross-workspace checks in
+    # apps/api/routes/runs.py::create_run.
+    if profile_id:
+        profile = ProfileRepository(db).get_by_id(profile_id)
+        if profile is None or profile.workspace_id != workspace.id:
+            raise HTTPException(
+                status_code=403,
+                detail="profile_id does not belong to this workspace.",
+            )
 
     run_ids: list[str] = []
     skipped: list[str] = []

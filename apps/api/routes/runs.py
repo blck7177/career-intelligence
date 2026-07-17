@@ -117,7 +117,7 @@ def create_run(
                 detail="run_id does not belong to this workspace.",
             )
 
-    if body.run_type == "job_discovery":
+    if body.run_type in ("job_discovery", "fit_report"):
         profile_id = getattr(body.input_snapshot, "profile_id", None)
         if profile_id:
             profile = ProfileRepository(db).get_by_id(profile_id)

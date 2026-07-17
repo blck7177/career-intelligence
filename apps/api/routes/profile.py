@@ -59,6 +59,7 @@ class ProfileRead(BaseModel):
     representative_projects: Optional[list] = None
     profile_hash: str
     search_defaults: Optional[dict] = None
+    structured_resume_json: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 
@@ -149,7 +150,14 @@ def upsert_profile(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ):
-    """Create or update the default profile for the current workspace."""
+    """Create or update the default profile for the current workspace.
+
+    "Default" = the most-recently-updated profile for this workspace (see
+    ProfileRepository.get_for_workspace) — ambiguous the moment a workspace has
+    more than one profile, since which row that resolves to depends on edit
+    order, not caller intent. In a multi-profile workspace, target a specific
+    profile deterministically via PUT /api/app/profiles/{profile_id} instead.
+    """
     profile_hash = _compute_hash(body)
     profile = ProfileRepository(db).upsert(
         workspace.id,
@@ -240,6 +248,7 @@ def create_profile(
         tools=body.tools,
         representative_projects=body.representative_projects,
         profile_hash=profile_hash,
+        structured_resume_json=body.structured_resume_json,
     )
     db.commit()
     logger.info("profile: created %s for workspace %s (label=%r)", profile.id, workspace.id, body.label)
@@ -271,6 +280,7 @@ def update_profile(
         tools=body.tools,
         representative_projects=body.representative_projects,
         profile_hash=profile_hash,
+        structured_resume_json=body.structured_resume_json,
     )
     db.commit()
     logger.info("profile: updated %s (hash=%s)", profile_id, profile_hash)

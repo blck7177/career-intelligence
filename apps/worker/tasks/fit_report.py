@@ -67,12 +67,37 @@ def handle_fit_report(env: TaskEnvelope) -> dict:
         )
         return {"status": "failed", "task_id": env.task_id}
 
-    # Load workspace profile from DB (profile data no longer comes from frontend).
-    # Extract all attributes inside the session to avoid DetachedInstanceError.
+    # Load the candidate profile from DB (profile data no longer comes from
+    # frontend). Extract all attributes inside the session to avoid
+    # DetachedInstanceError.
+    #
+    # profile resolution:
+    #   inp.profile_id set → resolve THAT exact profile and verify it belongs to
+    #     this workspace. Fail closed if it is missing or owned by another
+    #     workspace — never silently fall back to the default, which would
+    #     re-introduce the silent mis-targeting this field exists to fix (and
+    #     would let a client score against another workspace's private profile).
+    #   inp.profile_id None → the workspace's default (most-recently-updated)
+    #     profile, preserving the pre-existing behavior for callers that don't
+    #     pass a profile_id.
     profile_snapshot = None
     profile_row_id = None
     with get_session() as session:
-        profile_row = ProfileRepository(session).get_for_workspace(env.workspace_id)
+        repo = ProfileRepository(session)
+        if inp.profile_id:
+            profile_row = repo.get_by_id(inp.profile_id)
+            if profile_row is None or profile_row.workspace_id != env.workspace_id:
+                _mark_failed(
+                    env,
+                    error_code="PROFILE_NOT_FOUND",
+                    message=(
+                        f"Profile {inp.profile_id!r} does not exist or does not "
+                        "belong to this workspace."
+                    ),
+                )
+                return {"status": "failed", "task_id": env.task_id}
+        else:
+            profile_row = repo.get_for_workspace(env.workspace_id)
         if profile_row is not None:
             profile_row_id = profile_row.id
             profile_snapshot = {

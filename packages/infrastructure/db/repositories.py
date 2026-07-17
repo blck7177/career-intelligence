@@ -1090,6 +1090,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         profile = CandidateProfile(workspace_id=workspace_id)
         profile.label = label
@@ -1102,6 +1103,7 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        profile.structured_resume_json = structured_resume_json
         self._s.add(profile)
         self._s.flush()
         return profile
@@ -1120,6 +1122,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         profile = self.get_by_id(profile_id)
         if profile is None:
@@ -1135,6 +1138,12 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        # Guarded (unlike the fields above, which are always fully replaced):
+        # an ordinary field edit that doesn't resubmit the imported resume's
+        # structured data must not silently wipe it. Matches upsert()'s
+        # existing guard for the same field.
+        if structured_resume_json is not None:
+            profile.structured_resume_json = structured_resume_json
         self._s.flush()
         return profile
 
