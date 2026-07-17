@@ -40,7 +40,8 @@ class JdFetchResult:
     jd_hash: str | None
     error: str | None
     source: JdSource | None
-    fetch_status: str  # "success" | "failed" | "too_short"
+    fetch_status: str  # "success" | "failed" | "too_short" | "doa"
+    http_status: int | None = None
 
 
 def compute_url_hash(url: str) -> str:
@@ -76,6 +77,32 @@ def _normalize_fetched_content(raw: str, content_type: str = "") -> str:
     if "html" in content_type.lower() or "<" in raw[:500]:
         return strip_html(raw)
     return raw.strip()
+
+
+_CLOSED_POSTING_MARKERS = (
+    "no longer accepting applications",
+    "no longer accepting application",
+    "position has been filled",
+    "this job is no longer available",
+    "this position is no longer available",
+    "job posting is closed",
+    "posting has expired",
+    "applications are closed",
+)
+
+
+def _is_closed_posting(text: str) -> bool:
+    """Conservative closed-posting (DOA) detection.
+
+    Only fires when the fetched text is short enough to be a status page rather
+    than a full JD — a real JD that merely mentions one of these phrases in its
+    body must not be misclassified as dead. Long text (a real posting) is never
+    flagged, which biases toward keeping a live posting over dropping one.
+    """
+    if len(text) > 1000:
+        return False
+    low = text.lower()
+    return any(marker in low for marker in _CLOSED_POSTING_MARKERS)
 
 
 def _validate_jd_text(jd_text: str) -> JdFetchResult:
@@ -292,13 +319,18 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         raw = response.text[:_MAX_RAW_BYTES]
         content_type = response.headers.get("content-type", "")
     except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        # 404/410 = the posting is gone (DOA). Other statuses (403 anti-bot,
+        # 5xx, etc.) are fetch failures, not proof the job is dead — keep them
+        # as "failed" so the job is still recorded and retried.
         return JdFetchResult(
             ok=False,
             jd_text=None,
             jd_hash=None,
-            error=f"HTTP {exc.response.status_code} fetching {url}",
+            error=f"HTTP {code} fetching {url}",
             source="worker_fetch",
-            fetch_status="failed",
+            fetch_status="doa" if code in (404, 410) else "failed",
+            http_status=code,
         )
     except httpx.TimeoutException:
         return JdFetchResult(
@@ -320,6 +352,18 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         )
 
     jd_text = _normalize_fetched_content(raw, content_type)
+
+    if _is_closed_posting(jd_text):
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error="Posting appears closed (page loaded but says no longer available)",
+            source="worker_fetch",
+            fetch_status="doa",
+            http_status=200,
+        )
+
     validated = _validate_jd_text(jd_text)
 
     if not validated.ok and validated.fetch_status == "too_short":

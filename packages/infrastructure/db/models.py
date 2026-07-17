@@ -479,6 +479,32 @@ class Job(Base):
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class DeadUrl(Base):
+    """A job-posting URL confirmed dead on arrival — HTTP 404/410, or a page
+    that loads (200) but says the posting is closed. Recorded here instead of
+    creating a zombie 'discovered' job row, and used as a negative cache so the
+    same dead URL isn't re-fetched on every discovery run. url_hash is over the
+    normalized URL (see url_normalize). Revival is left to a later liveness
+    sweep; a 404 rarely comes back."""
+
+    __tablename__ = "dead_urls"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    url_hash: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)  # http_404 | http_410 | closed_posting
+    http_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    times_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    discovered_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class JobReport(Base):
     """Global (user-independent) Job Intelligence Report for a specific job."""
 

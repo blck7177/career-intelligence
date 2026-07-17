@@ -22,6 +22,7 @@ from packages.infrastructure.db.models import (
     Artifact,
     CandidateProfile,
     CompanySource,
+    DeadUrl,
     FitReport,
     Job,
     JobFavorite,
@@ -788,6 +789,81 @@ class JobFavoriteRepository:
         )
         self._s.execute(stmt)
         self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# DeadUrl
+# ---------------------------------------------------------------------------
+
+
+class DeadUrlRepository:
+    """Records URLs confirmed dead on arrival and answers negative-cache lookups.
+
+    ``url`` is expected already normalized (url_normalize.normalize_job_url);
+    the hash matches jd_fetch.compute_url_hash (md5[:16]) so lookups agree with
+    the artifact cache key.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    @staticmethod
+    def _hash(url: str) -> str:
+        import hashlib
+
+        return hashlib.md5(url.encode("utf-8")).hexdigest()[:16]
+
+    def is_dead(self, url: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(DeadUrl.id).where(DeadUrl.url_hash == self._hash(url))
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def record(
+        self,
+        *,
+        url: str,
+        reason: str,
+        http_status: Optional[int] = None,
+        discovered_run_id: Optional[str] = None,
+    ) -> DeadUrl:
+        from urllib.parse import urlparse
+
+        from sqlalchemy import select
+
+        h = self._hash(url)
+        existing = self._s.execute(
+            select(DeadUrl).where(DeadUrl.url_hash == h)
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.times_seen += 1
+            existing.last_seen_at = datetime.now(timezone.utc)
+            self._s.flush()
+            return existing
+        dead = DeadUrl(
+            url_hash=h,
+            canonical_url=url[:2048],
+            domain=urlparse(url).hostname or None,
+            reason=reason,
+            http_status=http_status,
+            discovered_run_id=discovered_run_id,
+        )
+        self._s.add(dead)
+        self._s.flush()
+        return dead
+
+    def touch(self, url: str) -> None:
+        """Negative-cache hit on an already-recorded dead URL: bump counters
+        without needing the (unchanged) reason."""
+        from sqlalchemy import select
+
+        existing = self._s.execute(
+            select(DeadUrl).where(DeadUrl.url_hash == self._hash(url))
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.times_seen += 1
+            existing.last_seen_at = datetime.now(timezone.utc)
+            self._s.flush()
 
 
 # ---------------------------------------------------------------------------

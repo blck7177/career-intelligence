@@ -37,6 +37,7 @@ from packages.contracts.api.jobs import (
 )
 from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
+    DeadUrlRepository,
     JobFavoriteRepository,
     JobRepository,
     JobReportRepository,
@@ -258,25 +259,49 @@ def import_job(
         if not company:
             company = token.replace("-", " ").title()
 
+    fetch_result = None
     try:
         fetch_result = fetch_jd_from_url(url)
-        if fetch_result.ok and fetch_result.jd_text:
-            jd_text = fetch_result.jd_text
-            jd_hash = fetch_result.jd_hash
-            jd_fetched = True
-            status = "reportable"
-            try:
-                jd_structured = extract_jd_fields(
-                    jd_text=jd_text,
-                    company=company,
-                    title=title,
-                    location=location or "",
-                    llm_client=get_llm_client(),
-                )
-            except Exception:
-                logger.warning("import_job: JD extraction failed for %s", url, exc_info=True)
     except Exception:
         logger.warning("import_job: JD fetch failed for %s", url, exc_info=True)
+
+    if fetch_result is not None and fetch_result.fetch_status == "doa":
+        reason = (
+            "closed_posting"
+            if fetch_result.http_status == 200
+            else f"http_{fetch_result.http_status or 'unknown'}"
+        )
+        DeadUrlRepository(db).record(
+            url=url,
+            reason=reason,
+            http_status=fetch_result.http_status,
+            discovered_run_id=run.id,
+        )
+        task_repo.mark_succeeded(task.id)
+        run_repo.complete(
+            run.id, status="succeeded", result_summary={"doa": True, "reason": reason}
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=404,
+            detail="This posting appears to be closed or no longer available.",
+        )
+
+    if fetch_result is not None and fetch_result.ok and fetch_result.jd_text:
+        jd_text = fetch_result.jd_text
+        jd_hash = fetch_result.jd_hash
+        jd_fetched = True
+        status = "reportable"
+        try:
+            jd_structured = extract_jd_fields(
+                jd_text=jd_text,
+                company=company,
+                title=title,
+                location=location or "",
+                llm_client=get_llm_client(),
+            )
+        except Exception:
+            logger.warning("import_job: JD extraction failed for %s", url, exc_info=True)
 
     if not title and jd_text:
         for line in jd_text.splitlines():

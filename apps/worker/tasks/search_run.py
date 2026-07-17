@@ -55,6 +55,7 @@ from packages.infrastructure.db.repositories import (
     AgentToolEventRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
+    DeadUrlRepository,
     JobRepository,
     ProfileRepository,
     RunRepository,
@@ -1216,6 +1217,7 @@ def _persist_discovered_jobs(
         "jobs_ingested": 0,
         "jobs_reportable": 0,
         "jobs_fetch_failed": 0,
+        "jobs_doa": 0,
     }
 
     pool_path_str = manifest.artifact_paths.get("candidate_pool")
@@ -1236,10 +1238,12 @@ def _persist_discovered_jobs(
     skip_count = 0
     reportable_count = 0
     fetch_failed_count = 0
+    doa_count = 0
 
     try:
         with get_session() as session:
             job_repo = JobRepository(session)
+            dead_url_repo = DeadUrlRepository(session)
             for line in pool_path.read_text().splitlines():
                 line = line.strip()
                 if not line:
@@ -1257,6 +1261,11 @@ def _persist_discovered_jobs(
                 existing = job_repo.get_by_canonical_url(url)
                 if existing:
                     job_ids.append(existing.id)
+                    skip_count += 1
+                    continue
+
+                if dead_url_repo.is_dead(url):
+                    dead_url_repo.touch(url)
                     skip_count += 1
                     continue
 
@@ -1303,6 +1312,20 @@ def _persist_discovered_jobs(
                         discovered_task_id=task_id,
                     )
                     reportable_count += 1
+                elif jd_result.fetch_status == "doa":
+                    reason = (
+                        "closed_posting"
+                        if jd_result.http_status == 200
+                        else f"http_{jd_result.http_status or 'unknown'}"
+                    )
+                    dead_url_repo.record(
+                        url=url,
+                        reason=reason,
+                        http_status=jd_result.http_status,
+                        discovered_run_id=run_id,
+                    )
+                    doa_count += 1
+                    continue
                 else:
                     fetch_failed_count += 1
                     payload = {
@@ -1341,6 +1364,7 @@ def _persist_discovered_jobs(
             "jobs_ingested": new_count,
             "jobs_reportable": reportable_count,
             "jobs_fetch_failed": fetch_failed_count,
+            "jobs_doa": doa_count,
         }
 
     logger.info(
@@ -1357,6 +1381,7 @@ def _persist_discovered_jobs(
         "jobs_ingested": new_count,
         "jobs_reportable": reportable_count,
         "jobs_fetch_failed": fetch_failed_count,
+        "jobs_doa": doa_count,
     }
 
 

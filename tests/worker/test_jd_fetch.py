@@ -231,6 +231,9 @@ class TestPersistDiscoveredJobs:
         mock_session.__enter__ = MagicMock(return_value=mock_session)
         mock_session.__exit__ = MagicMock(return_value=False)
 
+        mock_dead_repo = MagicMock()
+        mock_dead_repo.is_dead.return_value = False
+
         ok_result = MagicMock()
         ok_result.ok = True
         ok_result.jd_text = "Role description. " * 30
@@ -241,6 +244,8 @@ class TestPersistDiscoveredJobs:
 
         with patch("apps.worker.tasks.search_run.get_session", return_value=mock_session), patch(
             "apps.worker.tasks.search_run.JobRepository", return_value=mock_job_repo
+        ), patch(
+            "apps.worker.tasks.search_run.DeadUrlRepository", return_value=mock_dead_repo
         ), patch("apps.worker.tasks.search_run.resolve_jd", return_value=ok_result):
             from apps.worker.tasks.search_run import _persist_discovered_jobs
 
@@ -279,6 +284,9 @@ class TestPersistDiscoveredJobs:
         mock_session.__enter__ = MagicMock(return_value=mock_session)
         mock_session.__exit__ = MagicMock(return_value=False)
 
+        mock_dead_repo = MagicMock()
+        mock_dead_repo.is_dead.return_value = False
+
         fail_result = MagicMock()
         fail_result.ok = False
         fail_result.jd_text = None
@@ -289,6 +297,8 @@ class TestPersistDiscoveredJobs:
 
         with patch("apps.worker.tasks.search_run.get_session", return_value=mock_session), patch(
             "apps.worker.tasks.search_run.JobRepository", return_value=mock_job_repo
+        ), patch(
+            "apps.worker.tasks.search_run.DeadUrlRepository", return_value=mock_dead_repo
         ), patch("apps.worker.tasks.search_run.resolve_jd", return_value=fail_result):
             from apps.worker.tasks.search_run import _persist_discovered_jobs
 
