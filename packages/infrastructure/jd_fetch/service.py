@@ -3,7 +3,10 @@ JD fetch service — shared by worker ingest and career_fetch_source wrapper.
 
 Resolution order (resolve_jd):
   1. Artifact cache at {artifact_dir}/fetched_jds/{url_hash}.txt (Phase B)
-  2. Worker deterministic HTTP fetch (Phase A fallback)
+  2. Worker deterministic HTTP fetch (Phase A fallback), which itself prefers
+     the ATS's structured JSON API (see _fetch_via_ats_api) over scraping the
+     page when the URL matches a known board — cleaner text, no page chrome,
+     and no dependency on the agent correctly self-reporting source_type.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-JdSource = Literal["artifact", "worker_fetch"]
+JdSource = Literal["artifact", "worker_fetch", "ats_api"]
 
 
 @dataclass(frozen=True)
@@ -206,6 +209,58 @@ def _fetch_via_jina(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         )
 
 
+def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | None:
+    """
+    Try resolving a job posting via its ATS's own structured JSON API instead
+    of scraping the page. Detection is URL-pattern based (extract_board_info),
+    not caller-supplied source_type — an agent that misclassifies a URL still
+    gets routed correctly, and one that's right doesn't need to be trusted.
+
+    Returns None (caller falls back to scraping) whenever the shortcut isn't
+    available: URL doesn't match a known ATS board, the board API call fails,
+    or this specific job isn't in the board's current listing (e.g. filled or
+    pulled since the URL was discovered). Never raises.
+    """
+    from packages.domain.agent_jobs.ats_providers import (
+        build_api_url,
+        extract_board_info,
+        parse_board_response,
+    )
+
+    board_info = extract_board_info(url)
+    if not board_info:
+        return None
+    provider, token = board_info
+    api_url = build_api_url(provider, token)
+    if not api_url:
+        return None
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(api_url)
+            response.raise_for_status()
+        board_jobs = parse_board_response(provider, response.json())
+    except Exception:
+        return None
+
+    match = next((bj for bj in board_jobs if bj.url == url), None)
+    if match is None or not match.jd_plain:
+        return None
+
+    validated = _validate_jd_text(match.jd_plain)
+    if not validated.ok:
+        return None
+
+    return JdFetchResult(
+        ok=True,
+        jd_text=validated.jd_text,
+        jd_hash=validated.jd_hash,
+        error=None,
+        source="ats_api",
+        fetch_status="success",
+    )
+
+
 def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
     """Deterministic HTTP fetch + normalize (worker fallback)."""
     if not url.startswith(("http://", "https://")):
@@ -217,6 +272,10 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
             source="worker_fetch",
             fetch_status="failed",
         )
+
+    ats_result = _fetch_via_ats_api(url, timeout=min(timeout, 10.0))
+    if ats_result is not None:
+        return ats_result
 
     try:
         with httpx.Client(
@@ -278,8 +337,10 @@ def resolve_jd(url: str, source_type: str, artifact_dir: Path) -> JdFetchResult:
     """
     Resolve JD text for a candidate URL.
 
-    Prefers artifact cache (career_fetch_source), falls back to worker fetch.
-    source_type is reserved for future ATS-specific connectors.
+    Prefers artifact cache (career_fetch_source), falls back to worker fetch
+    (which itself tries the ATS structured API before scraping — see
+    _fetch_via_ats_api). source_type is unused: the ATS routing decision is
+    made from the URL itself, not from this caller-supplied hint.
     """
     _ = source_type
     cached = _read_jd_artifact(artifact_dir, url)

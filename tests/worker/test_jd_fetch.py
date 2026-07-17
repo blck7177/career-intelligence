@@ -84,6 +84,80 @@ class TestFetchJdFromUrl:
         assert result.fetch_status == "too_short"
 
 
+_GREENHOUSE_BOARD_RESPONSE = {
+    "jobs": [
+        {
+            "absolute_url": "https://boards.greenhouse.io/acme/jobs/123",
+            "title": "Market Risk Analyst",
+            "company_name": "Acme",
+            "location": {"name": "New York, NY"},
+            "content": "<p>" + ("Real job description text. " * 30) + "</p>",
+        }
+    ]
+}
+
+
+class TestFetchViaAtsApi:
+    """fetch_jd_from_url prefers the ATS's structured API over scraping when
+    the URL matches a known board — see _fetch_via_ats_api."""
+
+    def test_resolves_via_ats_api_when_url_matches_known_board(self):
+        api_response = httpx.Response(
+            200,
+            json=_GREENHOUSE_BOARD_RESPONSE,
+            request=httpx.Request("GET", "https://boards-api.greenhouse.io/v1/boards/acme/jobs"),
+        )
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = api_response
+            result = fetch_jd_from_url("https://boards.greenhouse.io/acme/jobs/123")
+
+        assert result.ok is True
+        assert result.source == "ats_api"
+        assert "Real job description text" in (result.jd_text or "")
+        # Only the ATS API call happened — no fallback scrape of the raw page.
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+    def test_falls_back_to_scrape_when_ats_api_errors(self):
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                httpx.ConnectError("boom"),
+                httpx.Response(200, text=SAMPLE_HTML, request=httpx.Request("GET", "https://x.com")),
+            ]
+            result = fetch_jd_from_url("https://boards.greenhouse.io/acme/jobs/999")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 2
+
+    def test_falls_back_to_scrape_when_job_not_in_board_listing(self):
+        api_response = httpx.Response(
+            200,
+            json=_GREENHOUSE_BOARD_RESPONSE,
+            request=httpx.Request("GET", "https://boards-api.greenhouse.io/v1/boards/acme/jobs"),
+        )
+        scrape_response = httpx.Response(200, text=SAMPLE_HTML, request=httpx.Request("GET", "https://x.com"))
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [api_response, scrape_response]
+            # Valid greenhouse-pattern URL, but this job ID isn't in the board's listing.
+            result = fetch_jd_from_url("https://boards.greenhouse.io/acme/jobs/000000")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 2
+
+    def test_non_ats_url_skips_api_call_entirely(self):
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = httpx.Response(
+                200, text=SAMPLE_HTML, request=httpx.Request("GET", "https://x.com")
+            )
+            result = fetch_jd_from_url("https://example.com/careers/job/1")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+        # Exactly one httpx call (the scrape) — no ATS API attempt for a non-ATS URL.
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+
 class TestArtifactCache:
     def test_save_and_resolve_from_artifact(self, tmp_path: Path):
         url = "https://boards.greenhouse.io/acme/jobs/123"

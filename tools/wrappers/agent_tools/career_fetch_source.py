@@ -31,6 +31,15 @@ from packages.infrastructure.redis.domain_rate_limiter import DomainRateLimiter
 
 ALLOWED_SOURCE_TYPES = {"greenhouse", "lever", "ashby", "workday", "html_fallback"}
 
+# fetch_result.source == "ats_api" means the posting was resolved from the
+# ATS's own structured JSON API (see jd_fetch.service._fetch_via_ats_api) —
+# realness is guaranteed by that API's contract, not by reading this text, so
+# the agent only needs enough to judge relevance/seniority, not to re-verify
+# it's a real posting. Everything else still needs the fuller excerpt because
+# the agent's realness check IS the returned text in that case.
+_AGENT_VISIBLE_CHARS_ATS_API = 1500
+_AGENT_VISIBLE_CHARS_SCRAPED = 50000
+
 
 @click.command()
 @click.option("--task-spec", required=True, type=click.Path(exists=True))
@@ -79,16 +88,27 @@ def main(task_spec: str, output: str) -> None:
             _fail(output, str(exc))
             sys.exit(1)
 
+    full_text = fetch_result.jd_text or ""
+    via_ats_api = fetch_result.source == "ats_api"
+    visible_chars = _AGENT_VISIBLE_CHARS_ATS_API if via_ats_api else _AGENT_VISIBLE_CHARS_SCRAPED
+
     result = {
         "url": url,
         "source_type": source_type,
         "status_code": 200,
-        "content_length": len(fetch_result.jd_text or ""),
-        "text": (fetch_result.jd_text or "")[:50000],
+        "content_length": len(full_text),
+        "text": full_text[:visible_chars],
         "final_url": url,
         "jd_text_path": jd_text_path,
         "jd_hash": jd_hash,
     }
+    if via_ats_api:
+        result["note"] = (
+            "Resolved via the ATS's structured API — this is a confirmed real "
+            "posting, no need to re-verify. Text is truncated to an excerpt "
+            "for your relevance/seniority judgment; the full description is "
+            "already persisted for downstream use."
+        )
 
     Path(output).write_text(json.dumps(result, indent=2))
 
@@ -103,6 +123,7 @@ def main(task_spec: str, output: str) -> None:
             "status": "ok",
             "url": url,
             "source_type": source_type,
+            "jd_source": fetch_result.source,
         }
         with trace_path.open("a") as f:
             f.write(json.dumps(trace_entry) + "\n")
