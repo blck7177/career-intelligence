@@ -182,6 +182,9 @@ def import_job(
             detail="LinkedIn requires login to view job postings. Please use the direct employer or ATS URL instead.",
         )
 
+    from packages.domain.agent_jobs.url_normalize import normalize_job_url
+    url = normalize_job_url(url)
+
     from packages.infrastructure.llm.usage_writer import set_llm_context
     set_llm_context(call_site="manual_import")
 
@@ -245,7 +248,7 @@ def import_job(
                 resp = httpx.get(api_url, timeout=10.0)
                 if resp.status_code == 200:
                     for bj in parse_board_response(provider, resp.json()):
-                        if bj.url == url:
+                        if normalize_job_url(bj.url) == url:
                             title = bj.title
                             company = bj.company
                             location = bj.location

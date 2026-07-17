@@ -226,6 +226,7 @@ def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | No
         extract_board_info,
         parse_board_response,
     )
+    from packages.domain.agent_jobs.url_normalize import normalize_job_url
 
     board_info = extract_board_info(url)
     if not board_info:
@@ -243,7 +244,10 @@ def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | No
     except Exception:
         return None
 
-    match = next((bj for bj in board_jobs if bj.url == url), None)
+    match = next(
+        (bj for bj in board_jobs if normalize_job_url(bj.url) == normalize_job_url(url)),
+        None,
+    )
     if match is None or not match.jd_plain:
         return None
 

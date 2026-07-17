@@ -46,6 +46,7 @@ from packages.domain.agent_jobs.discovery_planner import (
     budget_for_depth,
 )
 from packages.domain.agent_jobs.planner import build_invocation_spec
+from packages.domain.agent_jobs.url_normalize import normalize_job_url
 from packages.domain.strategy_state import materialize_discovery_hints
 from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
@@ -1249,7 +1250,7 @@ def _persist_discovered_jobs(
                     logger.warning("search_run: skipping malformed candidate_pool line: %s", exc)
                     continue
 
-                url = entry.get("url", "").strip()
+                url = normalize_job_url(entry.get("url", "").strip())
                 if not url:
                     continue
 
@@ -1586,7 +1587,8 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
         with get_session() as session:
             job_repo = JobRepository(session)
             for bj in board_jobs:
-                if job_repo.get_by_canonical_url(bj.url):
+                bj_url = normalize_job_url(bj.url)
+                if job_repo.get_by_canonical_url(bj_url):
                     continue
                 company = bj.company or src["company_name"]
                 jd_text = (bj.jd_plain or "").strip()
@@ -1596,8 +1598,8 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                     import hashlib as _hl
                     jd_hash = _hl.md5(jd_text.encode("utf-8")).hexdigest()[:16]
                 job_repo.create(
-                    canonical_url=bj.url,
-                    source_url=bj.url,
+                    canonical_url=bj_url,
+                    source_url=bj_url,
                     source_type="ats",
                     source_provider=src["ats_provider"],
                     title=bj.title,
