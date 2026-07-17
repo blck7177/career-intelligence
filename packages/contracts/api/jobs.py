@@ -37,7 +37,7 @@ class JobRead(BaseModel):
     title: str
     company: str
     location: Optional[str] = None
-    status: str  # "discovered" | "reportable" | "invalid" | "stale"
+    status: str  # "discovered" | "reportable" | "invalid" | "stale" | "archived"
     discovered_run_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime

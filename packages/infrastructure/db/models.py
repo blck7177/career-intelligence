@@ -456,7 +456,15 @@ class Job(Base):
     jd_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     raw_payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("discovered", "reportable", "invalid", "stale", name="job_status"),
+        # 'archived' is a legacy per-user workflow value (added to the DB enum
+        # by migration r9s0t1u2v3w4 but never to this model, which made ORM
+        # hydration of archived rows raise LookupError). It belongs in
+        # workspace_jobs.user_status and will move there; listed here so
+        # existing rows load. Postgres can't drop an enum value, so it remains.
+        Enum(
+            "discovered", "reportable", "invalid", "stale", "archived",
+            name="job_status",
+        ),
         nullable=False,
         default="discovered",
     )
