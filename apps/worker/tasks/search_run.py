@@ -644,6 +644,11 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     except Exception:
         logger.warning("search_run: source registration failed (non-blocking)", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Step 10d: Reconcile fetch outcomes (accepted vs rejected candidates)
+    # ------------------------------------------------------------------
+    fetch_outcomes_path = _reconcile_fetch_outcomes(manifest)
+
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
@@ -658,6 +663,17 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 artifact_type=artifact_type,
                 storage_uri=path_str,
                 content_hash=_compute_file_sha256(path_str),
+                metadata_json={"invocation_id": invocation_id},
+            )
+            artifact_ids.append(artifact.id)
+
+        if fetch_outcomes_path is not None:
+            artifact = artifact_repo.create(
+                run_id=env.run_id,
+                task_id=env.task_id,
+                artifact_type="fetch_outcomes",
+                storage_uri=str(fetch_outcomes_path),
+                content_hash=_compute_file_sha256(str(fetch_outcomes_path)),
                 metadata_json={"invocation_id": invocation_id},
             )
             artifact_ids.append(artifact.id)
@@ -1061,6 +1077,118 @@ def _load_profile(workspace_id: str, profile_id: str | None = None) -> ProfileSn
             snapshot.is_empty,
         )
         return snapshot
+
+
+def _parse_platform_trace_entries(trace_path: Path) -> list[dict]:
+    """
+    Defensively parse trace_events.jsonl.
+
+    Platform wrappers (career_fetch_source, career_log_candidates,
+    career_search_status) each append one clean, newline-terminated JSON
+    object per call. The agent is also allowed to append its own free-text
+    tool-use narration to this same file (evidence for web_fetch/web_search,
+    which no platform code wraps) — no fixed schema, and in practice
+    sometimes without a separating newline. Use raw_decode per line instead
+    of assuming one-json-object-per-line so a malformed/concatenated agent
+    entry can't silently swallow the platform entry next to it.
+    """
+    decoder = json.JSONDecoder()
+    entries: list[dict] = []
+    try:
+        raw = trace_path.read_text(encoding="utf-8")
+    except OSError:
+        return entries
+    for line in raw.splitlines():
+        line = line.strip()
+        idx = 0
+        while idx < len(line):
+            try:
+                obj, end = decoder.raw_decode(line, idx)
+            except ValueError:
+                break
+            if isinstance(obj, dict):
+                entries.append(obj)
+            idx = end
+            while idx < len(line) and line[idx] in " \t":
+                idx += 1
+    return entries
+
+
+def _reconcile_fetch_outcomes(manifest: DiscoveryManifest) -> Path | None:
+    """
+    Cross-reference every career_fetch_source call this task made against
+    which URLs actually ended up in candidate_pool.jsonl, and write
+    fetch_outcomes.jsonl: one row per career_fetch_source call, with
+    accepted=True/False.
+
+    Purpose: career_log_candidates (the HMAC-signed ledger) only records
+    ACCEPTED candidates — there is no record anywhere of a URL the agent
+    fetched and then decided wasn't real/relevant. This computes that
+    negative set deterministically from two things platform code already
+    writes (trace_events.jsonl's career_fetch_source entries, and
+    candidate_pool.jsonl), so it doesn't depend on the agent narrating its
+    own rejections. Building a labeled validation set for any future
+    realness-judgment heuristic requires exactly this — see
+    dev_note/career/phase20-launch-hardening (job_discovery cost audit).
+
+    Coverage caveat: this only sees fetches made via the career_fetch_source
+    wrapper. Most real discovery traffic today goes through the generic
+    web_fetch tool (not wrapped by platform code), which this cannot see.
+    Non-blocking: returns None on any failure or if there's nothing to write.
+    """
+    try:
+        pool_path_str = manifest.artifact_paths.get("candidate_pool")
+        trace_path_str = manifest.artifact_paths.get("trace_events")
+        if not trace_path_str:
+            return None
+        trace_path = Path(trace_path_str)
+        if not trace_path.exists():
+            return None
+
+        accepted_urls: set[str] = set()
+        if pool_path_str:
+            pool_path = Path(pool_path_str)
+            if pool_path.exists():
+                for line in pool_path.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    url = entry.get("url", "").strip()
+                    if url:
+                        accepted_urls.add(url)
+
+        outcomes = []
+        for event in _parse_platform_trace_entries(trace_path):
+            if event.get("tool_name") != "career_fetch_source":
+                continue
+            url = event.get("url", "")
+            if not url:
+                continue
+            outcomes.append({
+                "url": url,
+                "source_type": event.get("source_type"),
+                "jd_source": event.get("jd_source"),
+                "accepted": url in accepted_urls,
+            })
+
+        if not outcomes:
+            return None
+
+        out_path = trace_path.parent / "fetch_outcomes.jsonl"
+        with out_path.open("w") as f:
+            for row in outcomes:
+                f.write(json.dumps(row) + "\n")
+        return out_path
+    except Exception:
+        logger.warning(
+            "search_run: fetch outcome reconciliation failed (non-blocking)",
+            exc_info=True,
+        )
+        return None
 
 
 def _persist_discovered_jobs(

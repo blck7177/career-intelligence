@@ -5,6 +5,8 @@ No IO against real DB — repositories are mocked.
 Covers:
   - _canonicalize_discovery_artifact_paths: platform-owned keys stripped from manifest
   - _mark_needs_review: result_summary_json is structured and contains expected fields
+  - _parse_platform_trace_entries / _reconcile_fetch_outcomes: fetch accept/reject
+    reconciliation for career_fetch_source calls
 """
 
 from __future__ import annotations
@@ -316,3 +318,115 @@ class TestMarkNeedsReview:
 
         _, kwargs = mock_run_repo.complete.call_args
         assert kwargs["result_summary"]["phase"] == "unknown"
+
+
+class TestParsePlatformTraceEntries:
+    def test_parses_clean_newline_separated_entries(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _parse_platform_trace_entries
+
+        trace_path = tmp_path / "trace_events.jsonl"
+        trace_path.write_text(
+            json.dumps({"tool_name": "career_fetch_source", "url": "https://a.com/1"}) + "\n"
+            + json.dumps({"tool_name": "career_log_candidates", "logged_count": 3}) + "\n"
+        )
+
+        entries = _parse_platform_trace_entries(trace_path)
+        assert len(entries) == 2
+        assert entries[0]["tool_name"] == "career_fetch_source"
+
+    def test_recovers_concatenated_objects_on_one_line(self, tmp_path: Path):
+        """Agent self-narration entries sometimes land on the same file without
+        a separating newline — a platform entry sitting next to one must still
+        be recovered, not silently dropped."""
+        from apps.worker.tasks.search_run import _parse_platform_trace_entries
+
+        trace_path = tmp_path / "trace_events.jsonl"
+        line = (
+            json.dumps({"tool": "web_search", "note": "agent self-log, no trailing newline"})
+            + json.dumps({"tool_name": "career_fetch_source", "url": "https://a.com/2"})
+        )
+        trace_path.write_text(line + "\n")
+
+        entries = _parse_platform_trace_entries(trace_path)
+        assert len(entries) == 2
+        assert any(e.get("tool_name") == "career_fetch_source" for e in entries)
+
+    def test_missing_file_returns_empty(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _parse_platform_trace_entries
+
+        entries = _parse_platform_trace_entries(tmp_path / "does_not_exist.jsonl")
+        assert entries == []
+
+
+class TestReconcileFetchOutcomes:
+    def _write_trace(self, tmp_path: Path, entries: list[dict]) -> Path:
+        trace_path = tmp_path / "trace_events.jsonl"
+        trace_path.write_text("".join(json.dumps(e) + "\n" for e in entries))
+        return trace_path
+
+    def _write_pool(self, tmp_path: Path, urls: list[str]) -> Path:
+        pool_path = tmp_path / "candidate_pool.jsonl"
+        pool_path.write_text(
+            "".join(json.dumps({"url": u, "title": "x", "company": "y"}) + "\n" for u in urls)
+        )
+        return pool_path
+
+    def test_marks_accepted_and_rejected_correctly(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _reconcile_fetch_outcomes
+
+        trace_path = self._write_trace(tmp_path, [
+            {"tool_name": "career_fetch_source", "url": "https://a.com/accepted",
+             "source_type": "greenhouse", "jd_source": "ats_api"},
+            {"tool_name": "career_fetch_source", "url": "https://a.com/rejected",
+             "source_type": "html_fallback", "jd_source": "worker_fetch"},
+            # Agent's own narration for a tool platform code doesn't wrap — ignored.
+            {"tool": "web_fetch", "url": "https://a.com/not-ours", "note": "confirmed real"},
+        ])
+        self._write_pool(tmp_path, ["https://a.com/accepted"])
+        manifest = make_manifest({
+            "candidate_pool": str(tmp_path / "candidate_pool.jsonl"),
+            "trace_events": str(trace_path),
+        })
+
+        out_path = _reconcile_fetch_outcomes(manifest)
+
+        assert out_path is not None
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+        by_url = {r["url"]: r for r in rows}
+        assert len(rows) == 2  # only career_fetch_source entries, not the web_fetch one
+        assert by_url["https://a.com/accepted"]["accepted"] is True
+        assert by_url["https://a.com/rejected"]["accepted"] is False
+        assert by_url["https://a.com/accepted"]["jd_source"] == "ats_api"
+
+    def test_returns_none_when_no_trace_events_path(self):
+        from apps.worker.tasks.search_run import _reconcile_fetch_outcomes
+
+        manifest = make_manifest({"candidate_pool": "/tmp/whatever.jsonl"})
+        assert _reconcile_fetch_outcomes(manifest) is None
+
+    def test_returns_none_when_no_career_fetch_source_entries(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _reconcile_fetch_outcomes
+
+        trace_path = self._write_trace(tmp_path, [
+            {"tool": "web_fetch", "url": "https://a.com/x", "note": "confirmed"},
+        ])
+        manifest = make_manifest({"trace_events": str(trace_path)})
+        assert _reconcile_fetch_outcomes(manifest) is None
+
+    def test_never_raises_on_malformed_candidate_pool(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _reconcile_fetch_outcomes
+
+        trace_path = self._write_trace(tmp_path, [
+            {"tool_name": "career_fetch_source", "url": "https://a.com/1"},
+        ])
+        pool_path = tmp_path / "candidate_pool.jsonl"
+        pool_path.write_text("not valid json\n")
+        manifest = make_manifest({
+            "candidate_pool": str(pool_path),
+            "trace_events": str(trace_path),
+        })
+
+        out_path = _reconcile_fetch_outcomes(manifest)
+        assert out_path is not None
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+        assert rows[0]["accepted"] is False
