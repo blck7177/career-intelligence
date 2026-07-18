@@ -680,8 +680,24 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             )
             artifact_ids.append(artifact.id)
 
+        # candidate_count = how many candidates the agent actually logged this
+        # run, counted from the (now-normalized, guaranteed-JSONL) candidate_pool
+        # — NOT manifest.candidate_count. The agent writes its manifest partway
+        # through and can keep calling career_log_candidates afterwards (a
+        # "continuation" past SKILL Step 7 STOP), so manifest.candidate_count is
+        # frozen at whatever it was at manifest-write time and routinely
+        # under-reports the real yield by an order of magnitude (measured: pool
+        # had 21, manifest said 2). result_summary.candidate_count feeds both the
+        # UI run card and the reflection agent's diagnosis, so a stale value here
+        # makes reflection reason about a run that didn't happen. The
+        # DiscoveryCountValidator already flags this mismatch, but only as a
+        # non-blocking warning — it doesn't correct the number. jobs_ingested
+        # (below) remains the separate "unique new jobs persisted" count.
+        real_candidate_count = _count_jsonl_lines(candidate_pool_path)
+
         result_summary = {
-            "candidate_count": manifest.candidate_count,
+            "candidate_count": real_candidate_count,
+            "candidate_count_agent_reported": manifest.candidate_count,
             "job_ids": job_ids,
             "jobs_ingested": ingest_stats["jobs_ingested"],
             "jobs_reportable": ingest_stats["jobs_reportable"],
@@ -699,22 +715,23 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             run_id=env.run_id,
             event_type="task_succeeded",
             message=(
-                f"Discovery complete: {manifest.candidate_count} candidates, "
+                f"Discovery complete: {real_candidate_count} candidates, "
                 f"{len(manifest.sources_tried)} sources tried, "
                 f"{len(job_ids)} jobs persisted to database"
             ),
         )
 
     logger.info(
-        "search_run: task_id=%s succeeded, candidates=%d, jobs_persisted=%d",
+        "search_run: task_id=%s succeeded, candidates=%d (agent reported %d), jobs_persisted=%d",
         env.task_id,
+        real_candidate_count,
         manifest.candidate_count,
         len(job_ids),
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
-        "candidate_count": manifest.candidate_count,
+        "candidate_count": real_candidate_count,
         "jobs_persisted": len(job_ids),
     }
 

@@ -430,3 +430,40 @@ class TestReconcileFetchOutcomes:
         assert out_path is not None
         rows = [json.loads(line) for line in out_path.read_text().splitlines()]
         assert rows[0]["accepted"] is False
+
+
+# ---------------------------------------------------------------------------
+# _count_jsonl_lines — the primitive the A1 candidate_count fix relies on:
+# result_summary.candidate_count must come from the real (normalized) pool line
+# count, NOT the agent's frozen manifest.candidate_count, which the agent can
+# under-report by continuing to log candidates after writing its manifest.
+# ---------------------------------------------------------------------------
+
+
+class TestCountJsonlLines:
+    def test_counts_non_empty_lines_only(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _count_jsonl_lines
+
+        pool = tmp_path / "candidate_pool.jsonl"
+        # 3 real entries interleaved with blank lines
+        pool.write_text('{"url":"a"}\n\n{"url":"b"}\n   \n{"url":"c"}\n')
+        assert _count_jsonl_lines(pool) == 3
+
+    def test_missing_file_is_zero(self, tmp_path: Path):
+        from apps.worker.tasks.search_run import _count_jsonl_lines
+
+        assert _count_jsonl_lines(tmp_path / "nope.jsonl") == 0
+
+    def test_real_pool_count_exceeds_understated_manifest(self, tmp_path: Path):
+        """Reproduces the observed bug shape: manifest froze at 2 while the pool
+        actually holds many more candidates — the pool count is the honest one."""
+        from apps.worker.tasks.search_run import _count_jsonl_lines
+
+        pool = tmp_path / "candidate_pool.jsonl"
+        pool.write_text("".join(f'{{"url":"job-{i}"}}\n' for i in range(21)))
+        manifest = make_manifest({"candidate_pool": str(pool)})
+        manifest.candidate_count = 2  # agent's stale self-report
+
+        real = _count_jsonl_lines(pool)
+        assert real == 21
+        assert real != manifest.candidate_count
