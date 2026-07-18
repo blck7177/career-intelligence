@@ -48,12 +48,19 @@ def handle_job_report(env: TaskEnvelope) -> dict:
         run = RunRepository(session).get_or_raise(env.run_id)
         snap = run.input_snapshot_json or {}
 
+    # Read early so the failure paths can notify that the intended fit_report
+    # auto-chain won't happen. Without this, a job_report failure inside a
+    # batch_analyze request silently drops the downstream fit_report with no
+    # trace anywhere — the exact failure mode the 429 outage produced.
+    auto_fit_profile_id = snap.get("auto_fit_profile_id")
+
     try:
         inp = JobReportInput.model_validate(snap)
     except ValidationError as exc:
         logger.error("job_report: invalid input_snapshot: %s", exc)
         _mark_failed(env, error_code="INVALID_INPUT",
-                     message=f"Invalid job_report input_snapshot: {exc}")
+                     message=f"Invalid job_report input_snapshot: {exc}",
+                     chained_fit_skipped_profile_id=auto_fit_profile_id)
         return {"status": "failed", "task_id": env.task_id}
 
     try:
@@ -70,12 +77,26 @@ def handle_job_report(env: TaskEnvelope) -> dict:
             )
     except ValueError as exc:
         logger.warning("job_report: input error: %s", exc)
-        _mark_failed(env, error_code="INVALID_JOB_INPUT", message=str(exc)[:500])
+        _mark_failed(env, error_code="INVALID_JOB_INPUT", message=str(exc)[:500],
+                     chained_fit_skipped_profile_id=auto_fit_profile_id)
         return {"status": "failed", "task_id": env.task_id}
     except RuntimeError as exc:
         logger.exception("job_report: analysis failed: %s", exc)
-        _mark_failed(env, error_code="ANALYSIS_FAILED", message=str(exc)[:500])
+        _mark_failed(env, error_code="ANALYSIS_FAILED", message=str(exc)[:500],
+                     chained_fit_skipped_profile_id=auto_fit_profile_id)
         return {"status": "failed", "task_id": env.task_id}
+
+    logger.info("job_report: task_id=%s succeeded report_id=%s", env.task_id, result["job_report_id"])
+
+    # Auto-chain the fit_report first (if requested) so its run_id can be
+    # recorded into this run's result_summary — a batch_analyze caller only sees
+    # the job_report run ids synchronously, so this is the only handle it has on
+    # the downstream fit_report run (correlate by this run_id / correlation_id).
+    chained_fit_run_id: str | None = None
+    if auto_fit_profile_id:
+        chained_fit_run_id = _chain_fit_report(
+            env, inp.job_id, result["job_report_id"], auto_fit_profile_id
+        )
 
     with get_session() as session:
         task_repo = TaskRepository(session)
@@ -87,6 +108,7 @@ def handle_job_report(env: TaskEnvelope) -> dict:
             "validation_status": "passed",
             "report_type": "job_report",
             "report_id": result["job_report_id"],
+            "chained_fit_report_run_id": chained_fit_run_id,
         })
         event_repo.append(
             task_id=env.task_id,
@@ -101,20 +123,16 @@ def handle_job_report(env: TaskEnvelope) -> dict:
             payload_json={
                 "report_type": "job_report",
                 "report_id": result["job_report_id"],
+                "chained_fit_report_run_id": chained_fit_run_id,
             },
         )
-
-    logger.info("job_report: task_id=%s succeeded report_id=%s", env.task_id, result["job_report_id"])
-
-    auto_fit_profile_id = snap.get("auto_fit_profile_id")
-    if auto_fit_profile_id:
-        _chain_fit_report(env, inp.job_id, result["job_report_id"], auto_fit_profile_id)
 
     return {
         "status": "succeeded",
         "task_id": env.task_id,
         "job_report_id": result["job_report_id"],
         "cache_status": result["status"],
+        "chained_fit_report_run_id": chained_fit_run_id,
     }
 
 
@@ -123,8 +141,13 @@ def _chain_fit_report(
     job_id: str,
     job_report_id: str,
     profile_id: str,
-) -> None:
-    """Auto-create and enqueue a fit_report run after job_report completes."""
+) -> str | None:
+    """Auto-create and enqueue a fit_report run after job_report completes.
+
+    Returns the created fit_report run_id, or None if the chain could not be
+    created (so the caller can record either the id or the fact that it failed,
+    instead of the run vanishing silently).
+    """
     import uuid as _uuid
     from packages.domain.agent_jobs.routing import celery_queue_for_task_type
     from packages.contracts.tasks.envelopes import TaskEnvelope as TE
@@ -175,17 +198,42 @@ def _chain_fit_report(
             "job_report: auto-chained fit_report run=%s for job=%s profile=%s",
             run_id, job_id, profile_id,
         )
+        return run_id
     except Exception as exc:
         logger.error("job_report: failed to chain fit_report: %s", exc, exc_info=True)
+        return None
 
 
-def _mark_failed(env: TaskEnvelope, *, error_code: str, message: str) -> None:
+def _mark_failed(
+    env: TaskEnvelope,
+    *,
+    error_code: str,
+    message: str,
+    chained_fit_skipped_profile_id: str | None = None,
+) -> None:
     with get_session() as session:
         task_repo = TaskRepository(session)
         event_repo = TaskEventRepository(session)
         run_repo = RunRepository(session)
         task_repo.mark_failed(env.task_id, error_code=error_code, error_message=message)
         run_repo.set_status(env.run_id, "failed")
+        # If this job_report was the first stage of a batch_analyze auto-chain,
+        # make the dropped downstream fit_report discoverable rather than silent.
+        if chained_fit_skipped_profile_id:
+            event_repo.append(
+                task_id=env.task_id,
+                run_id=env.run_id,
+                event_type="fit_report_chain_skipped",
+                message=(
+                    "Downstream fit_report was not created because this "
+                    f"job_report failed ({error_code}). Intended profile_id="
+                    f"{chained_fit_skipped_profile_id}."
+                ),
+                payload_json={
+                    "reason": error_code,
+                    "intended_profile_id": chained_fit_skipped_profile_id,
+                },
+            )
         event_repo.append(
             task_id=env.task_id,
             run_id=env.run_id,
