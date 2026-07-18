@@ -21,6 +21,7 @@ from packages.infrastructure.db.session import get_session
 from packages.infrastructure.db.repositories import JobRepository
 from packages.infrastructure.llm.client import get_llm_client
 from packages.infrastructure.llm.jd_extractor import extract_jd_fields
+from packages.infrastructure.llm.usage_writer import set_llm_context
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -30,6 +31,12 @@ def main():
     parser = argparse.ArgumentParser(description="Backfill jd_structured for existing jobs")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without making changes")
     args = parser.parse_args()
+
+    # Tag this backfill's extraction calls in the cost ledger. There is no
+    # run/task here (offline script, not a worker task) and the jobs span
+    # multiple workspaces, so call_site is the only meaningful attribution —
+    # still far better than the default "unknown".
+    set_llm_context(call_site="backfill_jd_structured")
 
     llm_client = get_llm_client()
     processed = 0

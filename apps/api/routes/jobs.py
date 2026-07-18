@@ -186,9 +186,6 @@ def import_job(
     from packages.domain.agent_jobs.url_normalize import normalize_job_url
     url = normalize_job_url(url)
 
-    from packages.infrastructure.llm.usage_writer import set_llm_context
-    set_llm_context(call_site="manual_import")
-
     job_repo = JobRepository(db)
 
     existing = job_repo.get_by_canonical_url(url)
@@ -229,6 +226,18 @@ def import_job(
         idempotency_key=f"manual_import:{workspace.id}:{url}",
     )
     db.flush()
+
+    # Bind the LLM cost context now that run/task exist. extract_jd_fields()
+    # below is the only LLM call in this handler; setting the context earlier
+    # (before create/flush) left run_id/task_id/workspace_id empty and its
+    # cost landed as an orphan row in the ledger.
+    from packages.infrastructure.llm.usage_writer import set_llm_context
+    set_llm_context(
+        run_id=run.id,
+        task_id=task.id,
+        workspace_id=workspace.id,
+        call_site="manual_import",
+    )
 
     jd_fetched = False
     jd_text = None
