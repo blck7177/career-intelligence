@@ -90,7 +90,13 @@ class LLMClient:
                 "OPENAI_API_KEY environment variable is not set."
             )
 
-        return openai.OpenAI(api_key=self._api_key)
+        # max_retries=0: the SDK otherwise retries 429s twice with backoff,
+        # including 'insufficient_quota' (account out of credit) where retrying
+        # is pointless — it just burns time on a failure that won't clear until
+        # someone tops up. Extraction/other failures are recovered later by the
+        # reconciliation sweep (re-run once quota is back), not by retrying
+        # inline here.
+        return openai.OpenAI(api_key=self._api_key, max_retries=0)
 
     def _emit_usage(self, resp: "LLMResponse") -> None:
         """Fire-and-forget: persist token usage to the cost ledger."""
