@@ -588,6 +588,28 @@ class JobFavorite(Base):
     )
 
 
+class JobNotInterested(Base):
+    """Workspace-private dismissal of a job. Structurally identical to
+    JobFavorite — Favorite already carries the positive "interested" signal,
+    so this only needs to exist for the negative one."""
+
+    __tablename__ = "job_not_interested"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "job_id", name="uq_job_not_interested_workspace_job"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class CandidateProfile(Base):
     """Workspace-private career profile — single source of truth for both Discovery and FitReport.
 

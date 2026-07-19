@@ -4,10 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
-import { SlidersHorizontal, X } from "lucide-react";
+import { SlidersHorizontal, ChevronDown, X } from "lucide-react";
 import { Collapsible } from "@/components/Collapsible";
 import { Select } from "@/components/ui/select";
-import { optionPillVariants } from "@/components/ui/option-pill-variants";
 
 interface ProfileOption {
   id: string;
@@ -56,6 +55,10 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
         params.delete(key);
       }
       params.delete("page");
+      // Changing the filter set rebuilds the list, so any selected-row anchor
+      // from the old list no longer applies — drop it (the master-detail
+      // re-selects the first row of the new results).
+      params.delete("selected");
       router.push(`/jobs?${params.toString()}`);
     },
     [router, sp],
@@ -112,57 +115,78 @@ export function JobFilters({ profiles, roleCategories, companies }: JobFiltersPr
   const labelClass = "text-2xs font-medium text-[var(--ink-muted)]";
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2 rounded-lg p-2" style={{ background: "var(--muted)" }}>
+      {/* Active-filter chips read left-to-right first (the current state);
+          the Filters trigger and Clear filters travel together as one
+          "manage the filter set" pair, anchored to the row's trailing edge
+          via ml-auto — so they land bottom-right on whichever wrapped line
+          they end up on, instead of competing with the chips for the same
+          shape/weight up front. */}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setPanelOpen((o) => !o)}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-full text-sm font-medium border border-dashed transition-colors"
-          style={
-            panelOpen
-              ? { borderColor: "var(--primary)", color: "var(--primary)", background: "var(--secondary)" }
-              : { borderColor: "var(--border)", color: "var(--ink-secondary)" }
-          }
-        >
-          <SlidersHorizontal size={13} />
-          {t("filters")}
-          {chips.length > 0 && (
-            <span
-              className="flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-2xs font-semibold text-white"
-              style={{ background: "var(--primary)" }}
-            >
-              {chips.length}
-            </span>
-          )}
-        </button>
-
         {chips.map((chip) => (
-          <span key={chip.key} className={optionPillVariants({ selected: true, className: "pl-3.5 pr-1.5" })}>
-            {chip.label}
+          <span
+            key={chip.key}
+            className="inline-flex items-center gap-1.5 h-[26px] pl-2.5 pr-1 rounded-md text-xs font-medium max-w-[168px] shrink-0"
+            style={{ background: "var(--secondary)", color: "var(--secondary-foreground)" }}
+          >
+            <span className="truncate min-w-0">{chip.label}</span>
             <button
               type="button"
               onClick={chip.onRemove}
               aria-label={t("clearFilters")}
-              className="flex items-center justify-center w-4 h-4 rounded-full hover:bg-white/20 transition-colors"
+              className="flex items-center justify-center w-[15px] h-[15px] rounded-full hover:bg-black/10 transition-colors shrink-0"
             >
-              <X size={11} />
+              <X size={10} />
             </button>
           </span>
         ))}
 
-        {chips.length > 0 && (
+        <div className="flex items-center gap-2.5 ml-auto shrink-0">
+          {/* Ghost button + rotating chevron — reads as a disclosure control
+              instead of another same-shaped pill in the row above (SAVED_VIEWS
+              status pills), which is what made it hard to spot before. */}
           <button
             type="button"
-            onClick={() => router.push("/jobs")}
-            className="text-xs text-[var(--ink-muted)] hover:text-[var(--ink-primary)] underline underline-offset-2"
+            onClick={() => setPanelOpen((o) => !o)}
+            className={`flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-semibold transition-colors ${
+              panelOpen ? "bg-white shadow-sm" : "hover:bg-white/60"
+            }`}
+            style={{ color: panelOpen ? "var(--primary)" : "var(--ink-secondary)" }}
           >
-            {t("clearFilters")}
+            <SlidersHorizontal size={12} />
+            {t("filters")}
+            {chips.length > 0 && (
+              <span
+                className="flex items-center justify-center min-w-[15px] h-[15px] px-1 rounded-full text-2xs font-semibold text-white"
+                style={{ background: "var(--primary)" }}
+              >
+                {chips.length}
+              </span>
+            )}
+            <ChevronDown
+              size={12}
+              className="transition-transform duration-200"
+              style={{
+                transform: panelOpen ? "rotate(180deg)" : "rotate(0deg)",
+                color: panelOpen ? "var(--primary)" : "var(--ink-faint)",
+              }}
+            />
           </button>
-        )}
+
+          {chips.length > 0 && (
+            <button
+              type="button"
+              onClick={() => router.push("/jobs")}
+              className="text-xs whitespace-nowrap text-[var(--ink-muted)] hover:text-[var(--ink-primary)] underline underline-offset-2"
+            >
+              {t("clearFilters")}
+            </button>
+          )}
+        </div>
       </div>
 
       <Collapsible open={panelOpen}>
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-[var(--space-surface-compact)] grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 mt-1 border-t border-[var(--border)]">
           <div className="flex flex-col gap-1">
             <label className={labelClass}>{t("sort")}</label>
             <Select

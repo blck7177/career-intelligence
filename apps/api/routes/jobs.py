@@ -1,13 +1,15 @@
 """
-Jobs API — read, archive, import, and favorite job records.
+Jobs API — read, archive, import, favorite, and dismiss job records.
 
 Contract:
-  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=&favorites_only=  → JobList
+  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=&favorites_only=&not_interested_only=  → JobList
   GET    /api/app/jobs/{job_id}                → JobRead
   POST   /api/app/jobs/import                  → JobImportResponse
   DELETE /api/app/jobs/{job_id}                → 204 (soft-delete: sets status to "archived")
   POST   /api/app/jobs/{job_id}/favorite       → FavoriteResponse
   DELETE /api/app/jobs/{job_id}/favorite       → FavoriteResponse
+  POST   /api/app/jobs/{job_id}/not-interested → NotInterestedResponse
+  DELETE /api/app/jobs/{job_id}/not-interested → NotInterestedResponse
 
 Results are always scoped to the authenticated user's workspace.
 """
@@ -34,11 +36,13 @@ from packages.contracts.api.jobs import (
     JobImportResponse,
     JobList,
     JobRead,
+    NotInterestedResponse,
 )
 from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
     DeadUrlRepository,
     JobFavoriteRepository,
+    JobNotInterestedRepository,
     JobRepository,
     JobReportRepository,
     ProfileRepository,
@@ -89,7 +93,13 @@ def _get_workspace_job(db: Session, workspace: Workspace, job_id: str) -> Job:
     return job
 
 
-def _job_read(job, report=None, include_jd_structured: bool = False, is_favorited: bool = False) -> JobRead:
+def _job_read(
+    job,
+    report=None,
+    include_jd_structured: bool = False,
+    is_favorited: bool = False,
+    is_not_interested: bool = False,
+) -> JobRead:
     data = {
         "id": job.id,
         "canonical_url": job.canonical_url,
@@ -105,6 +115,7 @@ def _job_read(job, report=None, include_jd_structured: bool = False, is_favorite
         "last_seen_at": job.last_seen_at,
         "jd_source": (job.raw_payload_json or {}).get("jd_source"),
         "is_favorited": is_favorited,
+        "is_not_interested": is_not_interested,
     }
     if report:
         data["latest_job_report_id"] = report.id
@@ -132,6 +143,7 @@ def list_jobs(
         description="Join latest active job report for role category/seniority/confidence fields",
     ),
     favorites_only: bool = Query(False, description="Only return jobs bookmarked in this workspace"),
+    not_interested_only: bool = Query(False, description="Only return jobs dismissed as not interested in this workspace"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -144,11 +156,20 @@ def list_jobs(
         return JobList(items=[], total=0)
 
     favorited_ids = JobFavoriteRepository(db).list_job_ids_for_workspace(workspace.id)
+    not_interested_ids = JobNotInterestedRepository(db).list_job_ids_for_workspace(workspace.id)
+
+    job_ids_filter = None
+    if favorites_only and not_interested_only:
+        job_ids_filter = favorited_ids & not_interested_ids
+    elif favorites_only:
+        job_ids_filter = favorited_ids
+    elif not_interested_only:
+        job_ids_filter = not_interested_ids
 
     items, total = JobRepository(db).list(
         run_ids=run_ids,
         status=status,
-        job_ids=favorited_ids if favorites_only else None,
+        job_ids=job_ids_filter,
         limit=limit,
         offset=offset,
     )
@@ -159,7 +180,15 @@ def list_jobs(
         report_map = JobReportRepository(db).get_latest_active_map(job_ids)
 
     return JobList(
-        items=[_job_read(j, report_map.get(j.id), is_favorited=j.id in favorited_ids) for j in items],
+        items=[
+            _job_read(
+                j,
+                report_map.get(j.id),
+                is_favorited=j.id in favorited_ids,
+                is_not_interested=j.id in not_interested_ids,
+            )
+            for j in items
+        ],
         total=total,
     )
 
@@ -521,7 +550,14 @@ def get_job(
         report = JobReportRepository(db).get_latest_active(job_id)
 
     is_favorited = JobFavoriteRepository(db).is_favorited(workspace.id, job_id)
-    return _job_read(job, report, include_jd_structured=True, is_favorited=is_favorited)
+    is_not_interested = JobNotInterestedRepository(db).is_not_interested(workspace.id, job_id)
+    return _job_read(
+        job,
+        report,
+        include_jd_structured=True,
+        is_favorited=is_favorited,
+        is_not_interested=is_not_interested,
+    )
 
 
 @router.delete("/{job_id}", status_code=204)
@@ -563,3 +599,31 @@ def unfavorite_job(
     JobFavoriteRepository(db).remove(workspace.id, job_id)
     db.commit()
     return FavoriteResponse(favorited=False)
+
+
+@router.post("/{job_id}/not-interested", response_model=NotInterestedResponse)
+def mark_not_interested(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> NotInterestedResponse:
+    """Dismiss a job as not interested in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobNotInterestedRepository(db).add(workspace.id, job_id)
+    db.commit()
+    return NotInterestedResponse(not_interested=True)
+
+
+@router.delete("/{job_id}/not-interested", response_model=NotInterestedResponse)
+def unmark_not_interested(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> NotInterestedResponse:
+    """Remove a job's not-interested dismissal in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobNotInterestedRepository(db).remove(workspace.id, job_id)
+    db.commit()
+    return NotInterestedResponse(not_interested=False)

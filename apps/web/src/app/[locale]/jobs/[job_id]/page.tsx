@@ -5,8 +5,10 @@ import { getJob, getLatestJobReport, getProfile, listFitReports, getFitReport } 
 import type { JobRead, JobReportResponse, FitReportResponse, JDStructured, ProfileRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
 import { fmtTs } from "@/lib/utils";
 import { FavoriteButton } from "./FavoriteButton";
+import { NotInterestedButton } from "./NotInterestedButton";
 import { JobDetailTabs } from "./JobDetailTabs";
 
 export const dynamic = "force-dynamic";
@@ -75,9 +77,17 @@ export default async function JobDetailPage({ params }: PageProps) {
                 <h1 className="text-lg font-semibold leading-tight truncate" style={{ color: "var(--ink-primary)" }}>
                   {job.title}
                 </h1>
-                <Badge className={jobStatusBg(job.status) + " text-2xs shrink-0"}>
-                  {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
-                </Badge>
+                {job.status === "reportable" ? (
+                  <Tooltip content={t("reportableTooltip")}>
+                    <Badge className={jobStatusBg(job.status) + " text-2xs shrink-0 cursor-help"}>
+                      {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
+                    </Badge>
+                  </Tooltip>
+                ) : (
+                  <Badge className={jobStatusBg(job.status) + " text-2xs shrink-0"}>
+                    {t(STATUS_KEY_MAP[job.status] ?? "invalid")}
+                  </Badge>
+                )}
                 {job.jd_source === "research_mirror" && (
                   <Badge className="bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)] text-2xs shrink-0">
                     {t("jdFromMirror")}
@@ -100,7 +110,10 @@ export default async function JobDetailPage({ params }: PageProps) {
               </div>
             </div>
           </div>
-          <FavoriteButton jobId={job_id} initialFavorited={!!job.is_favorited} />
+          <div className="flex items-center gap-2 shrink-0">
+            <FavoriteButton jobId={job_id} initialFavorited={!!job.is_favorited} />
+            <NotInterestedButton jobId={job_id} initialNotInterested={!!job.is_not_interested} />
+          </div>
         </div>
       </header>
 

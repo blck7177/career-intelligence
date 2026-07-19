@@ -40,7 +40,7 @@ export function Select({
           className,
         )}
       >
-        <BaseSelect.Value placeholder={placeholder} />
+        <BaseSelect.Value placeholder={placeholder} className="min-w-0 flex-1 truncate text-left" />
         <BaseSelect.Icon>
           <ChevronDown size={14} className="text-[var(--ink-muted)]" />
         </BaseSelect.Icon>

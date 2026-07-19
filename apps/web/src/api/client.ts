@@ -161,6 +161,7 @@ export async function listJobs(
     status?: string;
     include_report_summary?: boolean;
     favorites_only?: boolean;
+    not_interested_only?: boolean;
     limit?: number;
     offset?: number;
   },
@@ -170,6 +171,7 @@ export async function listJobs(
   if (params?.status) qs.set("status", params.status);
   if (params?.include_report_summary) qs.set("include_report_summary", "true");
   if (params?.favorites_only) qs.set("favorites_only", "true");
+  if (params?.not_interested_only) qs.set("not_interested_only", "true");
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();
@@ -201,6 +203,28 @@ export async function unfavoriteJob(
 ): Promise<{ favorited: boolean }> {
   return req<{ favorited: boolean }>(
     `/api/app/jobs/${encodeURIComponent(jobId)}/favorite`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
+export async function markJobNotInterested(
+  jobId: string,
+  token?: string | null,
+): Promise<{ not_interested: boolean }> {
+  return req<{ not_interested: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/not-interested`,
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function unmarkJobNotInterested(
+  jobId: string,
+  token?: string | null,
+): Promise<{ not_interested: boolean }> {
+  return req<{ not_interested: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/not-interested`,
     { method: "DELETE" },
     token,
   );

@@ -361,6 +361,18 @@
             "description": "Only return jobs bookmarked in this workspace"
           },
           {
+            "name": "not_interested_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only return jobs dismissed as not interested in this workspace",
+              "default": false,
+              "title": "Not Interested Only"
+            },
+            "description": "Only return jobs dismissed as not interested in this workspace"
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -822,6 +834,122 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FavoriteResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/jobs/{job_id}/not-interested": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Mark Not Interested",
+        "description": "Dismiss a job as not interested in the current workspace. Idempotent.",
+        "operationId": "mark_not_interested_api_app_jobs__job_id__not_interested_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotInterestedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Unmark Not Interested",
+        "description": "Remove a job's not-interested dismissal in the current workspace. Idempotent.",
+        "operationId": "unmark_not_interested_api_app_jobs__job_id__not_interested_delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotInterestedResponse"
                 }
               }
             }
@@ -3162,6 +3290,11 @@
             "type": "boolean",
             "title": "Is Favorited",
             "default": false
+          },
+          "is_not_interested": {
+            "type": "boolean",
+            "title": "Is Not Interested",
+            "default": false
           }
         },
         "type": "object",
@@ -3463,6 +3596,19 @@
           "created_at"
         ],
         "title": "LLMUsageEventRead"
+      },
+      "NotInterestedResponse": {
+        "properties": {
+          "not_interested": {
+            "type": "boolean",
+            "title": "Not Interested"
+          }
+        },
+        "type": "object",
+        "required": [
+          "not_interested"
+        ],
+        "title": "NotInterestedResponse"
       },
       "ProfileImportInput": {
         "properties": {

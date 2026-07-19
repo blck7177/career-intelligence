@@ -17,6 +17,10 @@ interface FitButtonProps {
   variant?: "default" | "outline" | "ghost";
   label?: string;
   inline?: boolean;
+  /** Called after a successful analysis, in addition to router.refresh() —
+   * the master-detail pane fetches its own data client-side and won't see
+   * that refresh, so it needs this explicit nudge. */
+  onMutated?: () => void;
 }
 
 type UIState =
@@ -36,6 +40,7 @@ export function FitButton({
   variant = "default",
   label,
   inline = false,
+  onMutated,
 }: FitButtonProps) {
   const router = useRouter();
   const getToken = useApiToken();
@@ -74,6 +79,7 @@ export function FitButton({
           if (inline) {
             setState({ phase: "idle" });
             router.refresh();
+            onMutated?.();
           } else {
             router.push(`/fit-reports/${reportId}`);
             router.refresh();
@@ -92,7 +98,7 @@ export function FitButton({
     return () => {
       cancelled = true;
     };
-  }, [state.phase, getToken, resolveReportId, router, inline]);
+  }, [state.phase, getToken, resolveReportId, router, inline, onMutated]);
 
   async function handleClick() {
     if (disabled) return;

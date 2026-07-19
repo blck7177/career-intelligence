@@ -56,6 +56,8 @@ class JobRead(BaseModel):
     jd_source: Optional[str] = None
     # Whether the current workspace has bookmarked this job
     is_favorited: bool = False
+    # Whether the current workspace has dismissed this job as not interested
+    is_not_interested: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -67,6 +69,10 @@ class JobList(BaseModel):
 
 class FavoriteResponse(BaseModel):
     favorited: bool
+
+
+class NotInterestedResponse(BaseModel):
+    not_interested: bool
 
 
 class JobImportRequest(BaseModel):

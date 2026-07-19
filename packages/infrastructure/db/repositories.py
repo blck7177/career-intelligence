@@ -26,6 +26,7 @@ from packages.infrastructure.db.models import (
     FitReport,
     Job,
     JobFavorite,
+    JobNotInterested,
     JobReport,
     LLMUsageEvent,
     Run,
@@ -786,6 +787,47 @@ class JobFavoriteRepository:
         stmt = delete(JobFavorite).where(
             JobFavorite.workspace_id == workspace_id,
             JobFavorite.job_id == job_id,
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# JobNotInterested — workspace-private dismissal of a (global) job
+# ---------------------------------------------------------------------------
+
+
+class JobNotInterestedRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def is_not_interested(self, workspace_id: str, job_id: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(JobNotInterested.id).where(
+            JobNotInterested.workspace_id == workspace_id,
+            JobNotInterested.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        from sqlalchemy import select
+
+        stmt = select(JobNotInterested.job_id).where(JobNotInterested.workspace_id == workspace_id)
+        return set(self._s.execute(stmt).scalars().all())
+
+    def add(self, workspace_id: str, job_id: str) -> None:
+        if self.is_not_interested(workspace_id, job_id):
+            return
+        self._s.add(JobNotInterested(workspace_id=workspace_id, job_id=job_id))
+        self._s.flush()
+
+    def remove(self, workspace_id: str, job_id: str) -> None:
+        from sqlalchemy import delete
+
+        stmt = delete(JobNotInterested).where(
+            JobNotInterested.workspace_id == workspace_id,
+            JobNotInterested.job_id == job_id,
         )
         self._s.execute(stmt)
         self._s.flush()

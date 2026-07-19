@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { FileText, FileSearch, Target, Building2, Compass, Workflow, ListChecks, StickyNote } from "lucide-react";
+import { FileText, FileSearch, Target, Building2, Compass, Workflow, ListChecks, StickyNote, Star, Users, Wrench } from "lucide-react";
 import type { JobRead, JobReportResponse, FitReportResponse, JDStructured, ProfileRead } from "@/api/client";
 import { Badge } from "@/components/ui/badge";
 import { FitReportTabs } from "@/components/FitReportTabs";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { EmptyState } from "@/components/EmptyState";
-import { JobReportContent, type JobReportLabels } from "@/components/JobReportContent";
+import { JobReportContent, SectionHeading, type JobReportLabels } from "@/components/JobReportContent";
 import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 import { FitButton } from "@/components/FitButton";
 import { ReportActionButton, TailorResumeButton, RemoveJobButton } from "./JobActions";
@@ -21,7 +21,7 @@ const JOB_REPORT_ICONS = {
   analystNotes: StickyNote,
 };
 
-type RightTab = "intelligence" | "fit";
+type PanelTab = "intelligence" | "fit" | "jd";
 
 interface JobDetailTabsProps {
   job: JobRead;
@@ -31,27 +31,33 @@ interface JobDetailTabsProps {
   profile: ProfileRead | null;
   hasExistingReport: boolean;
   jobReportId?: string;
+  /** Called after a report/fit/resume action succeeds, in addition to
+   * router.refresh() — only needed by the master-detail pane (JobDetailPane),
+   * which fetches its own data client-side and never sees a bare
+   * router.refresh(). The standalone /jobs/[id] page leaves this undefined
+   * since it's a Server Component and router.refresh() alone is sufficient
+   * there. */
+  onMutated?: () => void;
 }
 
 /* ── Shared ── */
 
-/** Bumped from text-xs/uppercase (12px, same tier as body meta) to a plain
- * bold sub-heading — was a full step smaller than the report's own section
- * headings for no real reason; now both panes use a comparable heading tier. */
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="text-sm font-semibold mb-2" style={{ color: "var(--ink-primary)" }}>
-      {children}
-    </p>
-  );
-}
-
-function BulletList({ items }: { items: string[] }) {
+/** columns=2 flows items into CSS multi-column layout (top-to-bottom then
+ * next column — NOT a row-major grid, so reading order stays natural)
+ * instead of one item per full-width line. Reserved for sections whose items
+ * are reliably short phrases (skills) — sections with sentence-length,
+ * variable items (responsibilities, tasks) default to columns=1 since long
+ * items wrap unevenly next to short neighbors in a narrow column. */
+function BulletList({ items, columns = 1 }: { items: string[]; columns?: 1 | 2 }) {
   if (!items.length) return null;
   return (
-    <ul className="space-y-1.5">
+    <ul className={`space-y-1.5 ${columns === 2 ? "sm:columns-2 sm:gap-x-7" : ""}`}>
       {items.map((item, i) => (
-        <li key={i} className="flex items-start gap-2 text-[15px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
+        <li
+          key={i}
+          className="flex items-start gap-2 text-[15px] leading-relaxed break-inside-avoid"
+          style={{ color: "var(--ink-secondary)" }}
+        >
           <span className="shrink-0 mt-0.5" style={{ color: "var(--ink-faint)" }}>·</span>
           {item}
         </li>
@@ -75,6 +81,59 @@ function TagList({ items }: { items: string[] }) {
 
 /* ── Left: JD Panel ── */
 
+/** JDStructured has no "years required" field (that only exists on the
+ * candidate's own ProfileRead) — pull it from the JD text itself so the
+ * pinned strip can show it. Returns null (and the strip omits the fact)
+ * rather than guessing, since a wrong number here could steer an application
+ * decision. */
+function extractYearsRequired(jd: JDStructured): string | null {
+  const haystack = [...jd.required_skills, ...jd.responsibilities].join(". ");
+  const match = haystack.match(/\d{1,2}\+?(?:\s*(?:-|–|to)\s*\d{1,2}\+?)?\s*years?/i);
+  return match ? match[0].trim() : null;
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="text-[13px] leading-relaxed">
+      <span className="font-bold uppercase tracking-wide text-2xs mr-2" style={{ color: "var(--ink-faint)" }}>
+        {label}
+      </span>
+      <span style={{ color: "var(--ink-secondary)" }}>{value}</span>
+    </p>
+  );
+}
+
+/** Pinned under the title, above the three tabs — role-level facts that hold
+ * true regardless of which tab is open, so they don't scroll away with the
+ * JD body or get buried behind whichever tab happens to be active. Required
+ * skills deliberately does NOT appear here — the JD tab's own Required
+ * Skills row is the single source of truth for that list (this used to
+ * duplicate it as a condensed, harder-to-scan sentence), and Intelligence/Fit
+ * already surface skill relevance their own way (Key Skill Demands,
+ * match breakdown). */
+function BasicStrip({ jd }: { jd: JDStructured | null }) {
+  const t = useTranslations("jobDetail");
+  if (!jd) return null;
+
+  const seniority = jd.seniority_inferred && jd.seniority_inferred !== "unknown" ? jd.seniority_inferred : null;
+  const years = extractYearsRequired(jd);
+  const team = jd.inferred_team_context || null;
+
+  if (!seniority && !years && !team) return null;
+
+  return (
+    <div className="shrink-0 flex flex-col gap-2 px-6 py-3.5">
+      {(seniority || years) && (
+        <div className="flex items-baseline gap-7 flex-wrap">
+          {seniority && <Fact label={t("seniorityLabel")} value={seniority} />}
+          {years && <Fact label={t("experienceLabel")} value={years} />}
+        </div>
+      )}
+      {team && <Fact label={t("teamContext")} value={team} />}
+    </div>
+  );
+}
+
 function JDPanel({ jd }: { jd: JDStructured | null }) {
   const t = useTranslations("jobDetail");
 
@@ -92,61 +151,46 @@ function JDPanel({ jd }: { jd: JDStructured | null }) {
     return <EmptyState icon={FileSearch} title={t("noJdExtracted")} />;
   }
 
+  // Team context surfaces once in the pinned BasicStrip above the tabs
+  // instead of repeating here as its own section. Headings reuse Intelligence
+  // Report's own SectionHeading/IconChip + space-y-5 rhythm (no dividers)
+  // instead of a JD-only label-left grid, so switching tabs reads as the
+  // same visual grammar rather than two different heading languages.
   return (
-    <div className="space-y-6">
-      {jd.inferred_team_context && (
-        <div>
-          <SectionTitle>{t("teamContext")}</SectionTitle>
-          <p className="text-[15px] leading-relaxed" style={{ color: "var(--ink-secondary)" }}>
-            {jd.inferred_team_context}
-          </p>
-        </div>
-      )}
-
+    <div className="space-y-5">
       {jd.responsibilities.length > 0 && (
         <div>
-          <SectionTitle>{t("responsibilities")}</SectionTitle>
-          <BulletList items={jd.responsibilities} />
+          <SectionHeading icon={Workflow}>{t("responsibilities")}</SectionHeading>
+          <BulletList items={jd.responsibilities} columns={2} />
         </div>
       )}
-
-      {(jd.required_skills.length > 0 || jd.preferred_skills.length > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {jd.required_skills.length > 0 && (
-            <div>
-              <SectionTitle>{t("requiredSkills")}</SectionTitle>
-              <BulletList items={jd.required_skills} />
-            </div>
-          )}
-          {jd.preferred_skills.length > 0 && (
-            <div>
-              <SectionTitle>{t("preferredSkills")}</SectionTitle>
-              <BulletList items={jd.preferred_skills} />
-            </div>
-          )}
+      {jd.required_skills.length > 0 && (
+        <div>
+          <SectionHeading icon={ListChecks}>{t("requiredSkills")}</SectionHeading>
+          <BulletList items={jd.required_skills} columns={2} />
         </div>
       )}
-
-      {(jd.likely_tasks.length > 0 || jd.likely_stakeholders.length > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {jd.likely_tasks.length > 0 && (
-            <div>
-              <SectionTitle>{t("likelyTasks")}</SectionTitle>
-              <BulletList items={jd.likely_tasks} />
-            </div>
-          )}
-          {jd.likely_stakeholders.length > 0 && (
-            <div>
-              <SectionTitle>{t("stakeholders")}</SectionTitle>
-              <BulletList items={jd.likely_stakeholders} />
-            </div>
-          )}
+      {jd.preferred_skills.length > 0 && (
+        <div>
+          <SectionHeading icon={Star}>{t("preferredSkills")}</SectionHeading>
+          <BulletList items={jd.preferred_skills} columns={2} />
         </div>
       )}
-
+      {jd.likely_tasks.length > 0 && (
+        <div>
+          <SectionHeading icon={Compass}>{t("likelyTasks")}</SectionHeading>
+          <BulletList items={jd.likely_tasks} />
+        </div>
+      )}
+      {jd.likely_stakeholders.length > 0 && (
+        <div>
+          <SectionHeading icon={Users}>{t("stakeholders")}</SectionHeading>
+          <TagList items={jd.likely_stakeholders} />
+        </div>
+      )}
       {jd.tools_mentioned.length > 0 && (
         <div>
-          <SectionTitle>{t("toolsAndTech")}</SectionTitle>
+          <SectionHeading icon={Wrench}>{t("toolsAndTech")}</SectionHeading>
           <TagList items={jd.tools_mentioned} />
         </div>
       )}
@@ -160,7 +204,11 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
   const t = useTranslations("jobDetail");
 
   if (!report) {
-    return <EmptyState icon={FileSearch} title={t("noIntelligenceReport")} hint={t("noIntelligenceReportHint")} />;
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <EmptyState icon={FileSearch} title={t("noIntelligenceReport")} hint={t("noIntelligenceReportHint")} />
+      </div>
+    );
   }
 
   const labels: JobReportLabels = {
@@ -195,11 +243,25 @@ function IntelligencePanel({ report }: { report: JobReportResponse | null }) {
 
 /* ── Right: Fit Panel ── */
 
-function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | null; job: JobRead; profile: ProfileRead | null }) {
+function FitPanel({
+  fitReport,
+  job,
+  profile,
+  onMutated,
+}: {
+  fitReport: FitReportResponse | null;
+  job: JobRead;
+  profile: ProfileRead | null;
+  onMutated?: () => void;
+}) {
   const t = useTranslations("jobDetail");
 
   if (!fitReport) {
-    return <EmptyState icon={Target} title={t("noFitAnalysis")} hint={t("noFitAnalysisHint")} />;
+    return (
+      <div className="min-h-[50vh] flex items-center justify-center">
+        <EmptyState icon={Target} title={t("noFitAnalysis")} hint={t("noFitAnalysisHint")} />
+      </div>
+    );
   }
 
   return (
@@ -211,7 +273,7 @@ function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | 
           to react to. */}
       {profile && (
         <div className="flex justify-end">
-          <TailorResumeButton jobId={job.id} />
+          <TailorResumeButton jobId={job.id} onMutated={onMutated} />
         </div>
       )}
       <FitReportTabs report={fitReport} job={job} profile={profile} />
@@ -221,117 +283,101 @@ function FitPanel({ fitReport, job, profile }: { fitReport: FitReportResponse | 
 
 /* ── Main Component ── */
 
-export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExistingReport, jobReportId }: JobDetailTabsProps) {
+export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExistingReport, jobReportId, onMutated }: JobDetailTabsProps) {
   const t = useTranslations("jobDetail");
   const tJobs = useTranslations("jobs");
-  const [rightTab, setRightTab] = useState<RightTab>("intelligence");
+  // Default to the first tab that actually has something to show — a job
+  // with a fit score but no fresh report shouldn't open on an empty
+  // Intelligence tab just because that's first in the list.
+  const [tab, setTab] = useState<PanelTab>(() => (jobReport ? "intelligence" : fitReport ? "fit" : "jd"));
 
   return (
-    <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
-      {/* Left: Report tabs — the AI-generated conclusion is the primary
-          view, so it takes the reading-priority position (independent
-          scroll). JD moves to a secondary reference pane on the right —
-          same pattern as evidence/citation panels in AI research products:
-          the synthesized answer leads, the source material supports it. */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        <TabsRoot value={rightTab} onValueChange={(v) => setRightTab(v as RightTab)} className="flex-1 min-h-0 flex flex-col">
-          {/* Tab bar + actions */}
-          <div className="shrink-0 px-6 pt-4 pb-0 flex items-center justify-between gap-4" style={{ borderBottom: "1px solid var(--border)" }}>
-            <TabsList className="border-b-0">
-              <Tab value="intelligence" className="flex items-center gap-1.5">
-                {t("intelligenceReportTab")}
-                {jobReport && (
-                  <span className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
-                    {t("ready")}
-                  </span>
-                )}
-              </Tab>
-              <Tab value="fit" className="flex items-center gap-1.5">
-                {t("fitAnalysisTab")}
-                {fitReport && (
-                  <span
-                    className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center"
-                    style={{
-                      backgroundColor: BAND[bandOf(fitReport.overall_match_score)].bg,
-                      color: BAND[bandOf(fitReport.overall_match_score)].fg,
-                    }}
-                  >
-                    {fitReport.overall_match_score}%
-                  </span>
-                )}
-              </Tab>
-              <TabsIndicator />
-            </TabsList>
-            {/* Only the action for the active tab shows here — Refresh
-                Report and Analyze Fit were both always visible regardless
-                of which tab you were on, which made a static 4-button bar
-                look like one homogeneous toolbar when really 2 of the 4
-                only apply to one tab each. Remove is page-level (not
-                tab-scoped), so it sits past a divider, de-emphasized. */}
-            <div className="flex items-center gap-2.5 pb-1">
-              {rightTab === "intelligence" && (
-                <ReportActionButton jobId={job.id} hasExistingReport={hasExistingReport} />
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <BasicStrip jd={jd} />
+      {/* Single-column panel (master-detail layout C): the AI-generated
+          conclusion (Intelligence) leads, Fit follows, and the source JD —
+          formerly a fixed right reference pane — is now the third tab. This
+          keeps the panel one reading column at any width so it drops cleanly
+          into the /jobs master-detail split without a nested horizontal
+          split; the full-page /jobs/[id] fallback (<lg) reuses the same
+          component, so both surfaces read identically. */}
+      <TabsRoot value={tab} onValueChange={(v) => setTab(v as PanelTab)} className="flex-1 min-h-0 flex flex-col">
+        {/* Tab bar + actions */}
+        <div className="shrink-0 px-6 pt-4 pb-0 flex items-center justify-between gap-4" style={{ borderBottom: "1px solid var(--border)" }}>
+          {/* Segmented-pill control: equal-width segments in a tinted
+              container, active segment gets a solid elevated pill instead of
+              a thin bottom underline. Every override lives here as
+              className overrides on the shared Tab/TabsList/TabsIndicator
+              primitives — FitReportTabs uses the same primitives with their
+              default (underline) styling, so this doesn't change how tabs
+              look anywhere else in the app. */}
+          <TabsList className="border-b-0 bg-[var(--muted)] p-1 rounded-lg">
+            <Tab value="intelligence" className="flex-1 justify-center flex items-center gap-1.5 rounded-md font-semibold">
+              {t("intelligenceReportTab")}
+              {jobReport && (
+                <span className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]">
+                  {t("ready")}
+                </span>
               )}
-              {rightTab === "fit" && (
-                <FitButton
-                  jobId={job.id}
-                  jobReportId={jobReportId}
-                  disabled={!hasExistingReport}
-                  variant={hasExistingReport ? "default" : "outline"}
-                  label={tJobs("analyzeFit")}
-                  inline
-                />
+            </Tab>
+            <Tab value="fit" className="flex-1 justify-center flex items-center gap-1.5 rounded-md font-semibold">
+              {t("fitAnalysisTab")}
+              {fitReport && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-2xs font-medium min-w-[34px] text-center"
+                  style={{
+                    backgroundColor: BAND[bandOf(fitReport.overall_match_score)].bg,
+                    color: BAND[bandOf(fitReport.overall_match_score)].fg,
+                  }}
+                >
+                  {fitReport.overall_match_score}%
+                </span>
               )}
-              <span className="w-px h-4 bg-[var(--border)]" />
-              <RemoveJobButton jobId={job.id} />
-            </div>
+            </Tab>
+            <Tab value="jd" className="flex-1 flex items-center justify-center rounded-md font-semibold">
+              {t("jobDescription")}
+            </Tab>
+            <TabsIndicator className="rounded-md bg-white border-b-0 shadow-sm" />
+          </TabsList>
+          {/* Only the action for the active tab shows here. The JD tab is
+              pure reference (its "view original posting" affordance lives in
+              the header), so it carries no primary action. Remove is
+              page-level (not tab-scoped), so it always sits past a divider,
+              de-emphasized. */}
+          <div className="flex items-center gap-2.5 pb-1">
+            {tab === "intelligence" && (
+              <ReportActionButton jobId={job.id} hasExistingReport={hasExistingReport} onMutated={onMutated} />
+            )}
+            {tab === "fit" && (
+              <FitButton
+                jobId={job.id}
+                jobReportId={jobReportId}
+                disabled={!hasExistingReport}
+                variant={hasExistingReport ? "default" : "outline"}
+                label={tJobs("analyzeFit")}
+                inline
+                onMutated={onMutated}
+              />
+            )}
+            <span className="w-px h-4 bg-[var(--border)]" />
+            <RemoveJobButton jobId={job.id} />
           </div>
-
-          {/* Tab content — scrollable. Deliberately NOT width-capped: the
-              JD pane on the right is its own fixed-ish column
-              (min(--pane-reference-width),40%)), so letting this column
-              fill the remaining flex-1 space keeps it flush against the
-              JD pane instead of leaving a growing gap on wide screens
-              (same fix as Home's main+rail layout). Left edge gets the same
-              fixed --space-row-edge gutter as Home's main column at every
-              width, instead of a max-width cap that would grow the margin
-              on wide screens. */}
-          <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)] pl-[var(--space-row-edge)]">
-            <TabsPanel value="intelligence" className="animate-fade-in-up">
-              <IntelligencePanel report={jobReport} />
-            </TabsPanel>
-            <TabsPanel value="fit" className="animate-fade-in-up">
-              <FitPanel fitReport={fitReport} job={job} profile={profile} />
-            </TabsPanel>
-            <div className="h-8" />
-          </div>
-        </TabsRoot>
-      </div>
-
-      {/* Right: JD — secondary reference pane (independent scroll), muted
-          surface so it reads as supporting material rather than competing
-          with the report for primary attention. Stacks below the report on
-          narrow screens, same priority order as the desktop split. Width is
-          capped at --pane-reference-width but never exceeds 40% of the row
-          (min(...)), so this pane can't grow past the report's own width
-          even at the lg breakpoint floor — a plain fixed px value would
-          invert that priority right at 1024px, where the row is narrowest.
-          Right edge gets the same fixed --space-row-edge gutter as Home's
-          rail column at every width, instead of a max-width cap on the row
-          as a whole. */}
-      <div
-        className="w-full lg:w-[min(var(--pane-reference-width),40%)] shrink-0 overflow-y-auto p-[var(--space-surface-spacious)] pr-[var(--space-row-edge)] max-h-[45vh] lg:max-h-none border-t lg:border-t-0 lg:border-l border-[var(--border)]"
-        style={{ background: "var(--muted)" }}
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>
-            {t("jobDescription")}{" "}
-            <span className="font-normal" style={{ color: "var(--ink-faint)" }}>({t("reference")})</span>
-          </h2>
         </div>
-        <JDPanel jd={jd} />
-        <div className="h-8" />
-      </div>
+
+        {/* Tab content — single scrollable reading column, symmetric gutters. */}
+        <div className="flex-1 overflow-y-auto p-[var(--space-surface-spacious)]">
+          <TabsPanel value="intelligence" className="animate-fade-in-up">
+            <IntelligencePanel report={jobReport} />
+          </TabsPanel>
+          <TabsPanel value="fit" className="animate-fade-in-up">
+            <FitPanel fitReport={fitReport} job={job} profile={profile} onMutated={onMutated} />
+          </TabsPanel>
+          <TabsPanel value="jd" className="animate-fade-in-up">
+            <JDPanel jd={jd} />
+          </TabsPanel>
+          <div className="h-8" />
+        </div>
+      </TabsRoot>
     </div>
   );
 }

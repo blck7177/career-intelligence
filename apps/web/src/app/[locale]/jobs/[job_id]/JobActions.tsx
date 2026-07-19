@@ -17,7 +17,18 @@ import { FileText, Trash2, PenLine } from "lucide-react";
  * to the score it's actually reacting to.
  */
 
-export function ReportActionButton({ jobId, hasExistingReport }: { jobId: string; hasExistingReport: boolean }) {
+interface ReportActionButtonProps {
+  jobId: string;
+  hasExistingReport: boolean;
+  /** Called after a successful generate/refresh, in addition to
+   * router.refresh(). The full-page route re-fetches via router.refresh()
+   * alone (it's a Server Component); the master-detail pane fetches its own
+   * data client-side and never sees that refresh, so it needs this explicit
+   * nudge to know a new report exists. */
+  onMutated?: () => void;
+}
+
+export function ReportActionButton({ jobId, hasExistingReport, onMutated }: ReportActionButtonProps) {
   const t = useTranslations("jobDetail");
   const router = useRouter();
   const getToken = useApiToken();
@@ -45,6 +56,7 @@ export function ReportActionButton({ jobId, hasExistingReport }: { jobId: string
         throw new Error(finished.error_message ?? "Job report generation failed");
       }
       router.refresh();
+      onMutated?.();
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start job report run");
@@ -63,7 +75,7 @@ export function ReportActionButton({ jobId, hasExistingReport }: { jobId: string
   );
 }
 
-export function TailorResumeButton({ jobId }: { jobId: string }) {
+export function TailorResumeButton({ jobId, onMutated }: { jobId: string; onMutated?: () => void }) {
   const t = useTranslations("jobDetail");
   const router = useRouter();
   const getToken = useApiToken();
@@ -81,6 +93,7 @@ export function TailorResumeButton({ jobId }: { jobId: string }) {
         throw new Error(finished.error_message ?? "Resume tailor failed");
       }
       router.refresh();
+      onMutated?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
