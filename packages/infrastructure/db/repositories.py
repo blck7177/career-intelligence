@@ -1574,6 +1574,17 @@ class JobApplicationRepository:
         )
         return self._s.execute(stmt).scalar_one_or_none()
 
+    def get_by_job(self, workspace_id: str, job_id: str) -> Optional[JobApplication]:
+        """The application for a (workspace, job), if one exists — enforces the
+        one-application-per-job rule at the API layer with a clean 409."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication).where(
+            JobApplication.workspace_id == workspace_id,
+            JobApplication.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
     def list_for_workspace(
         self,
         workspace_id: str,
@@ -1855,3 +1866,28 @@ class ApplicationActionRepository:
             )
         )
         return int(self._s.execute(stmt).scalar_one())
+
+    def earliest_pending_due_map(
+        self, workspace_id: str, application_ids: list[str]
+    ) -> dict[str, datetime]:
+        """Per application, the soonest pending dated due_at. Powers the list
+        view's next-action-due column in one query (avoids per-row N+1)."""
+        if not application_ids:
+            return {}
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(ApplicationAction.application_id, func.min(ApplicationAction.due_at))
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.application_id.in_(application_ids),
+                ApplicationAction.status == "pending",
+                ApplicationAction.due_at.is_not(None),
+            )
+            .group_by(ApplicationAction.application_id)
+        )
+        return {
+            app_id: due
+            for app_id, due in self._s.execute(stmt).all()
+            if due is not None
+        }

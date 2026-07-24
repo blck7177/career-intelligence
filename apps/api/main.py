@@ -20,6 +20,7 @@ from fastapi.responses import RedirectResponse
 from apps.api.routes.admin_cost import router as admin_cost_router
 from apps.api.routes.admin_runs import router as admin_runs_router
 from apps.api.routes.admin_users import router as admin_users_router
+from apps.api.routes.applications import router as applications_router
 from apps.api.routes.health import router as health_router
 from apps.api.routes.jobs import router as jobs_router
 from apps.api.routes.profile import router as profile_router
@@ -71,6 +72,7 @@ app.include_router(runs_router)
 app.include_router(jobs_router)
 app.include_router(reports_router)
 app.include_router(profile_router)
+app.include_router(applications_router)
 app.include_router(admin_cost_router)
 app.include_router(admin_runs_router)
 app.include_router(admin_users_router)
