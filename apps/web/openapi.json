@@ -2154,6 +2154,75 @@
         }
       }
     },
+    "/api/app/applications/{application_id}/events": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Add Application Event",
+        "description": "Append a manual note to an application's timeline. event_type is fixed to\n\"note\" server-side \u2014 the client cannot forge status_changed/interview events\n(those are written by their own guarded paths).",
+        "operationId": "add_application_event_api_app_applications__application_id__events_post",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationEventCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationEventRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/app/actions": {
       "post": {
         "tags": [
@@ -3588,6 +3657,22 @@
         ],
         "title": "ApplicationDetail"
       },
+      "ApplicationEventCreate": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ApplicationEventCreate",
+        "description": "Body for POST /applications/{id}/events \u2014 a manual timeline note. The\nevent_type is fixed to \"note\" server-side; the client only supplies text.\nStructured event types (interview_scheduled, \u2026) land in a later wave behind\ntheir own validated shapes."
+      },
       "ApplicationEventRead": {
         "properties": {
           "id": {
@@ -4880,6 +4965,11 @@
           "is_not_interested": {
             "type": "boolean",
             "title": "Is Not Interested",
+            "default": false
+          },
+          "is_applied": {
+            "type": "boolean",
+            "title": "Is Applied",
             "default": false
           }
         },

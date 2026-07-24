@@ -432,6 +432,59 @@ def test_list_forwards_needs_action_filter(make_client):
     assert kwargs["needs_action"] is True
 
 
+# --- timeline note events (W0-C2) -------------------------------------------
+
+
+class TestEvents:
+    def test_add_note_appends_note_event(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+             patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = _event(
+                id="ev-note", event_type="note", message="called recruiter", payload_json=None
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events", json={"message": "called recruiter"}
+            )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["event_type"] == "note"
+        assert body["message"] == "called recruiter"
+        # event_type is pinned server-side, never taken from the client body
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["event_type"] == "note"
+
+    def test_add_note_foreign_application_returns_404(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = None  # repo scopes by ws → miss
+            resp = client.post(
+                "/api/app/applications/foreign/events", json={"message": "x"}
+            )
+        assert resp.status_code == 404
+
+    def test_add_note_empty_message_returns_422(self, make_client):
+        client = make_client()
+        resp = client.post("/api/app/applications/app-1/events", json={"message": ""})
+        assert resp.status_code == 422
+
+
+def test_summary_exposes_by_status_for_per_pill_counts(make_client):
+    """Per-pill counts (W0-C2) read summary.by_status — assert it is surfaced."""
+    client = make_client()
+    with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockApp.return_value.count_by_status.return_value = {
+            "planned": 2, "applied": 3, "interviewing": 1
+        }
+        MockApp.return_value.list_for_workspace.return_value = []
+        MockAct.return_value.count_due.return_value = 0
+        resp = client.get("/api/app/applications/summary")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["by_status"] == {"planned": 2, "applied": 3, "interviewing": 1}
+
+
 def test_planner_settings_merges_stored_overrides():
     """Stored planner_settings_json overrides defaults; nested + unspecified keys behave."""
     from apps.api.dependencies.auth import get_current_workspace

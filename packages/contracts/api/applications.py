@@ -92,6 +92,15 @@ class ApplicationEventRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ApplicationEventCreate(BaseModel):
+    """Body for POST /applications/{id}/events — a manual timeline note. The
+    event_type is fixed to "note" server-side; the client only supplies text.
+    Structured event types (interview_scheduled, …) land in a later wave behind
+    their own validated shapes."""
+
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
 class ActionCreate(BaseModel):
     type: ActionType
     title: str = Field(..., min_length=1, max_length=512)

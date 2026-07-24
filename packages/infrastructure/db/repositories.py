@@ -1702,6 +1702,17 @@ class JobApplicationRepository:
         )
         return {status: count for status, count in self._s.execute(stmt).all()}
 
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        """Job ids this workspace already has an application for — used to mark
+        the jobs library with an "applied" flag so the user doesn't re-apply.
+        Mirrors JobFavoriteRepository.list_job_ids_for_workspace."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication.job_id).where(
+            JobApplication.workspace_id == workspace_id
+        )
+        return set(self._s.execute(stmt).scalars().all())
+
 
 class ApplicationEventRepository:
     def __init__(self, session: Session) -> None:

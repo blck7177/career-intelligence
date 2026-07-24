@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Plus, Star, ThumbsDown } from "lucide-react";
+import { Check, Plus, Star, ThumbsDown } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -29,6 +29,7 @@ interface JobItem {
   latest_job_report_id?: string | null;
   is_favorited?: boolean;
   is_not_interested?: boolean;
+  is_applied?: boolean;
 }
 
 interface FitData {
@@ -511,6 +512,7 @@ export function JobsMasterDetail({
                   isAnalyzing={analyzing.has(job.id)}
                   noJdLabel={t("noJD")}
                   analyzingLabel={t("analyzing")}
+                  appliedLabel={t("appliedMark")}
                   onOpen={() => openRow(job.id)}
                   onToggleCheck={() => toggleCheck(job.id)}
                   onFavoriteToggled={(fav) => handleFavoriteToggled(job.id, fav)}
@@ -626,6 +628,7 @@ interface JobRowProps {
   isAnalyzing: boolean;
   noJdLabel: string;
   analyzingLabel: string;
+  appliedLabel: string;
   onOpen: () => void;
   onToggleCheck: () => void;
   onFavoriteToggled: (favorited: boolean) => void;
@@ -646,6 +649,7 @@ function JobRow({
   isAnalyzing,
   noJdLabel,
   analyzingLabel,
+  appliedLabel,
   onOpen,
   onToggleCheck,
   onFavoriteToggled,
@@ -701,6 +705,15 @@ function JobRow({
           {isDiscovered && (
             <span className="shrink-0 px-1.5 py-0.5 rounded text-2xs font-medium bg-[var(--muted)] text-[var(--ink-muted)]">
               {noJdLabel}
+            </span>
+          )}
+          {job.is_applied && (
+            <span
+              className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs font-semibold"
+              style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)" }}
+            >
+              <Check size={10} strokeWidth={3} />
+              {appliedLabel}
             </span>
           )}
         </div>

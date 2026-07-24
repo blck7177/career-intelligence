@@ -11,6 +11,7 @@ import {
   updateApplication,
   createAction,
   updateAction,
+  addApplicationEvent,
 } from "@/api/client";
 import type { ApplicationDetail, ApplicationUpdate, StatusTransition } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -163,24 +164,8 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
         {/* Next actions */}
         <ActionsSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
-        {/* Timeline */}
-        <section>
-          <h2 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-muted)" }}>
-            {t("timeline")}
-          </h2>
-          {(app.events ?? []).length === 0 ? (
-            <p className="text-sm" style={{ color: "var(--ink-faint)" }}>{t("noEvents")}</p>
-          ) : (
-            <ul className="space-y-2">
-              {[...(app.events ?? [])].reverse().map((e) => (
-                <li key={e.id} className="text-sm flex items-baseline gap-2">
-                  <span className="text-2xs tabular-nums shrink-0" style={{ color: "var(--ink-faint)" }}>{fmtTs(e.created_at)}</span>
-                  <span style={{ color: "var(--ink-secondary)" }}>{e.message || e.event_type}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {/* Timeline (with manual "log a note" entry) */}
+        <TimelineSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
         {/* Notes */}
         <NotesSection app={app} onMutated={mutated} getToken={getToken} t={t} />
@@ -392,6 +377,60 @@ function ActionsSection({ app, onMutated, getToken, t }: { app: ApplicationDetai
         />
         <Button size="sm" onClick={add} disabled={!title.trim()} loading={adding}>{t("add")}</Button>
       </div>
+    </section>
+  );
+}
+
+function TimelineSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+  const [note, setNote] = useState("");
+  const [adding, setAdding] = useState(false);
+  const events = [...(app.events ?? [])].reverse();
+
+  async function add() {
+    if (adding) return; // in-flight guard (double-Enter / double-tap) — commit5 lesson
+    const msg = note.trim();
+    if (!msg) return;
+    setAdding(true);
+    try {
+      const token = await getToken();
+      await addApplicationEvent(app.id, msg, token);
+      setNote("");
+      onMutated();
+    } catch {
+      // keep the typed note so the user can retry
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-muted)" }}>
+        {t("timeline")}
+      </h2>
+      <div className="flex items-center gap-2 mb-3">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !adding) add(); }}
+          placeholder={t("logNotePlaceholder")}
+          className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+          style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+        />
+        <Button size="sm" variant="outline" onClick={add} disabled={!note.trim()} loading={adding}>{t("logNote")}</Button>
+      </div>
+      {events.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--ink-faint)" }}>{t("noEvents")}</p>
+      ) : (
+        <ul className="space-y-2">
+          {events.map((e) => (
+            <li key={e.id} className="text-sm flex items-baseline gap-2">
+              <span className="text-2xs tabular-nums shrink-0" style={{ color: "var(--ink-faint)" }}>{fmtTs(e.created_at)}</span>
+              <span style={{ color: "var(--ink-secondary)" }}>{e.message || e.event_type}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

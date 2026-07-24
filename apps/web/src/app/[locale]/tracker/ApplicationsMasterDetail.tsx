@@ -24,6 +24,16 @@ export interface AppRow {
   company: string;
 }
 
+/** Workspace-wide per-group counts for the filter pills (from the summary
+ *  endpoint — independent of the current filtered page). */
+export interface AppCounts {
+  all: number;
+  active: number;
+  planned: number;
+  closed: number;
+  needsAction: number;
+}
+
 interface Props {
   applications: AppRow[];
   group: string; // all | planned | active | closed
@@ -31,6 +41,7 @@ interface Props {
   totalCount: number;
   currentPage: number;
   totalPages: number;
+  counts: AppCounts | null;
 }
 
 const LG = "(min-width: 1024px)";
@@ -63,6 +74,7 @@ export function ApplicationsMasterDetail({
   totalCount,
   currentPage,
   totalPages,
+  counts,
 }: Props) {
   const t = useTranslations("tracker");
   const router = useRouter();
@@ -157,6 +169,11 @@ export function ApplicationsMasterDetail({
                 className={optionPillVariants({ selected: !needsAction && group === g, className: "!h-7 !px-2.5 !text-xs" })}
               >
                 {t(key)}
+                {counts ? (
+                  <span className="ml-1 tabular-nums" style={{ opacity: 0.55 }}>
+                    {counts[g as keyof AppCounts]}
+                  </span>
+                ) : null}
               </Link>
             ))}
             <div className="w-px self-stretch bg-[var(--border)] mx-0.5" />
@@ -165,6 +182,11 @@ export function ApplicationsMasterDetail({
               className={optionPillVariants({ selected: needsAction, className: "!h-7 !px-2.5 !text-xs" })}
             >
               {t("filterNeedsAction")}
+              {counts ? (
+                <span className="ml-1 tabular-nums" style={{ opacity: 0.55 }}>
+                  {counts.needsAction}
+                </span>
+              ) : null}
             </Link>
           </div>
         </div>

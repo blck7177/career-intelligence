@@ -41,6 +41,7 @@ from packages.contracts.api.jobs import (
 from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
     DeadUrlRepository,
+    JobApplicationRepository,
     JobFavoriteRepository,
     JobNotInterestedRepository,
     JobRepository,
@@ -99,6 +100,7 @@ def _job_read(
     include_jd_structured: bool = False,
     is_favorited: bool = False,
     is_not_interested: bool = False,
+    is_applied: bool = False,
 ) -> JobRead:
     data = {
         "id": job.id,
@@ -116,6 +118,7 @@ def _job_read(
         "jd_source": (job.raw_payload_json or {}).get("jd_source"),
         "is_favorited": is_favorited,
         "is_not_interested": is_not_interested,
+        "is_applied": is_applied,
     }
     if report:
         data["latest_job_report_id"] = report.id
@@ -157,6 +160,7 @@ def list_jobs(
 
     favorited_ids = JobFavoriteRepository(db).list_job_ids_for_workspace(workspace.id)
     not_interested_ids = JobNotInterestedRepository(db).list_job_ids_for_workspace(workspace.id)
+    applied_ids = JobApplicationRepository(db).list_job_ids_for_workspace(workspace.id)
 
     job_ids_filter = None
     if favorites_only and not_interested_only:
@@ -186,6 +190,7 @@ def list_jobs(
                 report_map.get(j.id),
                 is_favorited=j.id in favorited_ids,
                 is_not_interested=j.id in not_interested_ids,
+                is_applied=j.id in applied_ids,
             )
             for j in items
         ],

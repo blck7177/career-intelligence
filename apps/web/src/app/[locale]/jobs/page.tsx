@@ -192,6 +192,7 @@ export default async function JobsPage({ searchParams }: PageProps) {
         latest_job_report_id: j.latest_job_report_id,
         is_favorited: j.is_favorited,
         is_not_interested: j.is_not_interested,
+        is_applied: j.is_applied,
       }))}
       fitMap={fitMapObj}
       profile={profile}

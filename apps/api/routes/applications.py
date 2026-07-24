@@ -8,6 +8,7 @@ Contract:
   GET    /api/app/applications/{application_id}             -> ApplicationDetail
   PATCH  /api/app/applications/{application_id}             -> ApplicationRead
   POST   /api/app/applications/{application_id}/transition  -> ApplicationRead
+  POST   /api/app/applications/{application_id}/events      -> ApplicationEventRead (201)
   POST   /api/app/actions                                   -> ActionRead (201)
   GET    /api/app/actions                                   -> ActionList
   PATCH  /api/app/actions/{action_id}                       -> ActionRead
@@ -38,6 +39,8 @@ from packages.contracts.api.applications import (
     ActionUpdate,
     ApplicationCreate,
     ApplicationDetail,
+    ApplicationEventCreate,
+    ApplicationEventRead,
     ApplicationJobRef,
     ApplicationList,
     ApplicationRead,
@@ -307,6 +310,32 @@ def transition_application(
     db.commit()
     job = JobRepository(db).get(app.job_id)
     return _application_read(app, job=job)
+
+
+@router.post(
+    "/applications/{application_id}/events",
+    response_model=ApplicationEventRead,
+    status_code=201,
+)
+def add_application_event(
+    application_id: str,
+    body: ApplicationEventCreate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> ApplicationEventRead:
+    """Append a manual note to an application's timeline. event_type is fixed to
+    "note" server-side — the client cannot forge status_changed/interview events
+    (those are written by their own guarded paths)."""
+    repo = JobApplicationRepository(db)
+    _assert_owned(repo.get(application_id, workspace.id), workspace)
+    event = ApplicationEventRepository(db).append(
+        application_id=application_id,
+        workspace_id=workspace.id,
+        event_type="note",
+        message=body.message,
+    )
+    db.commit()
+    return ApplicationEventRead.model_validate(event)
 
 
 # ---------------------------------------------------------------------------

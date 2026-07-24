@@ -58,6 +58,8 @@ class JobRead(BaseModel):
     is_favorited: bool = False
     # Whether the current workspace has dismissed this job as not interested
     is_not_interested: bool = False
+    # Whether the current workspace already has an application tracked for this job
+    is_applied: bool = False
 
     model_config = {"from_attributes": True}
 

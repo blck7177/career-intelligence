@@ -44,6 +44,7 @@ export type ApplicationList = components["schemas"]["ApplicationList"];
 export type ApplicationCreate = components["schemas"]["ApplicationCreate"];
 export type ApplicationUpdate = components["schemas"]["ApplicationUpdate"];
 export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
+export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
 export type ActionList = components["schemas"]["ActionList"];
@@ -340,6 +341,18 @@ export async function getApplicationsSummary(
   token?: string | null,
 ): Promise<ApplicationSummary> {
   return req<ApplicationSummary>("/api/app/applications/summary", undefined, token);
+}
+
+export async function addApplicationEvent(
+  applicationId: string,
+  message: string,
+  token?: string | null,
+): Promise<ApplicationEventRead> {
+  return req<ApplicationEventRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}/events`,
+    { method: "POST", body: JSON.stringify({ message }) },
+    token,
+  );
 }
 
 export async function listActions(

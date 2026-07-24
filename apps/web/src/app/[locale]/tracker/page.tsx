@@ -1,8 +1,9 @@
 import { getTranslations } from "next-intl/server";
 import { ClipboardList } from "lucide-react";
 import { Link } from "@/i18n/navigation";
-import { listApplications } from "@/api/client";
+import { listApplications, getApplicationsSummary } from "@/api/client";
 import type { ApplicationRead } from "@/api/client";
+import type { AppCounts } from "./ApplicationsMasterDetail";
 import { getServerToken } from "@/lib/server-auth";
 import { TrackerShell } from "./TrackerShell";
 import { EmptyState } from "@/components/EmptyState";
@@ -30,12 +31,30 @@ export default async function TrackerPage({ searchParams }: PageProps) {
   const group = params.group;
   const needsAction = params.needs_action === "1";
 
-  const list = await listApplications(
-    { status_group: group, needs_action: needsAction, limit: FETCH_LIMIT },
-    token,
-  ).catch(() => ({ items: [] as ApplicationRead[], total: 0 }));
+  // List (current filter) + summary (workspace-wide per-group counts for the
+  // filter pills) fetched concurrently. Summary failure degrades gracefully to
+  // pills without counts.
+  const [list, summary] = await Promise.all([
+    listApplications(
+      { status_group: group, needs_action: needsAction, limit: FETCH_LIMIT },
+      token,
+    ).catch(() => ({ items: [] as ApplicationRead[], total: 0 })),
+    getApplicationsSummary(token).catch(() => null),
+  ]);
 
   const apps = list.items;
+
+  let counts: AppCounts | null = null;
+  if (summary) {
+    const all = Object.values(summary.by_status).reduce((a, b) => a + b, 0);
+    counts = {
+      all,
+      active: summary.active,
+      planned: summary.planned,
+      closed: all - summary.active - summary.planned,
+      needsAction: summary.needs_action,
+    };
+  }
 
   // Truly-empty tracker (no applications at all, unfiltered) → full-width CTA.
   // A filtered-to-zero view falls through to the master-detail's own empty state.
@@ -82,6 +101,7 @@ export default async function TrackerPage({ searchParams }: PageProps) {
       totalCount={totalCount}
       currentPage={currentPage}
       totalPages={totalPages}
+      counts={counts}
     />
   );
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
-import { ApplicationsMasterDetail, type AppRow } from "./ApplicationsMasterDetail";
+import { ApplicationsMasterDetail, type AppRow, type AppCounts } from "./ApplicationsMasterDetail";
 import { PlanToday } from "./PlanToday";
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
   totalCount: number;
   currentPage: number;
   totalPages: number;
+  counts: AppCounts | null;
 }
 
 /** Tracker tab: two sub-views (Applications | Plan). P0 ships Applications;
