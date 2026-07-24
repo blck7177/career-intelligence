@@ -55,6 +55,7 @@ from packages.infrastructure.db.models import Job, JobApplication, Workspace
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
     ApplicationEventRepository,
+    FitReportRepository,
     JobApplicationRepository,
     JobRepository,
     ProfileRepository,
@@ -256,11 +257,16 @@ def get_application(
     job = JobRepository(db).get(app.job_id)
     events = ApplicationEventRepository(db).list_for_application(app.id, workspace.id)
     actions = ApplicationActionRepository(db).list_for_application(app.id, workspace.id)
+    fit = FitReportRepository(db).get_latest_for_job(
+        workspace_id=workspace.id, job_id=app.job_id, profile_id=app.profile_id
+    )
     base = _application_read(app, job=job)
     return ApplicationDetail(
         **base.model_dump(),
         events=events,
         actions=actions,
+        fit_score=fit.overall_match_score if fit else None,
+        fit_report_id=fit.id if fit else None,
     )
 
 

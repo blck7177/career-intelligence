@@ -1099,6 +1099,23 @@ class FitReportRepository:
         )
         return self._s.execute(stmt).scalar_one_or_none()
 
+    def get_latest_for_job(
+        self, *, workspace_id: str, job_id: str, profile_id: Optional[str] = None
+    ) -> Optional[FitReport]:
+        """Most recent active fit report for a job in this workspace (optionally
+        profile-scoped) — powers the application detail's Fit badge."""
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.job_id == job_id,
+            FitReport.status == "active",
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc()).limit(1)
+        return self._s.execute(stmt).scalar_one_or_none()
+
     def supersede_prior(
         self,
         *,

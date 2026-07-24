@@ -28,3 +28,13 @@ export const FORWARD_NEXT: Record<string, string[]> = {
 
 export const CLOSE_STATUSES = ["rejected", "withdrawn", "ghosted"];
 export const LIVE_STATUSES = ["planned", "applied", "in_review", "interviewing", "offer"];
+
+// A/B/C effort-tier lane chip styling (var() fallbacks in case the amber token
+// isn't defined in globals.css).
+export const LANE_STYLE: Record<string, { bg: string; fg: string }> = {
+  a: { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" },
+  b: { bg: "var(--warn-bg, oklch(96.5% 0.03 85))", fg: "var(--warn-fg, oklch(45% 0.11 75))" },
+  c: { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" },
+};
+// Lane cycle order for the detail editor: none -> A -> B -> C -> none.
+export const LANE_CYCLE: (string | null)[] = [null, "a", "b", "c"];

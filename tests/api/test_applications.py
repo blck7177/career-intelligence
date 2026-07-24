@@ -156,17 +156,23 @@ class TestReads:
         with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
              patch("apps.api.routes.applications.JobRepository") as MockJob, \
              patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
-             patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+             patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, \
+             patch("apps.api.routes.applications.FitReportRepository") as MockFit:
             MockApp.return_value.get.return_value = _app()
             MockJob.return_value.get.return_value = _job()
             MockEv.return_value.list_for_application.return_value = [_event()]
             MockAct.return_value.list_for_application.return_value = [_action()]
+            MockFit.return_value.get_latest_for_job.return_value = SimpleNamespace(
+                id="fit-1", overall_match_score=78
+            )
             resp = client.get("/api/app/applications/app-1")
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert len(body["events"]) == 1
         assert len(body["actions"]) == 1
         assert body["events"][0]["event_type"] == "status_changed"
+        assert body["fit_score"] == 78
+        assert body["fit_report_id"] == "fit-1"
 
     def test_detail_foreign_application_returns_404(self, make_client):
         client = make_client()

@@ -148,6 +148,10 @@ class ApplicationRead(BaseModel):
 class ApplicationDetail(ApplicationRead):
     events: list[ApplicationEventRead] = Field(default_factory=list)
     actions: list[ActionRead] = Field(default_factory=list)
+    # Latest active fit report for the referenced job (detail-only — kept off the
+    # list row to avoid an N+1 fit lookup per row).
+    fit_score: Optional[int] = None
+    fit_report_id: Optional[str] = None
 
 
 class ApplicationList(BaseModel):
