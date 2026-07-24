@@ -6,6 +6,7 @@ import type { ApplicationRead } from "@/api/client";
 import type { AppCounts } from "./ApplicationsMasterDetail";
 import { getServerToken } from "@/lib/server-auth";
 import { TrackerShell } from "./TrackerShell";
+import { TrackerEmptyAdd } from "./TrackerEmptyAdd";
 import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
@@ -65,13 +66,16 @@ export default async function TrackerPage({ searchParams }: PageProps) {
           icon={ClipboardList}
           title={t("emptyTitle")}
           action={
-            <Link
-              href="/jobs"
-              className="inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
-              style={{ color: "var(--primary)" }}
-            >
-              {t("goToJobs")}
-            </Link>
+            <div className="flex flex-col items-center gap-3">
+              <TrackerEmptyAdd />
+              <Link
+                href="/jobs"
+                className="inline-flex items-center gap-1.5 text-sm font-medium hover:underline"
+                style={{ color: "var(--primary)" }}
+              >
+                {t("goToJobs")}
+              </Link>
+            </div>
           }
         />
       </div>

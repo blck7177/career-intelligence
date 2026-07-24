@@ -10,6 +10,7 @@ import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { EmptyState } from "@/components/EmptyState";
 import { ClipboardList } from "lucide-react";
 import { ApplicationDetailPane } from "./ApplicationDetailPane";
+import { AddApplicationEntry } from "./AddApplicationEntry";
 import { STATUS_STYLE } from "./status";
 
 export interface AppRow {
@@ -111,6 +112,14 @@ export function ApplicationsMasterDetail({
     window.history.pushState(null, "", `${window.location.pathname}?${params.toString()}`);
   }, []);
 
+  const handleAdded = useCallback(
+    (id: string) => {
+      selectRow(id);
+      router.refresh(); // re-fetch the server list so the new row appears
+    },
+    [selectRow, router],
+  );
+
   const openRow = useCallback(
     (id: string) => {
       if (isDesktop) selectRow(id);
@@ -189,6 +198,7 @@ export function ApplicationsMasterDetail({
               ) : null}
             </Link>
           </div>
+          <AddApplicationEntry onAdded={handleAdded} />
         </div>
 
         {applications.length === 0 ? (
