@@ -5330,6 +5330,11 @@
       },
       "PlannerSettings": {
         "properties": {
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "America/New_York"
+          },
           "weekly_target": {
             "$ref": "#/components/schemas/WeeklyTarget"
           },

@@ -188,6 +188,11 @@ class PlannerSettings(BaseModel):
     """All planner-tunable numbers, with product defaults. P0 is read-only
     (defaults merged over workspaces.planner_settings_json); PUT lands in P1."""
 
+    # The single source of truth for the planner's "today": all day-boundary /
+    # workday math (rules engine generation AND the Today query/bucketing) uses
+    # this zone. due_at is stored as the UTC instant of local-date 00:00 in this
+    # zone, so the existing `due_at <= now(utc)` query needs no change.
+    timezone: str = "America/New_York"
     weekly_target: WeeklyTarget = Field(default_factory=WeeklyTarget)
     daily_cap_minutes: int = 90
     rest_days: list[str] = Field(default_factory=lambda: ["sat", "sun"])

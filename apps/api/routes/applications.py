@@ -54,6 +54,7 @@ from packages.domain.applications.transitions import (
     PLANNED_STATUSES,
     InvalidTransition,
 )
+from packages.domain.planner.settings import load_planner_settings
 from packages.infrastructure.db.models import Job, JobApplication, Workspace
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
@@ -411,5 +412,5 @@ def get_planner_settings(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ) -> PlannerSettings:
-    stored = getattr(workspace, "planner_settings_json", None) or {}
-    return PlannerSettings(**stored)
+    # Shared with the worker's rule generation so defaults never drift.
+    return load_planner_settings(workspace)

@@ -1,0 +1,185 @@
+"""Unit tests for the pure planner rules engine (W2-C1). No DB — builds
+ApplicationView/EventView/ActionView directly."""
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+
+from packages.contracts.api.applications import PlannerSettings
+from packages.domain.planner.rules import (
+    ActionView,
+    ApplicationView,
+    EventView,
+    generate_actions,
+    local_day_start_utc,
+)
+
+NOW = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)  # 08:00 EDT, local date 2026-07-15
+
+
+def _d(days_ago: int) -> datetime:
+    return NOW - timedelta(days=days_ago)
+
+
+def _app(**over) -> ApplicationView:
+    base = dict(
+        id="a1", status="applied", applied_at=_d(8), created_at=_d(8),
+        events=[], actions=[],
+    )
+    base.update(over)
+    return ApplicationView(**base)
+
+
+def _gen(apps, *, settings=None, now=NOW, global_actions=None):
+    return generate_actions(
+        applications=apps,
+        settings=settings or PlannerSettings(),
+        now_utc=now,
+        global_actions=global_actions,
+    )
+
+
+def _types(specs):
+    return sorted(s.type for s in specs)
+
+
+# --- follow_up ---------------------------------------------------------------
+
+
+def test_follow_up_fires_after_threshold():
+    specs = _gen([_app(applied_at=_d(8))])
+    fu = [s for s in specs if s.type == "follow_up"]
+    assert len(fu) == 1
+    assert fu[0].application_id == "a1"
+    # due = local midnight (2026-07-15 00:00 EDT = 04:00 UTC)
+    assert fu[0].due_at == local_day_start_utc(date(2026, 7, 15), "America/New_York")
+
+
+def test_follow_up_no_fire_before_threshold():
+    assert [s for s in _gen([_app(applied_at=_d(3))]) if s.type == "follow_up"] == []
+
+
+def test_follow_up_suppressed_by_employer_response():
+    app = _app(applied_at=_d(8), events=[EventView("interview_scheduled", _d(2))])
+    assert [s for s in _gen([app]) if s.type == "follow_up"] == []
+
+
+def test_follow_up_NOT_suppressed_by_user_note():
+    # THE fix: a user's own note (or status_changed) must not cancel the reminder.
+    app = _app(applied_at=_d(8), events=[EventView("note", _d(1)), EventView("status_changed", _d(8))])
+    assert len([s for s in _gen([app]) if s.type == "follow_up"]) == 1
+
+
+def test_follow_up_idempotent_when_pending_exists():
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="pending")])
+    assert [s for s in _gen([app]) if s.type == "follow_up"] == []
+
+
+def test_follow_up_suppressed_when_dismissed():
+    # dismiss-resurrection fix: a dismissed auto follow_up stays dead.
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="dismissed")])
+    assert [s for s in _gen([app]) if s.type == "follow_up"] == []
+
+
+def test_follow_up_once_per_lifetime_after_completion():
+    app = _app(applied_at=_d(30), actions=[ActionView(type="follow_up", status="done", completed_at=_d(20))])
+    assert [s for s in _gen([app]) if s.type == "follow_up"] == []
+
+
+def test_follow_up_no_fire_when_not_applied_status():
+    assert [s for s in _gen([_app(status="planned", applied_at=None)]) if s.type == "follow_up"] == []
+
+
+# --- apply_or_drop -----------------------------------------------------------
+
+
+def test_apply_or_drop_fires():
+    app = _app(status="planned", applied_at=None, created_at=_d(15))
+    assert len([s for s in _gen([app]) if s.type == "apply"]) == 1
+
+
+def test_apply_or_drop_no_fire_before_threshold():
+    app = _app(status="planned", applied_at=None, created_at=_d(5))
+    assert [s for s in _gen([app]) if s.type == "apply"] == []
+
+
+def test_apply_or_drop_idempotent():
+    app = _app(status="planned", applied_at=None, created_at=_d(15),
+               actions=[ActionView(type="apply", status="pending")])
+    assert [s for s in _gen([app]) if s.type == "apply"] == []
+
+
+# --- queue_refill (global) ---------------------------------------------------
+
+
+def test_queue_refill_fires_when_below_target():
+    apps = [_app(id=f"p{i}", status="planned", applied_at=None, created_at=_d(1)) for i in range(2)]
+    globals_ = [s for s in _gen(apps) if s.type == "global"]
+    assert len(globals_) == 1
+    assert globals_[0].application_id is None
+    assert globals_[0].payload["rule"] == "queue_refill"
+
+
+def test_queue_refill_no_fire_when_at_target():
+    apps = [_app(id=f"p{i}", status="planned", applied_at=None, created_at=_d(1)) for i in range(10)]
+    assert [s for s in _gen(apps) if s.type == "global"] == []
+
+
+def test_queue_refill_deduped_within_week():
+    apps = [_app(id="p1", status="planned", applied_at=None, created_at=_d(1))]
+    existing = [ActionView(type="global", status="pending", created_at=_d(1), payload={"rule": "queue_refill"})]
+    assert [s for s in _gen(apps, global_actions=existing) if s.type == "global"] == []
+
+
+def test_queue_refill_dismissed_still_suppresses_this_week():
+    apps = [_app(id="p1", status="planned", applied_at=None, created_at=_d(1))]
+    existing = [ActionView(type="global", status="dismissed", created_at=_d(0), payload={"rule": "queue_refill"})]
+    assert [s for s in _gen(apps, global_actions=existing) if s.type == "global"] == []
+
+
+# --- thank_you / check_in (interview-driven; inert until W3 creates events) ---
+
+
+def test_thank_you_fires_after_recent_interview():
+    app = _app(status="interviewing", events=[EventView("interview_scheduled", _d(0), at=NOW - timedelta(hours=2))])
+    ty = [s for s in _gen([app]) if s.type == "thank_you"]
+    assert len(ty) == 1
+    # due = day after the interview
+    assert ty[0].due_at == local_day_start_utc(date(2026, 7, 16), "America/New_York")
+
+
+def test_thank_you_no_fire_for_old_interview():
+    app = _app(status="interviewing", events=[EventView("interview_scheduled", _d(3), at=_d(3))])
+    assert [s for s in _gen([app]) if s.type == "thank_you"] == []
+
+
+def test_check_in_fires_when_stale_after_interview():
+    app = _app(status="interviewing", events=[EventView("interview_scheduled", _d(8), at=_d(8))])
+    assert len([s for s in _gen([app]) if s.type == "prep"]) == 1
+
+
+def test_check_in_no_fire_when_later_event_exists():
+    app = _app(status="interviewing", events=[
+        EventView("interview_scheduled", _d(8), at=_d(8)),
+        EventView("note", _d(1)),
+    ])
+    assert [s for s in _gen([app]) if s.type == "prep"] == []
+
+
+# --- timezone / due_at encoding ----------------------------------------------
+
+
+def test_due_at_is_local_midnight_utc():
+    # America/New_York in July is EDT (UTC-4): local 00:00 → 04:00 UTC.
+    due = local_day_start_utc(date(2026, 7, 15), "America/New_York")
+    assert due == datetime(2026, 7, 15, 4, 0, tzinfo=timezone.utc)
+
+
+def test_timezone_setting_shifts_today():
+    # At 2026-07-15 02:00 UTC it is still 2026-07-14 in New York → applied 7 local
+    # days earlier lands differently than a naive UTC diff. Verify tz is honored.
+    now = datetime(2026, 7, 15, 2, 0, tzinfo=timezone.utc)  # 22:00 EDT on 07-14
+    app = _app(applied_at=datetime(2026, 7, 7, 12, 0, tzinfo=timezone.utc))  # local 07-07
+    fu = [s for s in _gen([app], now=now) if s.type == "follow_up"]
+    # local today = 07-14; 07-14 - 07-07 = 7 days ≥ 7 → fires, due = 07-14 local midnight
+    assert len(fu) == 1
+    assert fu[0].due_at == local_day_start_utc(date(2026, 7, 14), "America/New_York")
