@@ -10,7 +10,7 @@ Rules:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -19,12 +19,15 @@ from packages.infrastructure.db.models import (
     AgentInvocation,
     AgentToolEvent,
     AgentValidationResult,
+    ApplicationAction,
+    ApplicationEvent,
     Artifact,
     CandidateProfile,
     CompanySource,
     DeadUrl,
     FitReport,
     Job,
+    JobApplication,
     JobFavorite,
     JobNotInterested,
     JobReport,
@@ -1510,3 +1513,345 @@ class LLMUsageEventRepository:
             }
             for r in rows
         ]
+
+
+# ---------------------------------------------------------------------------
+# Application Tracker — job_applications / application_events / application_actions
+# ---------------------------------------------------------------------------
+
+
+class JobApplicationRepository:
+    """Workspace-private application rows. Every read is workspace-scoped
+    (get/list take workspace_id) to keep the IDOR surface closed — see the
+    launch-hardening notes. flush-never-commit, like the other repos."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        profile_id: str | None = None,
+        status: str = "planned",
+        lane: str | None = None,
+        excitement: int | None = None,
+        channel: str | None = None,
+        applied_at: datetime | None = None,
+        resume_run_id: str | None = None,
+        contact_name: str | None = None,
+        contact_note: str | None = None,
+        notes: str | None = None,
+    ) -> JobApplication:
+        # job_id is required — every application references a job row (URL-imported
+        # or created from a pasted JD via the shared manual_import pipeline). There
+        # are no bare/off-platform applications.
+        row = JobApplication(
+            workspace_id=workspace_id,
+            job_id=job_id,
+            profile_id=profile_id,
+            status=status,
+            lane=lane,
+            excitement=excitement,
+            channel=channel,
+            applied_at=applied_at,
+            resume_run_id=resume_run_id,
+            contact_name=contact_name,
+            contact_note=contact_note,
+            notes=notes,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def get(self, application_id: str, workspace_id: str) -> Optional[JobApplication]:
+        from sqlalchemy import select
+
+        stmt = select(JobApplication).where(
+            JobApplication.id == application_id,
+            JobApplication.workspace_id == workspace_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        status_group: str | None = None,
+        needs_action: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[JobApplication]:
+        from sqlalchemy import or_, select
+
+        from packages.domain.applications.transitions import STATUS_GROUPS
+
+        stmt = select(JobApplication).where(JobApplication.workspace_id == workspace_id)
+        if status_group:
+            statuses = STATUS_GROUPS.get(status_group)
+            if statuses is not None:
+                stmt = stmt.where(JobApplication.status.in_(tuple(statuses)))
+        if needs_action:
+            now = datetime.now(timezone.utc)
+            due_ids = (
+                select(ApplicationAction.application_id)
+                .where(
+                    ApplicationAction.workspace_id == workspace_id,
+                    ApplicationAction.application_id.is_not(None),
+                    ApplicationAction.status == "pending",
+                    or_(
+                        ApplicationAction.due_at.is_(None),
+                        ApplicationAction.due_at <= now,
+                    ),
+                )
+            )
+            stmt = stmt.where(JobApplication.id.in_(due_ids))
+        stmt = stmt.order_by(JobApplication.created_at.desc()).limit(limit).offset(offset)
+        return list(self._s.execute(stmt).scalars().all())
+
+    def update_fields(
+        self, application_id: str, workspace_id: str, **fields
+    ) -> Optional[JobApplication]:
+        # status changes go through transition_status (state-machine checked);
+        # id/workspace_id/job_id are immutable.
+        allowed = {
+            "profile_id", "lane", "excitement", "channel", "applied_at",
+            "resume_run_id", "contact_name", "contact_note", "notes",
+            "closed_reason",
+        }
+        row = self.get(application_id, workspace_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if key not in allowed:
+                raise ValueError(f"field not updatable: {key}")
+            setattr(row, key, value)
+        self._s.flush()
+        return row
+
+    def transition_status(
+        self,
+        application_id: str,
+        workspace_id: str,
+        new_status: str,
+        *,
+        note: str | None = None,
+        force: bool = False,
+    ) -> Optional[JobApplication]:
+        from packages.domain.applications.transitions import assert_transition
+
+        row = self.get(application_id, workspace_id)
+        if row is None:
+            return None
+        old_status = row.status
+        assert_transition(old_status, new_status, force=force)  # raises InvalidTransition
+        row.status = new_status
+        # Stamp applied_at the first time we reach "applied" (mirrors
+        # TaskRepository.mark_running stamping started_at).
+        if new_status == "applied" and row.applied_at is None:
+            row.applied_at = datetime.now(timezone.utc)
+        # Same-transaction audit event (append-only timeline).
+        self._s.add(
+            ApplicationEvent(
+                application_id=row.id,
+                workspace_id=workspace_id,
+                event_type="status_changed",
+                message=note,
+                payload_json={"from": old_status, "to": new_status, "forced": force},
+            )
+        )
+        self._s.flush()
+        return row
+
+    def count_by_status(self, workspace_id: str) -> dict[str, int]:
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(JobApplication.status, func.count())
+            .where(JobApplication.workspace_id == workspace_id)
+            .group_by(JobApplication.status)
+        )
+        return {status: count for status, count in self._s.execute(stmt).all()}
+
+
+class ApplicationEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def append(
+        self,
+        *,
+        application_id: str,
+        workspace_id: str,
+        event_type: str,
+        message: str | None = None,
+        payload_json: dict | None = None,
+    ) -> ApplicationEvent:
+        event = ApplicationEvent(
+            application_id=application_id,
+            workspace_id=workspace_id,
+            event_type=event_type,
+            message=message,
+            payload_json=payload_json,
+        )
+        self._s.add(event)
+        self._s.flush()
+        return event
+
+    def list_for_application(
+        self, application_id: str, workspace_id: str, limit: int = 200
+    ) -> list[ApplicationEvent]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationEvent)
+            .where(
+                ApplicationEvent.application_id == application_id,
+                ApplicationEvent.workspace_id == workspace_id,
+            )
+            .order_by(ApplicationEvent.created_at)
+            .limit(limit)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+
+class ApplicationActionRepository:
+    """The planner's to-do table. `list_due` powers the Today view; the P1
+    rules engine writes auto_generated rows into it."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        type: str,
+        title: str,
+        application_id: str | None = None,
+        due_at: datetime | None = None,
+        status: str = "pending",
+        auto_generated: bool = False,
+        payload_json: dict | None = None,
+    ) -> ApplicationAction:
+        row = ApplicationAction(
+            workspace_id=workspace_id,
+            application_id=application_id,
+            type=type,
+            title=title,
+            due_at=due_at,
+            status=status,
+            auto_generated=auto_generated,
+            payload_json=payload_json,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def get(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        from sqlalchemy import select
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.id == action_id,
+            ApplicationAction.workspace_id == workspace_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list_due(
+        self,
+        workspace_id: str,
+        on_or_before: datetime,
+        *,
+        include_undated: bool = True,
+    ) -> list[ApplicationAction]:
+        """Pending actions due on/before the given instant, soonest-due first.
+        Undated pending actions are included by default (they read as "anytime"
+        to-dos that should still surface in Today) and sort last."""
+        from sqlalchemy import or_, select
+
+        conditions = [ApplicationAction.due_at <= on_or_before]
+        if include_undated:
+            conditions.append(ApplicationAction.due_at.is_(None))
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "pending",
+                or_(*conditions),
+            )
+            .order_by(ApplicationAction.due_at.is_(None), ApplicationAction.due_at)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def list_for_application(
+        self, application_id: str, workspace_id: str
+    ) -> list[ApplicationAction]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.application_id == application_id,
+                ApplicationAction.workspace_id == workspace_id,
+            )
+            .order_by(ApplicationAction.due_at)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def complete(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.status = "done"
+        row.completed_at = datetime.now(timezone.utc)
+        # Completing an action worth a timeline entry on its application.
+        if row.application_id:
+            self._s.add(
+                ApplicationEvent(
+                    application_id=row.application_id,
+                    workspace_id=workspace_id,
+                    event_type="action_completed",
+                    message=row.title,
+                    payload_json={"action_id": row.id, "type": row.type},
+                )
+            )
+        self._s.flush()
+        return row
+
+    def snooze(
+        self, action_id: str, workspace_id: str, days: int = 1
+    ) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        base = row.due_at or datetime.now(timezone.utc)
+        row.due_at = base + timedelta(days=days)
+        row.status = "pending"  # stays actionable, just later
+        self._s.flush()
+        return row
+
+    def dismiss(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.status = "dismissed"
+        self._s.flush()
+        return row
+
+    def count_due(self, workspace_id: str, on_or_before: datetime) -> int:
+        from sqlalchemy import func, or_, select
+
+        stmt = (
+            select(func.count())
+            .select_from(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "pending",
+                or_(
+                    ApplicationAction.due_at.is_(None),
+                    ApplicationAction.due_at <= on_or_before,
+                ),
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
