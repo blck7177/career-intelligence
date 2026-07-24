@@ -655,11 +655,13 @@ class JobRepository:
         status: Optional[str] = None,
         include_archived: bool = False,
         job_ids: Optional[set[str]] = None,
+        exclude_source_types: Optional[list[str]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[Job], int]:
         """List jobs, optionally filtered by run_ids, status, and/or an explicit job_id set
-        (the latter used for favorites_only)."""
+        (the latter used for favorites_only). exclude_source_types drops rows by
+        source_type (used to keep manual_paste jobs out of the discovery library)."""
         from sqlalchemy import select, func
         stmt = select(Job)
         if run_ids is not None:
@@ -670,6 +672,8 @@ class JobRepository:
             stmt = stmt.where(Job.status != "archived")
         if job_ids is not None:
             stmt = stmt.where(Job.id.in_(job_ids))
+        if exclude_source_types:
+            stmt = stmt.where(Job.source_type.not_in(tuple(exclude_source_types)))
         stmt = stmt.order_by(Job.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = self._s.execute(count_stmt).scalar_one()

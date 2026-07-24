@@ -151,15 +151,17 @@ export function JobDetailPane({ jobId, profile, fitReportId }: JobDetailPaneProp
               <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{job.company}</span>
               {job.location && <span>{job.location}</span>}
               <span style={{ color: "var(--ink-faint)" }}>{fmtTs(job.created_at.toString())}</span>
-              <a
-                href={job.canonical_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:underline"
-                style={{ color: "var(--primary)" }}
-              >
-                {t("viewPosting")}
-              </a>
+              {job.canonical_url.startsWith("http") && (
+                <a
+                  href={job.canonical_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:underline"
+                  style={{ color: "var(--primary)" }}
+                >
+                  {t("viewPosting")}
+                </a>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">

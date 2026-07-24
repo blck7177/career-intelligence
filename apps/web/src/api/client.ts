@@ -253,13 +253,17 @@ export async function batchArchiveJobs(
   }, token);
 }
 
+export type JobImportBody =
+  | { url: string }
+  | { company: string; title: string; jd_text: string };
+
 export async function importJob(
-  url: string,
+  body: JobImportBody,
   token?: string | null,
 ): Promise<{ job: JobRead; created: boolean; jd_fetched: boolean }> {
   return req<{ job: JobRead; created: boolean; jd_fetched: boolean }>("/api/app/jobs/import", {
     method: "POST",
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(body),
   }, token);
 }
 

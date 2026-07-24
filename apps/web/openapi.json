@@ -442,7 +442,7 @@
           "jobs"
         ],
         "summary": "Import Job",
-        "description": "Import a single job by URL: fetch JD, extract fields, persist.",
+        "description": "Import a single job \u2014 two feed chutes into one pipeline (job_ingest_service):\nEITHER `url` (fetch + extract) XOR `company`+`title`+`jd_text` (a pasted JD).\n\nW1 http-assumption audit \u2014 the paste path stores a synthetic manual://<ws>/<hash>\ncanonical url, so every place that assumes canonical_url is http(s) was checked:\n  - view-posting link (frontend): gated on canonical_url.startsWith(\"http\") in the\n    tracker detail (P0) AND the /jobs detail + pane (added here) \u2014 manual:// renders\n    as plain text, never a broken anchor.\n  - list_jobs / discovery library: filtered here via exclude_source_types=[\"manual_paste\"];\n    Home's topPicks/total/company counts reuse that same endpoint \u2192 covered for free.\n  - fetch_jd_from_url / re-fetch / reconciliation: already return-early on non-http\n    schemes (jd_fetch/service.py) and no path iterates the jobs table to re-fetch by url,\n    so a manual:// row is never fetched.\n  - dead_urls / G1-G5 gates: only ever see agent candidate-pool http urls, never the\n    jobs table \u2014 a paste row (no fetch) never enters them.\n  - normalize_job_url: already passes any non-http scheme through unchanged (no code needed).",
         "operationId": "import_job_api_app_jobs_import_post",
         "parameters": [
           {
@@ -4758,19 +4758,61 @@
       "JobImportRequest": {
         "properties": {
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "jd_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jd Text"
           }
         },
         "type": "object",
-        "required": [
-          "url"
-        ],
         "title": "JobImportRequest",
-        "description": "Import a single job by URL.",
+        "description": "Import a single job. Provide EITHER `url` (fetch + extract) XOR\n`company`+`title`+`jd_text` (a pasted JD). The exclusivity is enforced at the\nroute layer (repo convention \u2014 not a Pydantic validator).",
         "examples": [
           {
             "url": "https://boards.greenhouse.io/acme/jobs/123"
+          },
+          {
+            "company": "Acme",
+            "jd_text": "About the role\u2026",
+            "title": "Risk Analyst"
           }
         ]
       },

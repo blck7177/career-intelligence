@@ -40,7 +40,6 @@ from packages.contracts.api.jobs import (
 )
 from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
-    DeadUrlRepository,
     JobApplicationRepository,
     JobFavoriteRepository,
     JobNotInterestedRepository,
@@ -49,6 +48,10 @@ from packages.infrastructure.db.repositories import (
     ProfileRepository,
     RunRepository,
     TaskRepository,
+)
+from packages.infrastructure.services.job_ingest_service import (
+    ingest_from_paste,
+    ingest_from_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,6 +177,13 @@ def list_jobs(
         run_ids=run_ids,
         status=status,
         job_ids=job_ids_filter,
+        # Keep paste-created jobs out of the discovery library. They belong to a
+        # tracked application, not the job feed; the tracker detail reaches them
+        # directly via JobRepository.get, which this filter does not touch. This
+        # is the one server-side change the W1 http-assumption audit requires —
+        # every Home derivation (topPicks/total/company rollup) reuses this same
+        # endpoint, so it is corrected here for free.
+        exclude_source_types=["manual_paste"],
         limit=limit,
         offset=offset,
     )
@@ -204,195 +214,50 @@ def import_job(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ) -> JobImportResponse:
-    """Import a single job by URL: fetch JD, extract fields, persist."""
-    url = body.url.strip()
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    """Import a single job — two feed chutes into one pipeline (job_ingest_service):
+    EITHER `url` (fetch + extract) XOR `company`+`title`+`jd_text` (a pasted JD).
 
-    _BLOCKED_HOSTS = ("linkedin.com", "www.linkedin.com")
-    from urllib.parse import urlparse
-    if urlparse(url).hostname in _BLOCKED_HOSTS:
+    W1 http-assumption audit — the paste path stores a synthetic manual://<ws>/<hash>
+    canonical url, so every place that assumes canonical_url is http(s) was checked:
+      - view-posting link (frontend): gated on canonical_url.startsWith("http") in the
+        tracker detail (P0) AND the /jobs detail + pane (added here) — manual:// renders
+        as plain text, never a broken anchor.
+      - list_jobs / discovery library: filtered here via exclude_source_types=["manual_paste"];
+        Home's topPicks/total/company counts reuse that same endpoint → covered for free.
+      - fetch_jd_from_url / re-fetch / reconciliation: already return-early on non-http
+        schemes (jd_fetch/service.py) and no path iterates the jobs table to re-fetch by url,
+        so a manual:// row is never fetched.
+      - dead_urls / G1-G5 gates: only ever see agent candidate-pool http urls, never the
+        jobs table — a paste row (no fetch) never enters them.
+      - normalize_job_url: already passes any non-http scheme through unchanged (no code needed).
+    """
+    # "url provided" = the key is present (even if empty). An empty/whitespace url
+    # is a malformed URL, not a paste — routing it through ingest_from_url keeps
+    # the original 400 "URL must start with http://…" behaviour rather than a
+    # misleading XOR 422.
+    has_url = body.url is not None
+    has_paste = bool(
+        body.company and body.company.strip()
+        and body.title and body.title.strip()
+        and body.jd_text and body.jd_text.strip()
+    )
+    if has_url == has_paste:  # both supplied, or neither
         raise HTTPException(
-            status_code=400,
-            detail="LinkedIn requires login to view job postings. Please use the direct employer or ATS URL instead.",
+            status_code=422,
+            detail="Provide either `url` or all of `company`+`title`+`jd_text`, not both.",
         )
 
-    from packages.domain.agent_jobs.url_normalize import normalize_job_url
-    url = normalize_job_url(url)
-
-    job_repo = JobRepository(db)
-
-    existing = job_repo.get_by_canonical_url(url)
-    if existing:
-        run = RunRepository(db).get(existing.discovered_run_id) if existing.discovered_run_id else None
-        if run and run.workspace_id != workspace.id:
-            raise HTTPException(status_code=409, detail="Job already exists in another workspace.")
-        return JobImportResponse(
-            job=_job_read(existing),
-            created=False,
-            jd_fetched=existing.jd_text is not None,
-        )
-
-    from packages.domain.agent_jobs.ats_providers import extract_board_info
-    from packages.domain.agent_jobs.source_registry import normalize_source_type
-    from packages.infrastructure.jd_fetch import fetch_jd_from_url
-    from packages.infrastructure.llm.client import get_llm_client
-    from packages.infrastructure.llm.jd_extractor import extract_jd_fields
-
-    board_info = extract_board_info(url)
-    if board_info:
-        raw_source_type = board_info[0]
+    if has_url:
+        result = ingest_from_url(db, workspace, body.url)
     else:
-        raw_source_type = "unknown"
-    norm_source_type, norm_provider = normalize_source_type(raw_source_type)
-
-    run_repo = RunRepository(db)
-    task_repo = TaskRepository(db)
-    run = run_repo.create(
-        workspace_id=workspace.id,
-        run_type="manual_import",
-        input_snapshot_json={"url": url, "source": "manual_import"},
-    )
-    task = task_repo.create(
-        run_id=run.id,
-        workspace_id=workspace.id,
-        task_type="manual_import",
-        idempotency_key=f"manual_import:{workspace.id}:{url}",
-    )
-    db.flush()
-
-    # Bind the LLM cost context now that run/task exist. extract_jd_fields()
-    # below is the only LLM call in this handler; setting the context earlier
-    # (before create/flush) left run_id/task_id/workspace_id empty and its
-    # cost landed as an orphan row in the ledger.
-    from packages.infrastructure.llm.usage_writer import set_llm_context
-    set_llm_context(
-        run_id=run.id,
-        task_id=task.id,
-        workspace_id=workspace.id,
-        call_site="manual_import",
-    )
-
-    jd_fetched = False
-    jd_text = None
-    jd_hash = None
-    jd_structured = None
-    status = "discovered"
-    title = ""
-    company = ""
-    location = None
-
-    if board_info:
-        from packages.domain.agent_jobs.ats_providers import build_api_url, parse_board_response
-        import httpx
-        provider, token = board_info
-        api_url = build_api_url(provider, token)
-        if api_url:
-            try:
-                resp = httpx.get(api_url, timeout=10.0)
-                if resp.status_code == 200:
-                    for bj in parse_board_response(provider, resp.json()):
-                        if normalize_job_url(bj.url) == url:
-                            title = bj.title
-                            company = bj.company
-                            location = bj.location
-                            break
-            except Exception:
-                pass
-        if not company:
-            company = token.replace("-", " ").title()
-
-    fetch_result = None
-    try:
-        fetch_result = fetch_jd_from_url(url)
-    except Exception:
-        logger.warning("import_job: JD fetch failed for %s", url, exc_info=True)
-
-    if fetch_result is not None and fetch_result.fetch_status == "doa":
-        reason = (
-            "closed_posting"
-            if fetch_result.http_status == 200
-            else f"http_{fetch_result.http_status or 'unknown'}"
+        result = ingest_from_paste(
+            db, workspace, company=body.company, title=body.title, jd_text=body.jd_text
         )
-        DeadUrlRepository(db).record(
-            url=url,
-            reason=reason,
-            http_status=fetch_result.http_status,
-            discovered_run_id=run.id,
-        )
-        task_repo.mark_succeeded(task.id)
-        run_repo.complete(
-            run.id, status="succeeded", result_summary={"doa": True, "reason": reason}
-        )
-        db.commit()
-        raise HTTPException(
-            status_code=404,
-            detail="This posting appears to be closed or no longer available.",
-        )
-
-    if fetch_result is not None and fetch_result.ok and fetch_result.jd_text:
-        jd_text = fetch_result.jd_text
-        jd_hash = fetch_result.jd_hash
-        jd_fetched = True
-        status = "reportable"
-        try:
-            jd_structured = extract_jd_fields(
-                jd_text=jd_text,
-                company=company,
-                title=title,
-                location=location or "",
-                llm_client=get_llm_client(),
-            )
-        except Exception:
-            logger.warning("import_job: JD extraction failed for %s", url, exc_info=True)
-
-    if not title and jd_text:
-        for line in jd_text.splitlines():
-            line = line.strip()
-            if line.lower().startswith("title:"):
-                title = line[6:].strip()
-                break
-    if not title:
-        slug = url.rstrip("/").split("/")[-1].split("?")[0]
-        title = re.sub(r"[_-](?:JR?\d+)$", "", slug, flags=re.IGNORECASE).replace("-", " ").replace("_", " ").strip().title() or "Imported Job"
-    if not company:
-        from urllib.parse import urlparse
-        hostname = urlparse(url).hostname or ""
-        company = hostname.split(".")[0].replace("-", " ").title() if hostname else ""
-
-    job = job_repo.create(
-        canonical_url=url,
-        source_url=url,
-        source_type=norm_source_type,
-        source_provider=norm_provider,
-        title=title,
-        company=company,
-        jd_text=jd_text,
-        jd_hash=jd_hash,
-        raw_payload_json={
-            "source": "manual_import",
-            "jd_structured": jd_structured,
-            "fetch_status": "success" if jd_fetched else "failed",
-        },
-        status=status,
-        discovered_run_id=run.id,
-        discovered_task_id=task.id,
-    )
-
-    task_repo.mark_succeeded(task.id)
-    run_repo.complete(run.id, status="succeeded", result_summary={
-        "job_id": job.id,
-        "jd_fetched": jd_fetched,
-        "source": "manual_import",
-    })
-    db.commit()
-
-    logger.info("import_job: created job %s from %s (status=%s)", job.id, url, status)
 
     return JobImportResponse(
-        job=_job_read(job),
-        created=True,
-        jd_fetched=jd_fetched,
+        job=_job_read(result.job),
+        created=result.created,
+        jd_fetched=result.jd_fetched,
     )
 
 

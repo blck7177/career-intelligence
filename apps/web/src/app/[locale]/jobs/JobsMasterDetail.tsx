@@ -265,7 +265,7 @@ export function JobsMasterDetail({
     setImporting(true);
     try {
       const token = await getToken();
-      const result = await importJob(url, token);
+      const result = await importJob({ url }, token);
       const jd = result.jd_fetched ? t("jdFetched") : t("noJdSuffix");
       showBanner(
         t(result.created ? "importedMsg" : "existsMsg", {

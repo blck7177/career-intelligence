@@ -78,11 +78,23 @@ class NotInterestedResponse(BaseModel):
 
 
 class JobImportRequest(BaseModel):
-    """Import a single job by URL."""
+    """Import a single job. Provide EITHER `url` (fetch + extract) XOR
+    `company`+`title`+`jd_text` (a pasted JD). The exclusivity is enforced at the
+    route layer (repo convention — not a Pydantic validator)."""
 
-    url: str
+    url: Optional[str] = None
+    company: Optional[str] = None
+    title: Optional[str] = None
+    jd_text: Optional[str] = None
 
-    model_config = {"json_schema_extra": {"examples": [{"url": "https://boards.greenhouse.io/acme/jobs/123"}]}}
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"url": "https://boards.greenhouse.io/acme/jobs/123"},
+                {"company": "Acme", "title": "Risk Analyst", "jd_text": "About the role…"},
+            ]
+        }
+    }
 
 
 class JobImportResponse(BaseModel):

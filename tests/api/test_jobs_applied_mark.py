@@ -63,3 +63,20 @@ def test_list_marks_applied_jobs(client):
     by_id = {j["id"]: j for j in resp.json()["items"]}
     assert by_id["job-1"]["is_applied"] is True
     assert by_id["job-2"]["is_applied"] is False
+
+
+def test_list_excludes_manual_paste_jobs(client):
+    """W1 http-audit: paste-created jobs must not leak into the discovery library."""
+    with patch("apps.api.routes.jobs.RunRepository") as MockRun, \
+         patch("apps.api.routes.jobs.JobFavoriteRepository") as MockFav, \
+         patch("apps.api.routes.jobs.JobNotInterestedRepository") as MockNI, \
+         patch("apps.api.routes.jobs.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.jobs.JobRepository") as MockJob:
+        MockRun.return_value.list_for_workspace.return_value = [SimpleNamespace(id="run-1")]
+        for M in (MockFav, MockNI, MockApp):
+            M.return_value.list_job_ids_for_workspace.return_value = set()
+        MockJob.return_value.list.return_value = ([], 0)
+        resp = client.get("/api/app/jobs")
+    assert resp.status_code == 200, resp.text
+    _, kwargs = MockJob.return_value.list.call_args
+    assert kwargs["exclude_source_types"] == ["manual_paste"]
