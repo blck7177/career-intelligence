@@ -475,6 +475,15 @@
     "selectApplication": "选择一个申请查看详情。",
     "loadFailed": "无法加载该申请。",
     "planComingSoon": "计划视图（今日待办、管道健康、每周目标）将在下一阶段上线。",
+    "snooze": "推迟",
+    "retry": "重试",
+    "todayEmpty": "暂无到期事项。从某个申请添加下一步，或等待 P1 的自动规则。",
+    "group": {
+      "overdue": "已逾期",
+      "today": "今天",
+      "upcoming": "即将到期",
+      "anytime": "随时"
+    },
     "prev": "上一页",
     "next": "下一页",
     "viewJob": "查看职位",

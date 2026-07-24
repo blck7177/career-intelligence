@@ -474,6 +474,15 @@
     "selectApplication": "Select an application to view details.",
     "loadFailed": "Couldn't load this application.",
     "planComingSoon": "The planner — Today's tasks, pipeline health, weekly targets — lands in the next phase.",
+    "snooze": "Snooze",
+    "retry": "Retry",
+    "todayEmpty": "Nothing due. Add a next step from an application, or wait for the automatic rules (P1).",
+    "group": {
+      "overdue": "Overdue",
+      "today": "Today",
+      "upcoming": "Upcoming",
+      "anytime": "Anytime"
+    },
     "prev": "Prev",
     "next": "Next",
     "viewJob": "View job",

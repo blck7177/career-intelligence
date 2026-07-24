@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { ApplicationsMasterDetail, type AppRow } from "./ApplicationsMasterDetail";
+import { PlanToday } from "./PlanToday";
 
 interface Props {
   applications: AppRow[];
@@ -43,11 +44,7 @@ export function TrackerShell(props: Props) {
       {view === "applications" ? (
         <ApplicationsMasterDetail {...props} />
       ) : (
-        <div className="flex-1 min-h-0 flex items-center justify-center p-8">
-          <p className="text-sm text-center max-w-sm" style={{ color: "var(--ink-muted)" }}>
-            {t("planComingSoon")}
-          </p>
-        </div>
+        <PlanToday />
       )}
     </div>
   );
