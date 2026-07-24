@@ -524,7 +524,7 @@
     "status": {
       "planned": "计划投递",
       "applied": "已投递",
-      "in_review": "审核中",
+      "in_review": "筛选中",
       "interviewing": "面试中",
       "offer": "Offer",
       "rejected": "已拒绝",

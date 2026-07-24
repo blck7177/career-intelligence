@@ -523,7 +523,7 @@
     "status": {
       "planned": "Planned",
       "applied": "Applied",
-      "in_review": "In review",
+      "in_review": "Screen",
       "interviewing": "Interviewing",
       "offer": "Offer",
       "rejected": "Rejected",
