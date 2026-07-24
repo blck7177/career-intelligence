@@ -12,6 +12,7 @@ import { JobReportContent, SectionHeading, type JobReportLabels } from "@/compon
 import { TabsRoot, TabsList, Tab, TabsIndicator, TabsPanel } from "@/components/ui/tabs";
 import { FitButton } from "@/components/FitButton";
 import { ReportActionButton, TailorResumeButton, RemoveJobButton } from "./JobActions";
+import { MarkAppliedButton } from "./MarkAppliedButton";
 
 const JOB_REPORT_ICONS = {
   businessContext: Building2,
@@ -359,6 +360,7 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExist
                 onMutated={onMutated}
               />
             )}
+            <MarkAppliedButton jobId={job.id} onMutated={onMutated} />
             <span className="w-px h-4 bg-[var(--border)]" />
             <RemoveJobButton jobId={job.id} />
           </div>
