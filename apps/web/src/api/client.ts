@@ -38,6 +38,18 @@ export type ProfileRead = components["schemas"]["ProfileRead"];
 export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
 export type FitReportSummary = components["schemas"]["FitReportSummary"];
 export type FitReportSummaryList = components["schemas"]["FitReportSummaryList"];
+export type ApplicationRead = components["schemas"]["ApplicationRead"];
+export type ApplicationDetail = components["schemas"]["ApplicationDetail"];
+export type ApplicationList = components["schemas"]["ApplicationList"];
+export type ApplicationCreate = components["schemas"]["ApplicationCreate"];
+export type ApplicationUpdate = components["schemas"]["ApplicationUpdate"];
+export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
+export type StatusTransition = components["schemas"]["StatusTransition"];
+export type ActionRead = components["schemas"]["ActionRead"];
+export type ActionList = components["schemas"]["ActionList"];
+export type ActionCreate = components["schemas"]["ActionCreate"];
+export type ActionUpdate = components["schemas"]["ActionUpdate"];
+export type PlannerSettings = components["schemas"]["PlannerSettings"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -259,6 +271,110 @@ export async function batchAnalyzeJobs(
     method: "POST",
     body: JSON.stringify({ job_ids: jobIds, profile_id: profileId }),
   }, token);
+}
+
+// ---------------------------------------------------------------------------
+// Applications  (/api/app/applications/*, /api/app/actions/*)
+// ---------------------------------------------------------------------------
+
+export async function listApplications(
+  params?: { status_group?: string; needs_action?: boolean; limit?: number; offset?: number },
+  token?: string | null,
+): Promise<ApplicationList> {
+  const qs = new URLSearchParams();
+  if (params?.status_group) qs.set("status_group", params.status_group);
+  if (params?.needs_action) qs.set("needs_action", "true");
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
+  const query = qs.toString();
+  return req<ApplicationList>(`/api/app/applications${query ? `?${query}` : ""}`, undefined, token);
+}
+
+export async function getApplication(
+  applicationId: string,
+  token?: string | null,
+): Promise<ApplicationDetail> {
+  return req<ApplicationDetail>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}`,
+    undefined,
+    token,
+  );
+}
+
+export async function createApplication(
+  body: ApplicationCreate,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    "/api/app/applications",
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function updateApplication(
+  applicationId: string,
+  body: ApplicationUpdate,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function transitionApplication(
+  applicationId: string,
+  body: StatusTransition,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}/transition`,
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function getApplicationsSummary(
+  token?: string | null,
+): Promise<ApplicationSummary> {
+  return req<ApplicationSummary>("/api/app/applications/summary", undefined, token);
+}
+
+export async function listActions(
+  params?: { due_on_or_before?: string; include_undated?: boolean },
+  token?: string | null,
+): Promise<ActionList> {
+  const qs = new URLSearchParams();
+  if (params?.due_on_or_before) qs.set("due_on_or_before", params.due_on_or_before);
+  if (params?.include_undated === false) qs.set("include_undated", "false");
+  const query = qs.toString();
+  return req<ActionList>(`/api/app/actions${query ? `?${query}` : ""}`, undefined, token);
+}
+
+export async function createAction(body: ActionCreate, token?: string | null): Promise<ActionRead> {
+  return req<ActionRead>(
+    "/api/app/actions",
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function updateAction(
+  actionId: string,
+  body: ActionUpdate,
+  token?: string | null,
+): Promise<ActionRead> {
+  return req<ActionRead>(
+    `/api/app/actions/${encodeURIComponent(actionId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function getPlannerSettings(token?: string | null): Promise<PlannerSettings> {
+  return req<PlannerSettings>("/api/app/planner-settings", undefined, token);
 }
 
 // ---------------------------------------------------------------------------
