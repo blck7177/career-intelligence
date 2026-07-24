@@ -1717,6 +1717,14 @@ class JobApplicationRepository:
         )
         return set(self._s.execute(stmt).scalars().all())
 
+    def list_workspace_ids_with_applications(self) -> list[str]:
+        """Distinct workspace ids that have at least one application — the daily
+        planner beat iterates these (skips workspaces with an empty tracker)."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication.workspace_id).distinct()
+        return list(self._s.execute(stmt).scalars().all())
+
 
 class ApplicationEventRepository:
     def __init__(self, session: Session) -> None:
@@ -1839,6 +1847,17 @@ class ApplicationActionRepository:
                 ApplicationAction.workspace_id == workspace_id,
             )
             .order_by(ApplicationAction.due_at)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def list_global_for_workspace(self, workspace_id: str) -> list[ApplicationAction]:
+        """Workspace-global actions (application_id IS NULL) in any status — the
+        rules engine reads these to dedup queue_refill per week."""
+        from sqlalchemy import select
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.application_id.is_(None),
         )
         return list(self._s.execute(stmt).scalars().all())
 

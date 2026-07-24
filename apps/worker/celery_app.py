@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import worker_process_init
 
 from packages.infrastructure.observability.logging import configure_logging
@@ -67,7 +68,7 @@ celery_app = Celery(
     "career_worker",
     broker=_REDIS_URL,
     backend=_REDIS_URL,
-    include=["apps.worker.tasks.execute_task"],
+    include=["apps.worker.tasks.execute_task", "apps.worker.tasks.planner_run"],
 )
 
 celery_app.conf.update(
@@ -84,6 +85,16 @@ celery_app.conf.update(
     #   deterministic tasks → queue="fast" (consumed by worker-fast, concurrency=2-4)
     # Default queue when not specified: fast
     task_default_queue="fast",
-    beat_schedule={},  # no periodic tasks in MVP
+    # Periodic tasks. Fires at a fixed UTC instant; each rule computes the
+    # per-workspace "today" in that workspace's settings.timezone internally, so
+    # a single UTC schedule serves all zones. 10:00 UTC ≈ early morning US-East.
+    # Runs on worker-fast's embedded beat (`-B`, single unscaled instance).
+    beat_schedule={
+        "planner-daily-rules": {
+            "task": "apps.worker.tasks.planner_run.run_daily_rules",
+            "schedule": crontab(hour=10, minute=0),
+            "options": {"queue": "fast"},
+        },
+    },
 )
 
