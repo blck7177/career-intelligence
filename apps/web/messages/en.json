@@ -524,6 +524,17 @@
       "networking": "Networking",
       "global": "Discovery"
     },
+    "interviews": "Interviews",
+    "addInterview": "Log interview",
+    "interviewLogged": "Interview — {round} · {date}",
+    "interviewGeneric": "interview",
+    "statusChanged": "Status changed",
+    "round": {
+      "recruiter_screen": "Recruiter screen",
+      "phone": "Phone screen",
+      "onsite": "Onsite",
+      "final": "Final"
+    },
     "moveTo": "Move to",
     "closeAs": "Close as",
     "timeline": "Timeline",

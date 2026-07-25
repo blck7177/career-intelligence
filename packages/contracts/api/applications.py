@@ -92,13 +92,21 @@ class ApplicationEventRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class ApplicationEventCreate(BaseModel):
-    """Body for POST /applications/{id}/events — a manual timeline note. The
-    event_type is fixed to "note" server-side; the client only supplies text.
-    Structured event types (interview_scheduled, …) land in a later wave behind
-    their own validated shapes."""
+InterviewRound = Literal["recruiter_screen", "phone", "onsite", "final"]
 
-    message: str = Field(..., min_length=1, max_length=2000)
+
+class ApplicationEventCreate(BaseModel):
+    """Body for POST /applications/{id}/events. Two whitelisted kinds (the client
+    cannot forge status_changed — the enum rejects it):
+      - note (default): a freeform timeline note (message required).
+      - interview_scheduled: a scheduled round (round_type + at required); the
+        rules engine reads these to drive thank_you/check_in.
+    Cross-field requirements are enforced at the route layer (repo convention)."""
+
+    event_type: Literal["note", "interview_scheduled"] = "note"
+    message: Optional[str] = Field(None, max_length=2000)
+    round_type: Optional[InterviewRound] = None
+    at: Optional[datetime] = None
 
 
 class ActionCreate(BaseModel):
@@ -177,6 +185,26 @@ class ApplicationSummary(BaseModel):
     planned: int
     needs_action: int
     by_status: dict[str, int]
+
+
+class FunnelStage(BaseModel):
+    key: str  # planned | applied | in_review | interviewing | onsite | offer
+    count: int
+
+
+class FunnelAlert(BaseModel):
+    kind: str  # supply_drought | ghosted_suggestion | check_in | onsite_low
+    severity: str  # info | warn
+    application_id: Optional[str] = None
+    message_key: str  # i18n key the frontend renders with `context`
+    context: dict = Field(default_factory=dict)
+
+
+class FunnelResponse(BaseModel):
+    """Pipeline health for the Plan view's Pipeline zone."""
+
+    stages: list[FunnelStage]
+    alerts: list[FunnelAlert]
 
 
 class WeeklyTarget(BaseModel):

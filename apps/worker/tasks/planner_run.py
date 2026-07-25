@@ -15,12 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from apps.worker.celery_app import celery_app
-from packages.domain.planner.rules import (
-    ActionView,
-    ApplicationView,
-    EventView,
-    generate_actions,
-)
+from packages.domain.planner.rules import ApplicationView, generate_actions
 from packages.domain.planner.settings import load_planner_settings
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
@@ -29,30 +24,9 @@ from packages.infrastructure.db.repositories import (
     WorkspaceRepository,
 )
 from packages.infrastructure.db.session import get_session
+from packages.infrastructure.planner_mapping import action_view, application_view
 
 logger = logging.getLogger(__name__)
-
-
-def _to_event_view(e: Any) -> EventView:
-    at = None
-    payload = e.payload_json if isinstance(e.payload_json, dict) else None
-    if payload and payload.get("at"):
-        try:
-            at = datetime.fromisoformat(payload["at"])
-        except (TypeError, ValueError):
-            at = None
-    return EventView(event_type=e.event_type, created_at=e.created_at, at=at)
-
-
-def _to_action_view(a: Any) -> ActionView:
-    return ActionView(
-        type=a.type,
-        status=a.status,
-        auto_generated=a.auto_generated,
-        completed_at=a.completed_at,
-        created_at=a.created_at,
-        payload=a.payload_json,
-    )
 
 
 def run_for_workspace(session: Any, workspace_id: str, now_utc: datetime) -> int:
@@ -65,19 +39,15 @@ def run_for_workspace(session: Any, workspace_id: str, now_utc: datetime) -> int
     event_repo = ApplicationEventRepository(session)
     action_repo = ApplicationActionRepository(session)
 
-    views: list[ApplicationView] = []
-    for app in app_repo.list_for_workspace(workspace_id, limit=10_000):
-        views.append(
-            ApplicationView(
-                id=app.id,
-                status=app.status,
-                applied_at=app.applied_at,
-                created_at=app.created_at,
-                events=[_to_event_view(e) for e in event_repo.list_for_application(app.id, workspace_id)],
-                actions=[_to_action_view(a) for a in action_repo.list_for_application(app.id, workspace_id)],
-            )
+    views: list[ApplicationView] = [
+        application_view(
+            app,
+            event_repo.list_for_application(app.id, workspace_id),
+            action_repo.list_for_application(app.id, workspace_id),
         )
-    global_actions = [_to_action_view(a) for a in action_repo.list_global_for_workspace(workspace_id)]
+        for app in app_repo.list_for_workspace(workspace_id, limit=10_000)
+    ]
+    global_actions = [action_view(a) for a in action_repo.list_global_for_workspace(workspace_id)]
 
     specs = generate_actions(
         applications=views,

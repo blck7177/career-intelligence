@@ -525,6 +525,17 @@
       "networking": "人脉触达",
       "global": "补货发现"
     },
+    "interviews": "面试",
+    "addInterview": "记录面试",
+    "interviewLogged": "面试——{round}·{date}",
+    "interviewGeneric": "面试",
+    "statusChanged": "状态变更",
+    "round": {
+      "recruiter_screen": "招聘官初筛",
+      "phone": "电话面",
+      "onsite": "现场面",
+      "final": "终面"
+    },
     "moveTo": "推进到",
     "closeAs": "结束为",
     "timeline": "时间线",

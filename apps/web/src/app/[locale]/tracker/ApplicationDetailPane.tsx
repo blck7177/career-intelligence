@@ -13,7 +13,7 @@ import {
   updateAction,
   addApplicationEvent,
 } from "@/api/client";
-import type { ApplicationDetail, ApplicationUpdate, StatusTransition } from "@/api/client";
+import type { ApplicationDetail, ApplicationUpdate, StatusTransition, ApplicationEventRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
@@ -163,6 +163,9 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
 
         {/* Next actions */}
         <ActionsSection app={app} onMutated={mutated} getToken={getToken} t={t} />
+
+        {/* Interviews (rounds are events, not statuses) */}
+        <InterviewSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
         {/* Timeline (with manual "log a note" entry) */}
         <TimelineSection app={app} onMutated={mutated} getToken={getToken} t={t} />
@@ -401,7 +404,7 @@ function TimelineSection({ app, onMutated, getToken, t }: { app: ApplicationDeta
     setAdding(true);
     try {
       const token = await getToken();
-      await addApplicationEvent(app.id, msg, token);
+      await addApplicationEvent(app.id, { message: msg }, token);
       setNote("");
       onMutated();
     } catch {
@@ -434,11 +437,69 @@ function TimelineSection({ app, onMutated, getToken, t }: { app: ApplicationDeta
           {events.map((e) => (
             <li key={e.id} className="text-sm flex items-baseline gap-2">
               <span className="text-2xs tabular-nums shrink-0" style={{ color: "var(--ink-faint)" }}>{fmtTs(e.created_at)}</span>
-              <span style={{ color: "var(--ink-secondary)" }}>{e.message || e.event_type}</span>
+              <span style={{ color: "var(--ink-secondary)" }}>{eventLabel(e, t)}</span>
             </li>
           ))}
         </ul>
       )}
+    </section>
+  );
+}
+
+/** Friendly timeline label. Interview events carry {round_type, at} in payload;
+ *  everything else shows its note (or a humanized event_type fallback). */
+function eventLabel(e: ApplicationEventRead, t: T): string {
+  if (e.event_type === "interview_scheduled") {
+    const p = (e.payload_json ?? {}) as { round_type?: string; at?: string };
+    const round = p.round_type ? t(`round.${p.round_type}`) : t("interviewGeneric");
+    return t("interviewLogged", { round, date: p.at ? fmtTs(p.at) : "" });
+  }
+  if (e.message) return e.message;
+  if (e.event_type === "status_changed") return t("statusChanged");
+  return e.event_type;
+}
+
+const INTERVIEW_ROUNDS = ["recruiter_screen", "phone", "onsite", "final"] as const;
+
+function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+  const [round, setRound] = useState<string>("recruiter_screen");
+  const [when, setWhen] = useState(""); // datetime-local string
+  const [busy, setBusy] = useState(false);
+
+  async function add() {
+    if (busy || !when) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      // datetime-local is local wall-time with no zone → interpret as local, send UTC ISO.
+      const at = new Date(when).toISOString();
+      await addApplicationEvent(app.id, { event_type: "interview_scheduled", round_type: round, at }, token);
+      setWhen("");
+      onMutated();
+    } catch {
+      // keep the input for retry
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const inputCls = "h-8 px-2.5 rounded-md border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20";
+  const inputStyle = { borderColor: "var(--border)", color: "var(--foreground)" } as const;
+
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-muted)" }}>
+        {t("interviews")}
+      </h2>
+      <div className="flex items-center gap-2 flex-wrap">
+        <select value={round} onChange={(e) => setRound(e.target.value)} className={inputCls} style={inputStyle}>
+          {INTERVIEW_ROUNDS.map((r) => (
+            <option key={r} value={r}>{t(`round.${r}`)}</option>
+          ))}
+        </select>
+        <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={inputCls} style={inputStyle} />
+        <Button size="sm" variant="outline" onClick={add} disabled={!when} loading={busy}>{t("addInterview")}</Button>
+      </div>
     </section>
   );
 }

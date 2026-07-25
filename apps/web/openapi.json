@@ -1962,6 +1962,56 @@
         }
       }
     },
+    "/api/app/applications/funnel": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Funnel",
+        "description": "Pipeline stages + advisory alerts for the Plan view's Pipeline zone.\n(Declared before /{application_id} so 'funnel' isn't captured as an id.)",
+        "operationId": "get_funnel_api_app_applications_funnel_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FunnelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/app/applications/{application_id}": {
       "get": {
         "tags": [
@@ -2160,7 +2210,7 @@
           "applications"
         ],
         "summary": "Add Application Event",
-        "description": "Append a manual note to an application's timeline. event_type is fixed to\n\"note\" server-side \u2014 the client cannot forge status_changed/interview events\n(those are written by their own guarded paths).",
+        "description": "Append a timeline event. event_type is whitelisted to note |\ninterview_scheduled (the enum rejects a forged status_changed); cross-field\nrequirements are checked here.",
         "operationId": "add_application_event_api_app_applications__application_id__events_post",
         "parameters": [
           {
@@ -3670,19 +3720,60 @@
       },
       "ApplicationEventCreate": {
         "properties": {
-          "message": {
+          "event_type": {
             "type": "string",
-            "maxLength": 2000,
-            "minLength": 1,
+            "enum": [
+              "note",
+              "interview_scheduled"
+            ],
+            "title": "Event Type",
+            "default": "note"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Message"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "recruiter_screen",
+                  "phone",
+                  "onsite",
+                  "final"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
           }
         },
         "type": "object",
-        "required": [
-          "message"
-        ],
         "title": "ApplicationEventCreate",
-        "description": "Body for POST /applications/{id}/events \u2014 a manual timeline note. The\nevent_type is fixed to \"note\" server-side; the client only supplies text.\nStructured event types (interview_scheduled, \u2026) land in a later wave behind\ntheir own validated shapes."
+        "description": "Body for POST /applications/{id}/events. Two whitelisted kinds (the client\ncannot forge status_changed \u2014 the enum rejects it):\n  - note (default): a freeform timeline note (message required).\n  - interview_scheduled: a scheduled round (round_type + at required); the\n    rules engine reads these to drive thank_you/check_in.\nCross-field requirements are enforced at the route layer (repo convention)."
       },
       "ApplicationEventRead": {
         "properties": {
@@ -4611,6 +4702,88 @@
           "total"
         ],
         "title": "FitReportSummaryList"
+      },
+      "FunnelAlert": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application Id"
+          },
+          "message_key": {
+            "type": "string",
+            "title": "Message Key"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "severity",
+          "message_key"
+        ],
+        "title": "FunnelAlert"
+      },
+      "FunnelResponse": {
+        "properties": {
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelAlert"
+            },
+            "type": "array",
+            "title": "Alerts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stages",
+          "alerts"
+        ],
+        "title": "FunnelResponse",
+        "description": "Pipeline health for the Plan view's Pipeline zone."
+      },
+      "FunnelStage": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "FunnelStage"
       },
       "HTTPValidationError": {
         "properties": {

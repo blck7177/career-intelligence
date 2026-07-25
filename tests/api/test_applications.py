@@ -281,6 +281,19 @@ class TestActions:
 # --- planner settings + parity ----------------------------------------------
 
 
+def test_funnel_endpoint(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv:
+        MockApp.return_value.list_for_workspace.return_value = [_app(status="applied", applied_at=_NOW)]
+        MockEv.return_value.list_for_application.return_value = []
+        resp = client.get("/api/app/applications/funnel")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [s["key"] for s in body["stages"]] == ["planned", "applied", "in_review", "interviewing", "onsite", "offer"]
+    assert "onsite_low" in [a["kind"] for a in body["alerts"]]  # 0 onsites < target
+
+
 def test_planner_settings_returns_defaults(make_client):
     client = make_client()
     resp = client.get("/api/app/planner-settings")
@@ -467,7 +480,46 @@ class TestEvents:
 
     def test_add_note_empty_message_returns_422(self, make_client):
         client = make_client()
-        resp = client.post("/api/app/applications/app-1/events", json={"message": ""})
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = _app()  # owned → reaches the message check
+            resp = client.post("/api/app/applications/app-1/events", json={"message": ""})
+        assert resp.status_code == 422
+
+    def test_add_interview_event(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+             patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = _event(
+                id="ev-int", event_type="interview_scheduled", message=None,
+                payload_json={"round_type": "onsite", "at": "2026-07-20T15:00:00+00:00"},
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={"event_type": "interview_scheduled", "round_type": "onsite",
+                      "at": "2026-07-20T15:00:00+00:00"},
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["event_type"] == "interview_scheduled"
+        assert kwargs["payload_json"]["round_type"] == "onsite"
+
+    def test_add_interview_missing_fields_returns_422(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = _app()
+            resp = client.post(
+                "/api/app/applications/app-1/events", json={"event_type": "interview_scheduled"}
+            )
+        assert resp.status_code == 422
+
+    def test_add_event_rejects_forged_event_type(self, make_client):
+        # A forged status_changed is rejected by the Literal enum before the handler.
+        client = make_client()
+        resp = client.post(
+            "/api/app/applications/app-1/events",
+            json={"event_type": "status_changed", "message": "x"},
+        )
         assert resp.status_code == 422
 
 

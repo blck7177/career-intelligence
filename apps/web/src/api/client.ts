@@ -45,6 +45,7 @@ export type ApplicationCreate = components["schemas"]["ApplicationCreate"];
 export type ApplicationUpdate = components["schemas"]["ApplicationUpdate"];
 export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
 export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
+export type FunnelResponse = components["schemas"]["FunnelResponse"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
 export type ActionList = components["schemas"]["ActionList"];
@@ -347,14 +348,22 @@ export async function getApplicationsSummary(
   return req<ApplicationSummary>("/api/app/applications/summary", undefined, token);
 }
 
+export async function getFunnel(token?: string | null): Promise<FunnelResponse> {
+  return req<FunnelResponse>("/api/app/applications/funnel", undefined, token);
+}
+
+export type ApplicationEventBody =
+  | { event_type?: "note"; message: string }
+  | { event_type: "interview_scheduled"; round_type: string; at: string; message?: string };
+
 export async function addApplicationEvent(
   applicationId: string,
-  message: string,
+  body: ApplicationEventBody,
   token?: string | null,
 ): Promise<ApplicationEventRead> {
   return req<ApplicationEventRead>(
     `/api/app/applications/${encodeURIComponent(applicationId)}/events`,
-    { method: "POST", body: JSON.stringify({ message }) },
+    { method: "POST", body: JSON.stringify(body) },
     token,
   );
 }

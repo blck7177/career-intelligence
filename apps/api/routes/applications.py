@@ -5,6 +5,7 @@ Contract:
   GET    /api/app/applications                              -> ApplicationList
   POST   /api/app/applications                              -> ApplicationRead (201)
   GET    /api/app/applications/summary                      -> ApplicationSummary
+  GET    /api/app/applications/funnel                       -> FunnelResponse
   GET    /api/app/applications/{application_id}             -> ApplicationDetail
   PATCH  /api/app/applications/{application_id}             -> ApplicationRead
   POST   /api/app/applications/{application_id}/transition  -> ApplicationRead
@@ -46,6 +47,7 @@ from packages.contracts.api.applications import (
     ApplicationRead,
     ApplicationSummary,
     ApplicationUpdate,
+    FunnelResponse,
     PlannerSettings,
     StatusTransition,
 )
@@ -259,6 +261,28 @@ def get_applications_summary(
     )
 
 
+@router.get("/applications/funnel", response_model=FunnelResponse)
+def get_funnel(
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> FunnelResponse:
+    """Pipeline stages + advisory alerts for the Plan view's Pipeline zone.
+    (Declared before /{application_id} so 'funnel' isn't captured as an id.)"""
+    from packages.domain.planner.funnel import build_funnel
+    from packages.infrastructure.planner_mapping import application_view
+
+    app_repo = JobApplicationRepository(db)
+    event_repo = ApplicationEventRepository(db)
+    views = [
+        application_view(a, event_repo.list_for_application(a.id, workspace.id), [])
+        for a in app_repo.list_for_workspace(workspace.id, limit=10_000)
+    ]
+    result = build_funnel(
+        views, load_planner_settings(workspace), datetime.now(timezone.utc)
+    )
+    return FunnelResponse(**result)
+
+
 @router.get("/applications/{application_id}", response_model=ApplicationDetail)
 def get_application(
     application_id: str,
@@ -333,17 +357,33 @@ def add_application_event(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ) -> ApplicationEventRead:
-    """Append a manual note to an application's timeline. event_type is fixed to
-    "note" server-side — the client cannot forge status_changed/interview events
-    (those are written by their own guarded paths)."""
+    """Append a timeline event. event_type is whitelisted to note |
+    interview_scheduled (the enum rejects a forged status_changed); cross-field
+    requirements are checked here."""
     repo = JobApplicationRepository(db)
     _assert_owned(repo.get(application_id, workspace.id), workspace)
-    event = ApplicationEventRepository(db).append(
-        application_id=application_id,
-        workspace_id=workspace.id,
-        event_type="note",
-        message=body.message,
-    )
+    event_repo = ApplicationEventRepository(db)
+    if body.event_type == "note":
+        if not body.message or not body.message.strip():
+            raise HTTPException(status_code=422, detail="A note requires a message.")
+        event = event_repo.append(
+            application_id=application_id,
+            workspace_id=workspace.id,
+            event_type="note",
+            message=body.message,
+        )
+    else:  # interview_scheduled — round (payload) drives thank_you/check_in
+        if body.round_type is None or body.at is None:
+            raise HTTPException(
+                status_code=422, detail="An interview requires round_type and at."
+            )
+        event = event_repo.append(
+            application_id=application_id,
+            workspace_id=workspace.id,
+            event_type="interview_scheduled",
+            message=body.message,
+            payload_json={"round_type": body.round_type, "at": body.at.isoformat()},
+        )
     db.commit()
     return ApplicationEventRead.model_validate(event)
 

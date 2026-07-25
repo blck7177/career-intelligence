@@ -53,6 +53,7 @@ class EventView:
     event_type: str
     created_at: datetime  # UTC (when logged)
     at: Optional[datetime] = None  # UTC (when it happens, e.g. interview time); defaults to created_at
+    round_type: Optional[str] = None  # interview round (recruiter_screen|phone|onsite|final); funnel onsite derivation
 
 
 @dataclass
