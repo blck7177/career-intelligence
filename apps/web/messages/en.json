@@ -565,6 +565,10 @@
     "pipelineSub": "{active} active · {planned} planned",
     "estMinutes": "est. {minutes}m",
     "restWeekendNote": "weekends off",
+    "thisWeek": "This week",
+    "snoozeShort": "→ tmrw",
+    "dueToday": "today",
+    "dueInDays": "due {n}d",
     "funnelStage": {
       "planned": "Planned",
       "applied": "Applied",

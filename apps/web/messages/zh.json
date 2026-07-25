@@ -566,6 +566,10 @@
     "pipelineSub": "{active} 在投 · {planned} 待投",
     "estMinutes": "预计 {minutes} 分钟",
     "restWeekendNote": "周末自动休息",
+    "thisWeek": "本周",
+    "snoozeShort": "→ 明天",
+    "dueToday": "今天",
+    "dueInDays": "{n} 天后",
     "funnelStage": {
       "planned": "计划",
       "applied": "已投",

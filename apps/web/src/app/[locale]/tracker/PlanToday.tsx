@@ -7,7 +7,6 @@ import { listActions, createAction, updateAction, getPlannerStats, getPlannerSet
 import type { ActionRead, PlannerStats, PlannerSettings } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { ZoneHead } from "./ZoneHead";
-import { fmtTs } from "@/lib/utils";
 
 const HORIZON_DAYS = 14;
 
@@ -21,7 +20,7 @@ const GROUP_OF: Record<string, string> = {
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 
 // Display-side effort estimate by type (the rules engine does not emit
-// est_minutes; a per-type default is enough for the header total).
+// est_minutes; a per-type default is enough for the header total + per-item note).
 const EST_MIN: Record<string, number> = {
   follow_up: 15, thank_you: 15, prep: 30, apply: 60, networking: 20, custom: 20, global: 15,
 };
@@ -33,10 +32,11 @@ function groupOf(a: ActionRead): string {
 
 /**
  * Plan · Today. Pending actions within a 14-day horizon, grouped by TYPE
- * (Deadlines / Follow-ups / Apply / Wrap-up / Anytime), with the This-week
- * triplet, an estimated-effort header, complete/snooze, a manual add, and a
- * "Rest until Monday" batch-snooze. Optimistic mutations are guarded exactly as
- * in P0 (removingRef + in-flight add guard).
+ * (Deadlines / Follow-ups / Apply / Wrap-up / Anytime), in a two-column layout:
+ * the action list (left) + the This-week triplet rail (right). Rows carry a
+ * ✓ checkbox, a per-item estimate, one semantic due pill, and a recede-on-hover
+ * snooze; a "Rest until Monday" batch-snooze and a done bar close it out.
+ * Optimistic mutations are guarded exactly as in P0 (removingRef + add guard).
  */
 export function PlanToday() {
   const t = useTranslations("tracker");
@@ -141,82 +141,146 @@ export function PlanToday() {
   return (
     <section className="w-full">
       <ZoneHead eyebrow={t("zoneEyebrowToday")} title={t("todayTitle")} sub={zoneSub || undefined} />
-      <div className="space-y-6">
-        {/* This-week triplet */}
-        {stats && (
-          <div className="grid grid-cols-3 gap-3">
-            <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
-            <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
-            <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
+      <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
+        {/* MAIN — action list */}
+        <div className="min-w-0 space-y-5 order-2 lg:order-1">
+          {!isEmpty && actions !== null && (
+            <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
+              <span>
+                {t("todaySummary", { count: items.length, minutes: estTotal })}
+                {overCap && <span className="ml-1.5" style={{ color: "var(--match-partial-fg)" }}>· {t("overCap", { cap })}</span>}
+              </span>
+              <Button size="sm" variant="ghost" onClick={restUntilMonday} loading={resting}>{t("restUntilMon")}</Button>
+            </div>
+          )}
+
+          {/* Manual add */}
+          <div className="flex items-center gap-2">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !adding) add(); }}
+              placeholder={t("actionTitlePlaceholder")}
+              className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+              style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+            />
+            <Button size="sm" onClick={add} disabled={!title.trim()} loading={adding}>{t("add")}</Button>
           </div>
-        )}
 
-        {/* Header: count + est + Rest until Mon */}
-        {!isEmpty && actions !== null && (
-          <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
-            <span>
-              {t("todaySummary", { count: items.length, minutes: estTotal })}
-              {overCap && <span className="ml-1.5" style={{ color: "#b45309" }}>· {t("overCap", { cap })}</span>}
-            </span>
-            <Button size="sm" variant="ghost" onClick={restUntilMonday} loading={resting}>{t("restUntilMon")}</Button>
-          </div>
-        )}
-
-        {/* Manual add */}
-        <div className="flex items-center gap-2">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !adding) add(); }}
-            placeholder={t("actionTitlePlaceholder")}
-            className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-            style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
-          />
-          <Button size="sm" onClick={add} disabled={!title.trim()} loading={adding}>{t("add")}</Button>
-        </div>
-
-        {actions === null ? (
-          error ? (
-            <div className="text-center py-8">
-              <p className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>{t("loadFailed")}</p>
-              <Button size="sm" variant="outline" onClick={load}>{t("retry")}</Button>
+          {actions === null ? (
+            error ? (
+              <div className="text-center py-8">
+                <p className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>{t("loadFailed")}</p>
+                <Button size="sm" variant="outline" onClick={load}>{t("retry")}</Button>
+              </div>
+            ) : (
+              <div className="animate-pulse h-24" aria-hidden />
+            )
+          ) : isEmpty ? (
+            /* Done bar */
+            <div
+              className="rounded-lg border px-4 py-4 text-center"
+              style={{ borderColor: "var(--match-good-border, var(--border))", background: "var(--match-good-bg)" }}
+            >
+              <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--match-good-fg)" }}>{t("todayCleared")}</p>
+              <p className="text-xs" style={{ color: "var(--ink-muted)" }}>{t("todayEmpty")}</p>
             </div>
           ) : (
-            <div className="animate-pulse h-24" aria-hidden />
-          )
-        ) : isEmpty ? (
-          <div className="text-center py-8">
-            <p className="text-sm font-medium mb-1" style={{ color: "var(--match-good-fg)" }}>{t("todayCleared")}</p>
-            <p className="text-xs" style={{ color: "var(--ink-muted)" }}>{t("todayEmpty")}</p>
-          </div>
-        ) : (
-          GROUP_ORDER.filter((g) => grouped[g].length > 0).map((g) => (
-            <section key={g}>
-              <h2 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-muted)" }}>
-                {t(`planGroup.${g}`)}
-              </h2>
-              <ul className="space-y-1.5">
-                {grouped[g].map((a) => (
-                  <li key={a.id} className="flex items-center justify-between gap-2 py-1.5 border-b" style={{ borderColor: "var(--border)" }}>
-                    <span className="min-w-0 truncate text-sm" style={{ color: "var(--ink-secondary)" }}>
-                      {a.auto_generated && (
-                        <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: "var(--primary)" }} title={t("autoGenerated")} aria-label={t("autoGenerated")} />
-                      )}
-                      {a.title}
-                      {a.due_at && <span className="ml-2 text-2xs" style={{ color: "var(--ink-faint)" }}>{fmtTs(a.due_at)}</span>}
-                    </span>
-                    <span className="shrink-0 flex items-center gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => mutate(a.id, "snooze")}>{t("snooze")}</Button>
-                      <Button size="sm" variant="outline" onClick={() => mutate(a.id, "complete")}>{t("complete")}</Button>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))
+            <div className="space-y-5">
+              {GROUP_ORDER.filter((g) => grouped[g].length > 0).map((g) => (
+                <section key={g}>
+                  <h3 className="text-2xs font-semibold uppercase tracking-wide mb-1 flex items-center gap-1.5" style={{ color: "var(--ink-muted)" }}>
+                    {t(`planGroup.${g}`)}<span style={{ color: "var(--ink-faint)" }}>· {grouped[g].length}</span>
+                  </h3>
+                  <ul>
+                    {grouped[g].map((a) => (
+                      <ActionItem key={a.id} a={a} onComplete={() => mutate(a.id, "complete")} onSnooze={() => mutate(a.id, "snooze")} />
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* RAIL — This week */}
+        {stats && (
+          <aside className="order-1 lg:order-2">
+            <div className="lg:sticky lg:top-2">
+              <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
+              <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5">
+                <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
+                <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
+                <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
+              </div>
+            </div>
+          </aside>
         )}
       </div>
     </section>
+  );
+}
+
+type DueInfo = { today: boolean; days: number; warn: boolean };
+
+// Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
+// (warn within a day). Undated actions get no pill (they read as "anytime").
+function dueInfo(a: ActionRead): DueInfo | null {
+  if (!a.due_at) return null;
+  const due = new Date(a.due_at);
+  if (isNaN(due.getTime())) return null;
+  const now = new Date();
+  const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const d1 = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const days = Math.round((d1.getTime() - d0.getTime()) / 86400_000);
+  if (days <= 0) return { today: true, days: 0, warn: true };
+  return { today: false, days, warn: days <= 1 };
+}
+
+function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: () => void; onSnooze: () => void }) {
+  const t = useTranslations("tracker");
+  const info = dueInfo(a);
+  const est = EST_MIN[a.type] ?? 20;
+  return (
+    <li className="group flex items-center gap-2.5 py-2 border-b" style={{ borderColor: "var(--border)" }}>
+      <button
+        onClick={onComplete}
+        aria-label={t("complete")}
+        title={t("complete")}
+        className="shrink-0 w-[18px] h-[18px] rounded-[5px] border grid place-items-center text-[11px] leading-none hover:bg-[var(--match-good-bg)]"
+        style={{ borderColor: "var(--border-strong, var(--border))", color: "var(--match-good-fg)" }}
+      >
+        <span className="opacity-0 group-hover:opacity-80 transition-opacity">✓</span>
+      </button>
+      <span className="flex-1 min-w-0">
+        <span className="block truncate text-sm" style={{ color: "var(--ink-secondary)" }}>
+          {a.auto_generated && (
+            <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{ background: "var(--primary)" }} title={t("autoGenerated")} aria-label={t("autoGenerated")} />
+          )}
+          {a.title}
+        </span>
+        <span className="block text-2xs mt-0.5" style={{ color: "var(--ink-faint)" }}>{t("estMinutes", { minutes: est })}</span>
+      </span>
+      <span className="shrink-0 w-[62px] flex justify-end">
+        {info && (
+          <span
+            className="text-2xs font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap"
+            style={info.warn
+              ? { background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }
+              : { color: "var(--ink-faint)", border: "1px solid var(--border)" }}
+          >
+            {info.today ? t("dueToday") : t("dueInDays", { n: info.days })}
+          </span>
+        )}
+      </span>
+      <button
+        onClick={onSnooze}
+        className="shrink-0 text-2xs px-2 py-1 rounded-md opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+        style={{ color: "var(--ink-muted)" }}
+      >
+        {t("snoozeShort")}
+      </button>
+    </li>
   );
 }
 
