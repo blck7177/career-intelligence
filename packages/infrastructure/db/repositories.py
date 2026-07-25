@@ -1918,27 +1918,29 @@ class ApplicationActionRepository:
         )
         return int(self._s.execute(stmt).scalar_one())
 
-    def earliest_pending_due_map(
+    def earliest_pending_action_map(
         self, workspace_id: str, application_ids: list[str]
-    ) -> dict[str, datetime]:
-        """Per application, the soonest pending dated due_at. Powers the list
-        view's next-action-due column in one query (avoids per-row N+1)."""
+    ) -> dict[str, tuple[datetime, str]]:
+        """Per application, the soonest pending dated action as (due_at, type).
+        Powers the list row's next-action column (due date + semantic type, e.g.
+        "follow-up due") in one query (avoids per-row N+1)."""
         if not application_ids:
             return {}
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
         stmt = (
-            select(ApplicationAction.application_id, func.min(ApplicationAction.due_at))
+            select(ApplicationAction)
             .where(
                 ApplicationAction.workspace_id == workspace_id,
                 ApplicationAction.application_id.in_(application_ids),
                 ApplicationAction.status == "pending",
                 ApplicationAction.due_at.is_not(None),
             )
-            .group_by(ApplicationAction.application_id)
+            .order_by(ApplicationAction.due_at)
         )
-        return {
-            app_id: due
-            for app_id, due in self._s.execute(stmt).all()
-            if due is not None
-        }
+        result: dict[str, tuple[datetime, str]] = {}
+        for a in self._s.execute(stmt).scalars().all():
+            # ordered by due_at → first seen per app is the earliest.
+            if a.application_id not in result:
+                result[a.application_id] = (a.due_at, a.type)
+        return result

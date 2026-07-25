@@ -109,6 +109,7 @@ def _application_read(
     *,
     job: Optional[Job] = None,
     next_action_due_at: Optional[datetime] = None,
+    next_action_type: Optional[str] = None,
 ) -> ApplicationRead:
     return ApplicationRead(
         id=app.id,
@@ -128,6 +129,7 @@ def _application_read(
         updated_at=app.updated_at,
         job=ApplicationJobRef.model_validate(job) if job is not None else None,
         next_action_due_at=next_action_due_at,
+        next_action_type=next_action_type,
     )
 
 
@@ -160,13 +162,20 @@ def list_applications(
     for a in apps:
         if a.job_id not in job_cache:
             job_cache[a.job_id] = job_repo.get(a.job_id)
-    due_map = ApplicationActionRepository(db).earliest_pending_due_map(
+    action_map = ApplicationActionRepository(db).earliest_pending_action_map(
         workspace.id, [a.id for a in apps]
     )
-    items = [
-        _application_read(a, job=job_cache.get(a.job_id), next_action_due_at=due_map.get(a.id))
-        for a in apps
-    ]
+    items = []
+    for a in apps:
+        due_type = action_map.get(a.id)
+        items.append(
+            _application_read(
+                a,
+                job=job_cache.get(a.job_id),
+                next_action_due_at=due_type[0] if due_type else None,
+                next_action_type=due_type[1] if due_type else None,
+            )
+        )
     # total = page count at P0 (true paginated total is a P1 refinement).
     return ApplicationList(items=items, total=len(items))
 

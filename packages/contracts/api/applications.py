@@ -151,6 +151,7 @@ class ApplicationRead(BaseModel):
     # Derived / joined (not ORM columns):
     job: Optional[ApplicationJobRef] = None
     next_action_due_at: Optional[datetime] = None
+    next_action_type: Optional[str] = None  # type of the soonest pending action (list subline)
     model_config = {"from_attributes": True}
 
 

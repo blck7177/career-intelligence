@@ -143,13 +143,14 @@ class TestReads:
              patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
             MockApp.return_value.list_for_workspace.return_value = [_app()]
             MockJob.return_value.get.return_value = _job()
-            MockAct.return_value.earliest_pending_due_map.return_value = {"app-1": _NOW}
+            MockAct.return_value.earliest_pending_action_map.return_value = {"app-1": (_NOW, "follow_up")}
             resp = client.get("/api/app/applications?status_group=planned")
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["total"] == 1
         assert body["items"][0]["job"]["title"] == "Risk Analyst"
         assert body["items"][0]["next_action_due_at"] is not None
+        assert body["items"][0]["next_action_type"] == "follow_up"
 
     def test_detail_includes_events_and_actions(self, make_client):
         client = make_client()
@@ -425,7 +426,7 @@ def test_list_forwards_needs_action_filter(make_client):
          patch("apps.api.routes.applications.JobRepository") as MockJob, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
         MockApp.return_value.list_for_workspace.return_value = []
-        MockAct.return_value.earliest_pending_due_map.return_value = {}
+        MockAct.return_value.earliest_pending_action_map.return_value = {}
         resp = client.get("/api/app/applications?needs_action=true")
     assert resp.status_code == 200
     _, kwargs = MockApp.return_value.list_for_workspace.call_args

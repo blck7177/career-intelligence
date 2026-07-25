@@ -3610,6 +3610,17 @@
             ],
             "title": "Next Action Due At"
           },
+          "next_action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Type"
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/ApplicationEventRead"
@@ -3931,6 +3942,17 @@
               }
             ],
             "title": "Next Action Due At"
+          },
+          "next_action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Type"
           }
         },
         "type": "object",

@@ -96,6 +96,7 @@ export default async function TrackerPage({ searchParams }: PageProps) {
         excitement: a.excitement ?? null,
         applied_at: a.applied_at ?? null,
         next_action_due_at: a.next_action_due_at ?? null,
+        next_action_type: a.next_action_type ?? null,
         created_at: a.created_at,
         jobTitle: a.job?.title ?? "(untitled role)",
         company: a.job?.company ?? "",

@@ -20,6 +20,7 @@ export interface AppRow {
   excitement: number | null;
   applied_at: string | null;
   next_action_due_at: string | null;
+  next_action_type: string | null;
   created_at: string;
   jobTitle: string;
   company: string;
@@ -265,7 +266,15 @@ export function ApplicationsMasterDetail({
 }
 
 function sublineFor(app: AppRow, t: ReturnType<typeof useTranslations>): string {
-  if (app.next_action_due_at) return t("nextActionDue", { date: fmtTs(app.next_action_due_at) });
+  if (app.next_action_due_at) {
+    const ty = app.next_action_type;
+    // Semantic phrase for typed auto-actions ("follow-up due …"); manual
+    // actions (type "custom") fall back to the plain "next: …" wording.
+    if (ty && ty !== "custom") {
+      return t("nextActionTyped", { type: t(`actionType.${ty}`), date: fmtTs(app.next_action_due_at) });
+    }
+    return t("nextActionDue", { date: fmtTs(app.next_action_due_at) });
+  }
   if (app.applied_at) return t("appliedOn", { date: fmtTs(app.applied_at) });
   return t("seenOn", { date: fmtTs(app.created_at) });
 }
