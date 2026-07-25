@@ -1327,6 +1327,7 @@ def _persist_discovered_jobs(
                         status="reportable",
                         discovered_run_id=run_id,
                         discovered_task_id=task_id,
+                        posted_at=jd_result.posted_at,
                     )
                     reportable_count += 1
                 elif jd_result.fetch_status == "doa":
@@ -1652,6 +1653,7 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                     status="reportable" if has_jd else "discovered",
                     discovered_run_id=run_id,
                     discovered_task_id=task_id,
+                    posted_at=bj.posted_at,
                     raw_payload_json={
                         "source": "board_sync",
                         "jd_source": "ats_api",

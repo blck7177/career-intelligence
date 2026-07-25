@@ -483,6 +483,10 @@ class Job(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Employer's original posting date, captured from the ATS board API when it
+    # exposes one (Greenhouse/Lever/Ashby). NULL when unknown — created_at is our
+    # ingest time, not the posting date, so "posted Xd" falls back to "seen Xd".
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DeadUrl(Base):

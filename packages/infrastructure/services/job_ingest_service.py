@@ -135,6 +135,7 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
     title = ""
     company = ""
     location = None
+    posted_at = None  # employer posting date, if the ATS board exposes one
 
     if board_info:
         from packages.domain.agent_jobs.ats_providers import build_api_url, parse_board_response
@@ -150,6 +151,7 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
                             title = bj.title
                             company = bj.company
                             location = bj.location
+                            posted_at = bj.posted_at
                             break
             except Exception:
                 pass
@@ -231,6 +233,7 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         status=status,
         discovered_run_id=run.id,
         discovered_task_id=task.id,
+        posted_at=posted_at,
     )
 
     task_repo.mark_succeeded(task.id)

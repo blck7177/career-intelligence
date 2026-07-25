@@ -42,6 +42,9 @@ class JobRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
+    # Employer's original posting date when the ATS exposed one (else None —
+    # created_at is our ingest time, so the UI degrades "posted Xd" to "seen Xd").
+    posted_at: Optional[datetime] = None
     # Populated when include_report_summary=true (from latest active job report)
     latest_job_report_id: Optional[str] = None
     primary_role_category: Optional[str] = None

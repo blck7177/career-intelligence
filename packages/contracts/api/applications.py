@@ -44,6 +44,9 @@ class ApplicationJobRef(BaseModel):
     company: str
     canonical_url: str
     status: str
+    # Employer posting date if known (ATS-captured); lets the planned queue show
+    # true "posted Xd" instead of the application's "seen Xd".
+    posted_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
 
 

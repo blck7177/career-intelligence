@@ -710,6 +710,7 @@ class JobRepository:
         status: str = "discovered",
         discovered_run_id: Optional[str] = None,
         discovered_task_id: Optional[str] = None,
+        posted_at: Optional[datetime] = None,
     ) -> Job:
         job = Job(
             canonical_url=canonical_url,
@@ -725,6 +726,7 @@ class JobRepository:
             status=status,
             discovered_run_id=discovered_run_id,
             discovered_task_id=discovered_task_id,
+            posted_at=posted_at,
         )
         self._s.add(job)
         self._s.flush()

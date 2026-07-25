@@ -4039,6 +4039,18 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
           }
         },
         "type": "object",
@@ -5324,6 +5336,18 @@
               }
             ],
             "title": "Last Seen At"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
           },
           "latest_job_report_id": {
             "anyOf": [

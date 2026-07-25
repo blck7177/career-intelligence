@@ -42,6 +42,9 @@ class JdFetchResult:
     source: JdSource | None
     fetch_status: str  # "success" | "failed" | "too_short" | "doa"
     http_status: int | None = None
+    # Employer posting date — only the ATS-API tier can supply it; the scrape /
+    # Jina tiers leave it None. UTC-aware.
+    posted_at: datetime | None = None
 
 
 def compute_url_hash(url: str) -> str:
@@ -338,6 +341,7 @@ def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | No
         error=None,
         source="ats_api",
         fetch_status="success",
+        posted_at=match.posted_at,
     )
 
 
