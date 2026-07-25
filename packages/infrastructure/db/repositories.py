@@ -1136,6 +1136,31 @@ class FitReportRepository:
         stmt = stmt.order_by(FitReport.updated_at.desc()).limit(1)
         return self._s.execute(stmt).scalar_one_or_none()
 
+    def latest_score_map(
+        self, workspace_id: str, job_ids: list[str], profile_id: Optional[str] = None
+    ) -> dict[str, int]:
+        """{job_id: latest active overall_match_score} for the given jobs — one
+        batched query (newest-per-job wins). Powers the planned queue's Fit
+        column without a per-row lookup."""
+        if not job_ids:
+            return {}
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.job_id.in_(job_ids),
+            FitReport.status == "active",
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc())
+        out: dict[str, int] = {}
+        for r in self._s.execute(stmt).scalars().all():
+            # ordered newest-first → first seen per job is the latest.
+            if r.job_id not in out and r.overall_match_score is not None:
+                out[r.job_id] = r.overall_match_score
+        return out
+
     def supersede_prior(
         self,
         *,

@@ -288,12 +288,13 @@ export async function batchAnalyzeJobs(
 // ---------------------------------------------------------------------------
 
 export async function listApplications(
-  params?: { status_group?: string; needs_action?: boolean; limit?: number; offset?: number },
+  params?: { status_group?: string; needs_action?: boolean; include_fit?: boolean; limit?: number; offset?: number },
   token?: string | null,
 ): Promise<ApplicationList> {
   const qs = new URLSearchParams();
   if (params?.status_group) qs.set("status_group", params.status_group);
   if (params?.needs_action) qs.set("needs_action", "true");
+  if (params?.include_fit) qs.set("include_fit", "true");
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();

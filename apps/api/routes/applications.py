@@ -122,6 +122,7 @@ def _application_read(
     job: Optional[Job] = None,
     next_action_due_at: Optional[datetime] = None,
     next_action_type: Optional[str] = None,
+    fit_score: Optional[int] = None,
 ) -> ApplicationRead:
     return ApplicationRead(
         id=app.id,
@@ -142,6 +143,7 @@ def _application_read(
         job=ApplicationJobRef.model_validate(job) if job is not None else None,
         next_action_due_at=next_action_due_at,
         next_action_type=next_action_type,
+        fit_score=fit_score,
     )
 
 
@@ -154,6 +156,7 @@ def _application_read(
 def list_applications(
     status_group: Optional[str] = Query(None, description="planned | active | closed"),
     needs_action: bool = Query(False, description="Only applications with a due pending action"),
+    include_fit: bool = Query(False, description="Populate fit_score per row (one batched query — for the planned queue)"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -177,6 +180,11 @@ def list_applications(
     action_map = ApplicationActionRepository(db).earliest_pending_action_map(
         workspace.id, [a.id for a in apps]
     )
+    # Opt-in fit: one batched query for all rows (never per-row).
+    fit_map = (
+        FitReportRepository(db).latest_score_map(workspace.id, [a.job_id for a in apps])
+        if include_fit else {}
+    )
     items = []
     for a in apps:
         due_type = action_map.get(a.id)
@@ -186,6 +194,7 @@ def list_applications(
                 job=job_cache.get(a.job_id),
                 next_action_due_at=due_type[0] if due_type else None,
                 next_action_type=due_type[1] if due_type else None,
+                fit_score=fit_map.get(a.job_id),
             )
         )
     # total = page count at P0 (true paginated total is a P1 refinement).
@@ -307,12 +316,11 @@ def get_application(
     fit = FitReportRepository(db).get_latest_for_job(
         workspace_id=workspace.id, job_id=app.job_id, profile_id=app.profile_id
     )
-    base = _application_read(app, job=job)
+    base = _application_read(app, job=job, fit_score=fit.overall_match_score if fit else None)
     return ApplicationDetail(
         **base.model_dump(),
         events=events,
         actions=actions,
-        fit_score=fit.overall_match_score if fit else None,
         fit_report_id=fit.id if fit else None,
     )
 

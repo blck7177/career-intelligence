@@ -169,15 +169,18 @@ class ApplicationRead(BaseModel):
     job: Optional[ApplicationJobRef] = None
     next_action_due_at: Optional[datetime] = None
     next_action_type: Optional[str] = None  # type of the soonest pending action (list subline)
+    # Latest active fit score for the referenced job. Off by default (no per-row
+    # fit lookup); populated only when the list is requested with include_fit=true
+    # (the planned queue), via one batched query — never an N+1.
+    fit_score: Optional[int] = None
     model_config = {"from_attributes": True}
 
 
 class ApplicationDetail(ApplicationRead):
     events: list[ApplicationEventRead] = Field(default_factory=list)
     actions: list[ActionRead] = Field(default_factory=list)
-    # Latest active fit report for the referenced job (detail-only — kept off the
-    # list row to avoid an N+1 fit lookup per row).
-    fit_score: Optional[int] = None
+    # fit_score is inherited from ApplicationRead; the detail additionally links
+    # the report id.
     fit_report_id: Optional[str] = None
 
 

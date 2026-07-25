@@ -152,6 +152,35 @@ class TestReads:
         assert body["items"][0]["next_action_due_at"] is not None
         assert body["items"][0]["next_action_type"] == "follow_up"
 
+    def test_list_include_fit_populates_fit_score(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+             patch("apps.api.routes.applications.JobRepository") as MockJob, \
+             patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, \
+             patch("apps.api.routes.applications.FitReportRepository") as MockFit:
+            MockApp.return_value.list_for_workspace.return_value = [_app()]
+            MockJob.return_value.get.return_value = _job()
+            MockAct.return_value.earliest_pending_action_map.return_value = {}
+            MockFit.return_value.latest_score_map.return_value = {"job-1": 86}
+            resp = client.get("/api/app/applications?status_group=planned&include_fit=true")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["fit_score"] == 86
+        MockFit.return_value.latest_score_map.assert_called_once()
+
+    def test_list_default_omits_fit(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+             patch("apps.api.routes.applications.JobRepository") as MockJob, \
+             patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, \
+             patch("apps.api.routes.applications.FitReportRepository") as MockFit:
+            MockApp.return_value.list_for_workspace.return_value = [_app()]
+            MockJob.return_value.get.return_value = _job()
+            MockAct.return_value.earliest_pending_action_map.return_value = {}
+            resp = client.get("/api/app/applications")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["fit_score"] is None
+        MockFit.return_value.latest_score_map.assert_not_called()
+
     def test_detail_includes_events_and_actions(self, make_client):
         client = make_client()
         with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \

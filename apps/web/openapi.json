@@ -1793,6 +1793,18 @@
             "description": "Only applications with a due pending action"
           },
           {
+            "name": "include_fit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Populate fit_score per row (one batched query \u2014 for the planned queue)",
+              "default": false,
+              "title": "Include Fit"
+            },
+            "description": "Populate fit_score per row (one batched query \u2014 for the planned queue)"
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -3867,6 +3879,17 @@
             ],
             "title": "Next Action Type"
           },
+          "fit_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Score"
+          },
           "events": {
             "items": {
               "$ref": "#/components/schemas/ApplicationEventRead"
@@ -3880,17 +3903,6 @@
             },
             "type": "array",
             "title": "Actions"
-          },
-          "fit_score": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fit Score"
           },
           "fit_report_id": {
             "anyOf": [
@@ -4252,6 +4264,17 @@
               }
             ],
             "title": "Next Action Type"
+          },
+          "fit_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Score"
           }
         },
         "type": "object",
