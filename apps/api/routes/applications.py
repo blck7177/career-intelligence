@@ -14,6 +14,7 @@ Contract:
   GET    /api/app/actions                                   -> ActionList
   PATCH  /api/app/actions/{action_id}                       -> ActionRead
   GET    /api/app/planner-settings                          -> PlannerSettings
+  PUT    /api/app/planner-settings                          -> PlannerSettings
   GET    /api/app/planner-stats?week=                       -> PlannerStats
   GET    /api/app/planner-review                            -> WeeklyReviewRead | null
 
@@ -30,6 +31,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -51,6 +53,7 @@ from packages.contracts.api.applications import (
     ApplicationUpdate,
     FunnelResponse,
     PlannerSettings,
+    PlannerSettingsUpdate,
     PlannerStats,
     StatusTransition,
     WeeklyReviewRead,
@@ -72,6 +75,7 @@ from packages.infrastructure.db.repositories import (
     PlannerReviewRepository,
     ProfileRepository,
     RunRepository,
+    WorkspaceRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -471,6 +475,32 @@ def get_planner_settings(
 ) -> PlannerSettings:
     # Shared with the worker's rule generation so defaults never drift.
     return load_planner_settings(workspace)
+
+
+@router.put("/planner-settings", response_model=PlannerSettings)
+def update_planner_settings(
+    body: PlannerSettingsUpdate,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> PlannerSettings:
+    """Partial update: merge the set fields over the stored JSON, re-validate the
+    whole result through PlannerSettings (bounds + timezone/weekday/date checks →
+    422), then persist the validated blob. Returns the full effective settings."""
+    stored = workspace.planner_settings_json or {}
+    patch = body.model_dump(exclude_unset=True)
+    merged = {**stored, **patch}
+    try:
+        validated = PlannerSettings(**merged)
+    except ValidationError as exc:
+        # Clean, JSON-safe 422 (pydantic's raw errors() can carry a non-
+        # serializable ctx exception object).
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in exc.errors()],
+        )
+    WorkspaceRepository(db).set_planner_settings(workspace.id, validated.model_dump())
+    db.commit()
+    return validated
 
 
 @router.get("/planner-stats", response_model=PlannerStats)

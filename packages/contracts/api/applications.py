@@ -10,10 +10,13 @@ other moves go through POST /applications/{id}/transition.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_WEEKDAYS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
 
 # Keep in lockstep with packages/domain/applications/transitions.STATUSES
 # (a test asserts equality).
@@ -222,14 +225,16 @@ class PlannerStats(BaseModel):
 
 
 class WeeklyTarget(BaseModel):
-    apply: int = 10
-    outreach: int = 5
-    follow_up: int = 6
+    apply: int = Field(10, ge=0, le=1000)
+    outreach: int = Field(5, ge=0, le=1000)
+    follow_up: int = Field(6, ge=0, le=1000)
 
 
 class PlannerSettings(BaseModel):
-    """All planner-tunable numbers, with product defaults. P0 is read-only
-    (defaults merged over workspaces.planner_settings_json); PUT lands in P1."""
+    """All planner-tunable numbers, with product defaults. Read merges the stored
+    workspaces.planner_settings_json over these defaults; PUT /planner-settings
+    (W6) validates a merged result through THIS model, so every constraint /
+    validator below is the write-path's guard too."""
 
     # The single source of truth for the planner's "today": all day-boundary /
     # workday math (rules engine generation AND the Today query/bucketing) uses
@@ -237,16 +242,77 @@ class PlannerSettings(BaseModel):
     # zone, so the existing `due_at <= now(utc)` query needs no change.
     timezone: str = "America/New_York"
     weekly_target: WeeklyTarget = Field(default_factory=WeeklyTarget)
-    daily_cap_minutes: int = 90
+    daily_cap_minutes: int = Field(90, ge=0, le=1440)
     rest_days: list[str] = Field(default_factory=lambda: ["sat", "sun"])
-    follow_up_days: int = 7
-    ghost_days: int = 14
-    interview_checkin_days: int = 7
-    fresh_window_days: int = 3
-    apply_or_drop_days: int = 14
-    onsite_target: int = 4
-    active_target: int = 15
+    follow_up_days: int = Field(7, ge=1, le=365)
+    ghost_days: int = Field(14, ge=1, le=365)
+    interview_checkin_days: int = Field(7, ge=1, le=365)
+    fresh_window_days: int = Field(3, ge=1, le=365)
+    apply_or_drop_days: int = Field(14, ge=1, le=365)
+    onsite_target: int = Field(4, ge=0, le=1000)
+    active_target: int = Field(15, ge=0, le=1000)
     review_day: str = "sun"
+    # ISO date the user marked the start of their search — powers the header's
+    # "Week N of search" (computed client-side). None until they set it.
+    search_started_at: Optional[str] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _valid_timezone(cls, v: str) -> str:
+        # A bad tz would break the rules engine (ZoneInfo raises at day-boundary
+        # math), so reject at the write boundary rather than 500 later.
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown timezone: {v!r}") from exc
+        return v
+
+    @field_validator("rest_days")
+    @classmethod
+    def _valid_rest_days(cls, v: list[str]) -> list[str]:
+        bad = [d for d in v if d not in _WEEKDAYS]
+        if bad:
+            raise ValueError(f"invalid weekday(s): {bad}; expected mon..sun")
+        return v
+
+    @field_validator("review_day")
+    @classmethod
+    def _valid_review_day(cls, v: str) -> str:
+        if v not in _WEEKDAYS:
+            raise ValueError(f"invalid weekday: {v!r}; expected mon..sun")
+        return v
+
+    @field_validator("search_started_at")
+    @classmethod
+    def _valid_search_started_at(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("search_started_at must be an ISO date (YYYY-MM-DD)") from exc
+        return v
+
+
+class PlannerSettingsUpdate(BaseModel):
+    """Partial update for PUT /planner-settings — every field optional so the
+    client can send only what changed. The route merges the set fields over the
+    stored JSON and re-validates the result through PlannerSettings (that model
+    owns the bounds/validators), so this mirror carries types only."""
+
+    timezone: Optional[str] = None
+    weekly_target: Optional[WeeklyTarget] = None
+    daily_cap_minutes: Optional[int] = None
+    rest_days: Optional[list[str]] = None
+    follow_up_days: Optional[int] = None
+    ghost_days: Optional[int] = None
+    interview_checkin_days: Optional[int] = None
+    fresh_window_days: Optional[int] = None
+    apply_or_drop_days: Optional[int] = None
+    onsite_target: Optional[int] = None
+    active_target: Optional[int] = None
+    review_day: Optional[str] = None
+    search_started_at: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

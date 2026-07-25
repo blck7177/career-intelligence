@@ -2523,6 +2523,64 @@
             }
           }
         }
+      },
+      "put": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Update Planner Settings",
+        "description": "Partial update: merge the set fields over the stored JSON, re-validate the\nwhole result through PlannerSettings (bounds + timezone/weekday/date checks \u2192\n422), then persist the validated blob. Returns the full effective settings.",
+        "operationId": "update_planner_settings_api_app_planner_settings_put",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/app/planner-stats": {
@@ -5673,6 +5731,8 @@
           },
           "daily_cap_minutes": {
             "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 0.0,
             "title": "Daily Cap Minutes",
             "default": 90
           },
@@ -5685,36 +5745,50 @@
           },
           "follow_up_days": {
             "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
             "title": "Follow Up Days",
             "default": 7
           },
           "ghost_days": {
             "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
             "title": "Ghost Days",
             "default": 14
           },
           "interview_checkin_days": {
             "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
             "title": "Interview Checkin Days",
             "default": 7
           },
           "fresh_window_days": {
             "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
             "title": "Fresh Window Days",
             "default": 3
           },
           "apply_or_drop_days": {
             "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
             "title": "Apply Or Drop Days",
             "default": 14
           },
           "onsite_target": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Onsite Target",
             "default": 4
           },
           "active_target": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Active Target",
             "default": 15
           },
@@ -5722,11 +5796,174 @@
             "type": "string",
             "title": "Review Day",
             "default": "sun"
+          },
+          "search_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Started At"
           }
         },
         "type": "object",
         "title": "PlannerSettings",
-        "description": "All planner-tunable numbers, with product defaults. P0 is read-only\n(defaults merged over workspaces.planner_settings_json); PUT lands in P1."
+        "description": "All planner-tunable numbers, with product defaults. Read merges the stored\nworkspaces.planner_settings_json over these defaults; PUT /planner-settings\n(W6) validates a merged result through THIS model, so every constraint /\nvalidator below is the write-path's guard too."
+      },
+      "PlannerSettingsUpdate": {
+        "properties": {
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "weekly_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklyTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "daily_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Cap Minutes"
+          },
+          "rest_days": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rest Days"
+          },
+          "follow_up_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Days"
+          },
+          "ghost_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ghost Days"
+          },
+          "interview_checkin_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Checkin Days"
+          },
+          "fresh_window_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fresh Window Days"
+          },
+          "apply_or_drop_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Or Drop Days"
+          },
+          "onsite_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Target"
+          },
+          "active_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Target"
+          },
+          "review_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Day"
+          },
+          "search_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Started At"
+          }
+        },
+        "type": "object",
+        "title": "PlannerSettingsUpdate",
+        "description": "Partial update for PUT /planner-settings \u2014 every field optional so the\nclient can send only what changed. The route merges the set fields over the\nstored JSON and re-validates the result through PlannerSettings (that model\nowns the bounds/validators), so this mirror carries types only."
       },
       "PlannerStats": {
         "properties": {
@@ -6926,16 +7163,22 @@
         "properties": {
           "apply": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Apply",
             "default": 10
           },
           "outreach": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Outreach",
             "default": 5
           },
           "follow_up": {
             "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
             "title": "Follow Up",
             "default": 6
           }

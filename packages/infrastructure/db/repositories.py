@@ -160,6 +160,19 @@ class WorkspaceRepository:
         self._s.flush()
         return member
 
+    def set_planner_settings(
+        self, workspace_id: str, settings_json: dict
+    ) -> Optional[Workspace]:
+        """Overwrite the workspace's planner_settings_json with the given blob
+        (the route has already merged partial edits over the stored value and
+        validated the result). Returns None if the workspace is missing."""
+        ws = self.get(workspace_id)
+        if ws is None:
+            return None
+        ws.planner_settings_json = settings_json
+        self._s.flush()
+        return ws
+
 
 # ---------------------------------------------------------------------------
 # Run

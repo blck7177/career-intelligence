@@ -323,6 +323,74 @@ def test_planner_settings_returns_defaults(make_client):
     assert body["rest_days"] == ["sat", "sun"]
 
 
+class TestPlannerSettingsPut:
+    def _client_with_ws(self, ws):
+        from apps.api.dependencies.auth import get_current_workspace
+        from apps.api.dependencies.db import get_db
+        from apps.api.main import app
+
+        def _mock_db():
+            yield MagicMock()
+
+        app.dependency_overrides[get_db] = _mock_db
+        app.dependency_overrides[get_current_workspace] = lambda: ws
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_put_merges_over_stored_and_persists(self):
+        ws = _ws()
+        ws.planner_settings_json = {"ghost_days": 30, "weekly_target": {"apply": 20}}
+        client = self._client_with_ws(ws)
+        try:
+            with patch("apps.api.routes.applications.WorkspaceRepository") as MockWs:
+                resp = client.put("/api/app/planner-settings", json={"daily_cap_minutes": 120})
+            assert resp.status_code == 200, resp.text
+            body = resp.json()
+            assert body["daily_cap_minutes"] == 120  # patched field applied
+            assert body["ghost_days"] == 30  # stored preserved (merge, not reset)
+            assert body["weekly_target"]["apply"] == 20  # nested stored preserved
+            assert body["follow_up_days"] == 7  # unspecified stays default
+            # Persisted the validated, fully-merged blob.
+            MockWs.return_value.set_planner_settings.assert_called_once()
+            saved = MockWs.return_value.set_planner_settings.call_args[0][1]
+            assert saved["daily_cap_minutes"] == 120 and saved["ghost_days"] == 30
+        finally:
+            from apps.api.main import app
+            app.dependency_overrides.clear()
+
+    def test_put_invalid_timezone_422(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.WorkspaceRepository"):
+            resp = client.put("/api/app/planner-settings", json={"timezone": "Mars/Nowhere"})
+        assert resp.status_code == 422
+
+    def test_put_out_of_range_422(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.WorkspaceRepository"):
+            resp = client.put("/api/app/planner-settings", json={"follow_up_days": 0})
+        assert resp.status_code == 422
+
+    def test_put_invalid_search_started_at_422(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.WorkspaceRepository"):
+            resp = client.put("/api/app/planner-settings", json={"search_started_at": "nope"})
+        assert resp.status_code == 422
+
+    def test_put_valid_search_started_at_persists(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.WorkspaceRepository") as MockWs:
+            resp = client.put("/api/app/planner-settings", json={"search_started_at": "2026-06-01"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["search_started_at"] == "2026-06-01"
+        MockWs.return_value.set_planner_settings.assert_called_once()
+
+    def test_put_empty_body_returns_effective_defaults(self, make_client):
+        client = make_client()  # ws.planner_settings_json is None
+        with patch("apps.api.routes.applications.WorkspaceRepository"):
+            resp = client.put("/api/app/planner-settings", json={})
+        assert resp.status_code == 200
+        assert resp.json()["ghost_days"] == 14
+
+
 def test_status_literal_matches_domain_state_machine():
     """ApplicationStatus (contract) must not drift from transitions.STATUSES (domain)."""
     from packages.contracts.api.applications import ApplicationStatus
