@@ -150,7 +150,9 @@ export function JobDetailPane({ jobId, profile, fitReportId }: JobDetailPaneProp
             <div className="flex items-center gap-2.5 text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
               <span className="font-medium" style={{ color: "var(--ink-secondary)" }}>{job.company}</span>
               {job.location && <span>{job.location}</span>}
-              <span style={{ color: "var(--ink-faint)" }}>{fmtTs(job.created_at.toString())}</span>
+              <span style={{ color: "var(--ink-faint)" }}>
+                {job.posted_at ? t("postedOn", { date: fmtTs(job.posted_at) }) : fmtTs(job.created_at.toString())}
+              </span>
               {job.canonical_url.startsWith("http") && (
                 <a
                   href={job.canonical_url}

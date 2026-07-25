@@ -5,10 +5,12 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import {
-  getFunnel, listApplications, transitionApplication, updateApplication,
+  getFunnel, getPlannerSettings, listApplications, transitionApplication, updateApplication,
 } from "@/api/client";
 import type { FunnelResponse, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+
+const DEFAULT_FRESH_DAYS = 3;
 
 /**
  * Plan · Pipeline zone. Funnel (with onsite highlight) + advisory alerts
@@ -21,20 +23,23 @@ export function PipelineZone() {
   const getToken = useApiToken();
   const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
+  const [freshDays, setFreshDays] = useState(DEFAULT_FRESH_DAYS);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const token = await getToken();
-    const [f, p] = await Promise.all([
+    const [f, p, s] = await Promise.all([
       getFunnel(token).catch(() => null),
       listApplications({ status_group: "planned", limit: 100 }, token).catch(() => ({ items: [], total: 0 })),
+      getPlannerSettings(token).catch(() => null),
     ]);
     setFunnel(f);
-    // Sort by excitement then freshness (newest first). Fit isn't on the list
-    // row (detail-only), so ordering uses excitement + recency for now.
+    setFreshDays(s?.fresh_window_days ?? DEFAULT_FRESH_DAYS);
+    // Sort by excitement then recency — true posting date when known, else the
+    // application's own age. Fit isn't on the list row (detail-only).
+    const recency = (a: ApplicationRead) => new Date(a.job?.posted_at ?? a.created_at).getTime();
     const rows = [...p.items].sort(
-      (a, b) => (b.excitement ?? 0) - (a.excitement ?? 0) ||
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      (a, b) => (b.excitement ?? 0) - (a.excitement ?? 0) || recency(b) - recency(a),
     );
     setPlanned(rows);
   }, [getToken]);
@@ -129,7 +134,13 @@ export function PipelineZone() {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate" style={{ color: "var(--ink-primary)" }}>{app.job?.title ?? "(untitled)"}</div>
                   <div className="text-2xs truncate" style={{ color: "var(--ink-muted)" }}>
-                    {app.job?.company}<span className="mx-1">·</span>{t("seenOn", { date: ageOf(app.created_at) })}
+                    {app.job?.company}<span className="mx-1">·</span>
+                    {app.job?.posted_at
+                      ? t("postedOn", { date: ageOf(app.job.posted_at) })
+                      : t("seenOn", { date: ageOf(app.created_at) })}
+                    {isFresh(app.job?.posted_at, freshDays) && (
+                      <span className="ml-1.5 px-1 rounded-sm" style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)" }}>{t("fresh")}</span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
@@ -172,4 +183,13 @@ export function PipelineZone() {
 function ageOf(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400_000);
   return `${days}d`;
+}
+
+// A posting is "fresh" when its true posting date is within the window. Freshness
+// needs a real posting date — the application's own age can't stand in, so an
+// unknown posted_at is never fresh.
+function isFresh(posted: string | null | undefined, windowDays: number): boolean {
+  if (!posted) return false;
+  const days = Math.floor((Date.now() - new Date(posted).getTime()) / 86400_000);
+  return days >= 0 && days < windowDays;
 }
