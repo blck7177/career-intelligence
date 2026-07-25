@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { ApplicationsMasterDetail, type AppRow, type AppCounts } from "./ApplicationsMasterDetail";
 import { PlanView } from "./PlanView";
+import { SettingsView } from "./SettingsView";
 
 interface Props {
   applications: AppRow[];
@@ -16,12 +17,12 @@ interface Props {
   counts: AppCounts | null;
 }
 
-/** Tracker tab: two sub-views (Applications | Plan). P0 ships Applications;
- *  the Plan view (Today list, pipeline health, weekly targets) lands in P1. */
+/** Tracker tab: three sub-views (Applications | Plan | Settings). Default is
+ *  Plan — "open to what to do today". Settings edits the planner config. */
 export function TrackerShell(props: Props) {
   const t = useTranslations("tracker");
   // Default to Plan — "open to what to do today" (decision point 2).
-  const [view, setView] = useState<"applications" | "plan">("plan");
+  const [view, setView] = useState<"applications" | "plan" | "settings">("plan");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -41,12 +42,20 @@ export function TrackerShell(props: Props) {
         >
           {t("viewPlan")}
         </button>
+        <button
+          className={optionPillVariants({ selected: view === "settings", className: "!h-7 !px-3 !text-xs" })}
+          onClick={() => setView("settings")}
+        >
+          {t("viewSettings")}
+        </button>
       </div>
 
       {view === "applications" ? (
         <ApplicationsMasterDetail {...props} />
-      ) : (
+      ) : view === "plan" ? (
         <PlanView />
+      ) : (
+        <SettingsView />
       )}
     </div>
   );

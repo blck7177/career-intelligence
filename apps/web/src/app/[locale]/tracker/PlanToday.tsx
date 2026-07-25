@@ -122,6 +122,16 @@ export function PlanToday() {
     }
   }
 
+  // "Week N of search" — weeks since the user's search-start date (settings).
+  let weekOfSearch: number | null = null;
+  if (settings?.search_started_at) {
+    const start = new Date(settings.search_started_at + "T00:00:00");
+    if (!isNaN(start.getTime())) {
+      const days = Math.floor((Date.now() - start.getTime()) / 86400_000);
+      if (days >= 0) weekOfSearch = Math.floor(days / 7) + 1;
+    }
+  }
+
   const items = actions ?? [];
   const grouped: Record<string, ActionRead[]> = {};
   for (const g of GROUP_ORDER) grouped[g] = [];
@@ -134,7 +144,12 @@ export function PlanToday() {
 
   return (
     <section className="w-full">
-      <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--ink-primary)" }}>{t("zoneToday")}</h2>
+      <div className="flex items-baseline justify-between gap-2 mb-3">
+        <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>{t("zoneToday")}</h2>
+        {weekOfSearch !== null && (
+          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("settingsWeekOfSearch", { n: weekOfSearch })}</span>
+        )}
+      </div>
       <div className="space-y-6">
         {/* This-week triplet */}
         {stats && (

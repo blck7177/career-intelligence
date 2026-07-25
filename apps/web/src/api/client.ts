@@ -55,6 +55,7 @@ export type ActionList = components["schemas"]["ActionList"];
 export type ActionCreate = components["schemas"]["ActionCreate"];
 export type ActionUpdate = components["schemas"]["ActionUpdate"];
 export type PlannerSettings = components["schemas"]["PlannerSettings"];
+export type PlannerSettingsUpdate = components["schemas"]["PlannerSettingsUpdate"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -404,6 +405,19 @@ export async function updateAction(
 
 export async function getPlannerSettings(token?: string | null): Promise<PlannerSettings> {
   return req<PlannerSettings>("/api/app/planner-settings", undefined, token);
+}
+
+// Partial update — send only changed fields; the server merges + re-validates
+// (422 on out-of-range / bad timezone / bad date) and returns the full settings.
+export async function updatePlannerSettings(
+  body: PlannerSettingsUpdate,
+  token?: string | null,
+): Promise<PlannerSettings> {
+  return req<PlannerSettings>(
+    "/api/app/planner-settings",
+    { method: "PUT", body: JSON.stringify(body) },
+    token,
+  );
 }
 
 export async function getPlannerStats(week?: string, token?: string | null): Promise<PlannerStats> {
