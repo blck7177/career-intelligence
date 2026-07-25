@@ -134,6 +134,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
                 </>
               )}
             </div>
+            <StatusStepper app={app} t={t} />
           </div>
           {isHttp && (
             <a
@@ -179,6 +180,61 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
 
 type Getter = () => Promise<string | null>;
 type T = ReturnType<typeof useTranslations>;
+
+const STEPPER = ["planned", "applied", "in_review", "interviewing", "onsite", "offer"];
+
+function hasOnsiteEvent(app: ApplicationDetail): boolean {
+  return (app.events ?? []).some(
+    (e) => e.event_type === "interview_scheduled" &&
+      (e.payload_json as { round_type?: string } | null)?.round_type === "onsite",
+  );
+}
+
+// Which linear step the application sits on. Onsite is derived (an onsite
+// interview event on an interviewing app); closed states fall off the chain.
+function currentStep(app: ApplicationDetail): number {
+  switch (app.status) {
+    case "offer": return 5;
+    case "interviewing": return hasOnsiteEvent(app) ? 4 : 3;
+    case "in_review": return 2;
+    case "applied": return 1;
+    case "planned": return 0;
+    default: return -1; // rejected | withdrawn | ghosted
+  }
+}
+
+/** Visual status progression (mockup dhead stepper): Planned → … → Offer.
+ *  Closed applications grey the chain and show a closed badge. */
+function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
+  const cur = currentStep(app);
+  const closed = cur === -1;
+  return (
+    <div className="mt-2 flex items-center gap-1 flex-wrap text-2xs">
+      {STEPPER.map((k, i) => {
+        const done = !closed && i < cur;
+        const isCur = !closed && i === cur;
+        const color = done ? "var(--match-good-fg)" : isCur ? "var(--primary)" : "var(--ink-faint)";
+        return (
+          <span key={k} className="flex items-center gap-1">
+            {i > 0 && <span style={{ color: "var(--ink-faint)" }}>›</span>}
+            <span className="inline-flex items-center gap-1" style={{ color, fontWeight: isCur ? 600 : 400 }}>
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ background: done || isCur ? color : "var(--border-strong, var(--border))" }}
+              />
+              {t(`funnelStage.${k}`)}
+            </span>
+          </span>
+        );
+      })}
+      {closed && (
+        <span className="ml-1.5 px-1.5 py-0.5 rounded" style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }}>
+          {t(`status.${app.status}`)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [lane, setLane] = useState<string | null>(app.lane ?? null);
