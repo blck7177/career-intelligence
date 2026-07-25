@@ -570,6 +570,7 @@
     "plannedQueue": "Plan to apply",
     "plannedEmpty": "Nothing queued — add jobs to plan.",
     "applyToday": "Apply today",
+    "applyAdded": "✓ In Today",
     "applyTodayTitle": "Apply to this role",
     "tailor": "Tailor",
     "drop": "Drop",

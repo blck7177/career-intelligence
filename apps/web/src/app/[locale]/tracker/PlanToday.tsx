@@ -37,7 +37,7 @@ function groupOf(a: ActionRead): string {
  * "Rest until Monday" batch-snooze. Optimistic mutations are guarded exactly as
  * in P0 (removingRef + in-flight add guard).
  */
-export function PlanToday() {
+export function PlanToday({ refreshSignal = 0 }: { refreshSignal?: number }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [actions, setActions] = useState<ActionRead[] | null>(null);
@@ -67,7 +67,8 @@ export function PlanToday() {
     }
   }, [getToken]);
 
-  useEffect(() => { load(); }, [load]);
+  // Re-fetch when a sibling zone signals a change (e.g. "Apply today").
+  useEffect(() => { load(); }, [load, refreshSignal]);
 
   async function mutate(id: string, op: "complete" | "snooze") {
     removingRef.current.add(id);
