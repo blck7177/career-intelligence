@@ -1725,6 +1725,23 @@ class JobApplicationRepository:
         stmt = select(JobApplication.workspace_id).distinct()
         return list(self._s.execute(stmt).scalars().all())
 
+    def count_applied_in_range(
+        self, workspace_id: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """Applications whose applied_at falls in [start, end) — this-week triplet."""
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(func.count())
+            .select_from(JobApplication)
+            .where(
+                JobApplication.workspace_id == workspace_id,
+                JobApplication.applied_at >= start_utc,
+                JobApplication.applied_at < end_utc,
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
 
 class ApplicationEventRepository:
     def __init__(self, session: Session) -> None:
@@ -1861,6 +1878,26 @@ class ApplicationActionRepository:
         )
         return list(self._s.execute(stmt).scalars().all())
 
+    def count_completed_by_type_in_range(
+        self, workspace_id: str, type_: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """Completed actions of a type whose completed_at falls in [start, end) —
+        this-week triplet (outreach = networking done, follow_ups = follow_up done)."""
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(func.count())
+            .select_from(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.type == type_,
+                ApplicationAction.status == "done",
+                ApplicationAction.completed_at >= start_utc,
+                ApplicationAction.completed_at < end_utc,
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
     def complete(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
         row = self.get(action_id, workspace_id)
         if row is None:
@@ -1882,13 +1919,23 @@ class ApplicationActionRepository:
         return row
 
     def snooze(
-        self, action_id: str, workspace_id: str, days: int = 1
+        self,
+        action_id: str,
+        workspace_id: str,
+        days: int = 1,
+        *,
+        until: Optional[datetime] = None,
     ) -> Optional[ApplicationAction]:
         row = self.get(action_id, workspace_id)
         if row is None:
             return None
-        base = row.due_at or datetime.now(timezone.utc)
-        row.due_at = base + timedelta(days=days)
+        if until is not None:
+            # Absolute target (Rest-until-Monday) — correct for overdue actions,
+            # whose due_at is in the past and would otherwise stay past on +days.
+            row.due_at = until
+        else:
+            base = row.due_at or datetime.now(timezone.utc)
+            row.due_at = base + timedelta(days=days)
         row.status = "pending"  # stays actionable, just later
         self._s.flush()
         return row

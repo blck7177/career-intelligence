@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { ApplicationsMasterDetail, type AppRow, type AppCounts } from "./ApplicationsMasterDetail";
-import { PlanToday } from "./PlanToday";
+import { PlanView } from "./PlanView";
 
 interface Props {
   applications: AppRow[];
@@ -20,7 +20,8 @@ interface Props {
  *  the Plan view (Today list, pipeline health, weekly targets) lands in P1. */
 export function TrackerShell(props: Props) {
   const t = useTranslations("tracker");
-  const [view, setView] = useState<"applications" | "plan">("applications");
+  // Default to Plan — "open to what to do today" (decision point 2).
+  const [view, setView] = useState<"applications" | "plan">("plan");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -45,7 +46,7 @@ export function TrackerShell(props: Props) {
       {view === "applications" ? (
         <ApplicationsMasterDetail {...props} />
       ) : (
-        <PlanToday />
+        <PlanView />
       )}
     </div>
   );

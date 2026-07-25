@@ -119,6 +119,9 @@ class ActionCreate(BaseModel):
 class ActionUpdate(BaseModel):
     op: Literal["complete", "snooze", "dismiss"]
     snooze_days: int = Field(1, ge=1, le=90)
+    # Absolute snooze target (overrides snooze_days) — "Rest until Monday" sets
+    # this so overdue actions land ON Monday, not merely +N days from a past due.
+    snooze_until: Optional[datetime] = None
 
 
 class ActionRead(BaseModel):
@@ -205,6 +208,17 @@ class FunnelResponse(BaseModel):
 
     stages: list[FunnelStage]
     alerts: list[FunnelAlert]
+
+
+class PlannerStats(BaseModel):
+    """This-week triplet for the Plan view: done-vs-target on the three weekly
+    cadence dimensions (Job Search Quality Scale 2022)."""
+
+    week_start: str  # ISO date (Monday, settings.timezone)
+    applied: int
+    outreach: int
+    follow_ups: int
+    weekly_target: WeeklyTarget
 
 
 class WeeklyTarget(BaseModel):

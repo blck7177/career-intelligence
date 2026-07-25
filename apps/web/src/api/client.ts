@@ -46,6 +46,7 @@ export type ApplicationUpdate = components["schemas"]["ApplicationUpdate"];
 export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
 export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
 export type FunnelResponse = components["schemas"]["FunnelResponse"];
+export type PlannerStats = components["schemas"]["PlannerStats"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
 export type ActionList = components["schemas"]["ActionList"];
@@ -401,6 +402,11 @@ export async function updateAction(
 
 export async function getPlannerSettings(token?: string | null): Promise<PlannerSettings> {
   return req<PlannerSettings>("/api/app/planner-settings", undefined, token);
+}
+
+export async function getPlannerStats(week?: string, token?: string | null): Promise<PlannerStats> {
+  const qs = week ? `?week=${encodeURIComponent(week)}` : "";
+  return req<PlannerStats>(`/api/app/planner-stats${qs}`, undefined, token);
 }
 
 // ---------------------------------------------------------------------------

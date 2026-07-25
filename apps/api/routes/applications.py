@@ -14,6 +14,7 @@ Contract:
   GET    /api/app/actions                                   -> ActionList
   PATCH  /api/app/actions/{action_id}                       -> ActionRead
   GET    /api/app/planner-settings                          -> PlannerSettings
+  GET    /api/app/planner-stats?week=                       -> PlannerStats
 
 Every endpoint is workspace-scoped via get_current_workspace. Every by-id fetch
 is verified against workspace.id (IDOR guard → 404 on miss/foreign). A body
@@ -24,7 +25,7 @@ job_id is scoped through its discovering run (global resource); a body profile_i
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -49,6 +50,7 @@ from packages.contracts.api.applications import (
     ApplicationUpdate,
     FunnelResponse,
     PlannerSettings,
+    PlannerStats,
     StatusTransition,
 )
 from packages.domain.applications.transitions import (
@@ -444,7 +446,9 @@ def update_action(
     if body.op == "complete":
         action = repo.complete(action_id, workspace.id)
     elif body.op == "snooze":
-        action = repo.snooze(action_id, workspace.id, days=body.snooze_days)
+        action = repo.snooze(
+            action_id, workspace.id, days=body.snooze_days, until=body.snooze_until
+        )
     else:  # dismiss
         action = repo.dismiss(action_id, workspace.id)
     db.commit()
@@ -463,3 +467,37 @@ def get_planner_settings(
 ) -> PlannerSettings:
     # Shared with the worker's rule generation so defaults never drift.
     return load_planner_settings(workspace)
+
+
+@router.get("/planner-stats", response_model=PlannerStats)
+def get_planner_stats(
+    week: Optional[str] = Query(None, description="ISO date in the target week; default = this week"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> PlannerStats:
+    """This-week triplet: applied / outreach(networking done) / follow_ups(done)
+    vs the weekly targets. Week = Mon..Sun in settings.timezone."""
+    from packages.domain.planner.rules import local_day_start_utc, local_today
+
+    settings = load_planner_settings(workspace)
+    tz = settings.timezone
+    if week:
+        try:
+            ref = date.fromisoformat(week)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week must be an ISO date (YYYY-MM-DD).")
+    else:
+        ref = local_today(datetime.now(timezone.utc), tz)
+    monday = ref - timedelta(days=ref.weekday())
+    start = local_day_start_utc(monday, tz)
+    end = local_day_start_utc(monday + timedelta(days=7), tz)
+
+    app_repo = JobApplicationRepository(db)
+    action_repo = ApplicationActionRepository(db)
+    return PlannerStats(
+        week_start=monday.isoformat(),
+        applied=app_repo.count_applied_in_range(workspace.id, start, end),
+        outreach=action_repo.count_completed_by_type_in_range(workspace.id, "networking", start, end),
+        follow_ups=action_repo.count_completed_by_type_in_range(workspace.id, "follow_up", start, end),
+        weekly_target=settings.weekly_target,
+    )

@@ -294,6 +294,25 @@ def test_funnel_endpoint(make_client):
     assert "onsite_low" in [a["kind"] for a in body["alerts"]]  # 0 onsites < target
 
 
+def test_planner_stats_endpoint(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockApp.return_value.count_applied_in_range.return_value = 3
+        MockAct.return_value.count_completed_by_type_in_range.side_effect = [2, 5]  # networking, follow_up
+        resp = client.get("/api/app/planner-stats")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["applied"] == 3 and body["outreach"] == 2 and body["follow_ups"] == 5
+    assert body["weekly_target"]["apply"] == 10 and "week_start" in body
+
+
+def test_planner_stats_invalid_week_422(make_client):
+    client = make_client()
+    resp = client.get("/api/app/planner-stats?week=notadate")
+    assert resp.status_code == 422
+
+
 def test_planner_settings_returns_defaults(make_client):
     client = make_client()
     resp = client.get("/api/app/planner-settings")
@@ -416,7 +435,21 @@ class TestActionsMore:
                 "/api/app/actions/act-1", json={"op": "snooze", "snooze_days": 3}
             )
         assert resp.status_code == 200, resp.text
-        MockAct.return_value.snooze.assert_called_once_with("act-1", WS_ID, days=3)
+        MockAct.return_value.snooze.assert_called_once_with("act-1", WS_ID, days=3, until=None)
+
+    def test_patch_action_snooze_until_absolute(self, make_client):
+        # Rest-until-Monday passes an absolute target so overdue actions land on Monday.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action()
+            MockAct.return_value.snooze.return_value = _action(status="pending")
+            resp = client.patch(
+                "/api/app/actions/act-1",
+                json={"op": "snooze", "snooze_until": "2026-07-20T04:00:00+00:00"},
+            )
+        assert resp.status_code == 200, resp.text
+        _, kwargs = MockAct.return_value.snooze.call_args
+        assert kwargs["until"] is not None
 
     def test_patch_action_dismiss(self, make_client):
         client = make_client()

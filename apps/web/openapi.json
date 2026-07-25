@@ -2525,6 +2525,74 @@
         }
       }
     },
+    "/api/app/planner-stats": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Stats",
+        "description": "This-week triplet: applied / outreach(networking done) / follow_ups(done)\nvs the weekly targets. Week = Mon..Sun in settings.timezone.",
+        "operationId": "get_planner_stats_api_app_planner_stats_get",
+        "parameters": [
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date in the target week; default = this week",
+              "title": "Week"
+            },
+            "description": "ISO date in the target week; default = this week"
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/cost/by-run-type": {
       "get": {
         "tags": [
@@ -3269,6 +3337,18 @@
             "minimum": 1.0,
             "title": "Snooze Days",
             "default": 1
+          },
+          "snooze_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snooze Until"
           }
         },
         "type": "object",
@@ -5589,6 +5669,39 @@
         "type": "object",
         "title": "PlannerSettings",
         "description": "All planner-tunable numbers, with product defaults. P0 is read-only\n(defaults merged over workspaces.planner_settings_json); PUT lands in P1."
+      },
+      "PlannerStats": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "applied": {
+            "type": "integer",
+            "title": "Applied"
+          },
+          "outreach": {
+            "type": "integer",
+            "title": "Outreach"
+          },
+          "follow_ups": {
+            "type": "integer",
+            "title": "Follow Ups"
+          },
+          "weekly_target": {
+            "$ref": "#/components/schemas/WeeklyTarget"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "applied",
+          "outreach",
+          "follow_ups",
+          "weekly_target"
+        ],
+        "title": "PlannerStats",
+        "description": "This-week triplet for the Plan view: done-vs-target on the three weekly\ncadence dimensions (Job Search Quality Scale 2022)."
       },
       "ProfileImportInput": {
         "properties": {
