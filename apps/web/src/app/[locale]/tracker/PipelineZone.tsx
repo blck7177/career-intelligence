@@ -26,6 +26,7 @@ export function PipelineZone() {
   const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
   const [freshDays, setFreshDays] = useState(DEFAULT_FRESH_DAYS);
+  const [onsiteTarget, setOnsiteTarget] = useState(4);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -37,6 +38,7 @@ export function PipelineZone() {
     ]);
     setFunnel(f);
     setFreshDays(s?.fresh_window_days ?? DEFAULT_FRESH_DAYS);
+    setOnsiteTarget(s?.onsite_target ?? 4);
     // Sort by excitement then recency — true posting date when known, else the
     // application's own age. Fit isn't on the list row (detail-only).
     const recency = (a: ApplicationRead) => new Date(a.job?.posted_at ?? a.created_at).getTime();
@@ -86,22 +88,28 @@ export function PipelineZone() {
     <section className="w-full space-y-4">
       <ZoneHead eyebrow={t("zoneEyebrowPipeline")} title={t("pipelineTitle")} sub={zoneSub} />
 
-      {/* Funnel */}
+      {/* Funnel — horizontal bars, one row per stage; onsite shows its target */}
       <div className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-end gap-2">
-          {stages.map((s) => (
-            <div key={s.key} className="flex-1 min-w-0 text-center">
-              <div className="flex items-end justify-center h-24">
-                <div
-                  className="w-full rounded-t"
-                  style={{ height: `${Math.round((s.count / maxCount) * 100)}%`, minHeight: s.count > 0 ? 4 : 0, background: s.key === "onsite" ? "var(--match-strong-bg)" : "var(--primary)" }}
-                  title={`${s.count}`}
-                />
+        <div className="space-y-2">
+          {stages.map((s) => {
+            const pct = Math.round((s.count / maxCount) * 100);
+            const isOnsite = s.key === "onsite";
+            return (
+              <div key={s.key} className="grid items-center gap-2.5" style={{ gridTemplateColumns: "84px 1fr auto" }}>
+                <span className="text-2xs truncate" style={{ color: "var(--ink-muted)" }}>{t(`funnelStage.${s.key}`)}</span>
+                <span className="h-2.5 rounded-full overflow-hidden" style={{ background: "var(--muted)" }}>
+                  <span
+                    className="block h-full rounded-full"
+                    style={{ width: `${pct}%`, minWidth: s.count > 0 ? 6 : 0, background: isOnsite ? "var(--match-good-fg)" : "var(--primary)" }}
+                  />
+                </span>
+                <span className="text-xs font-semibold tabular-nums text-right whitespace-nowrap" style={{ color: "var(--ink-primary)" }}>
+                  {s.count}
+                  {isOnsite && <span className="font-normal text-2xs" style={{ color: "var(--ink-faint)" }}> / {onsiteTarget}</span>}
+                </span>
               </div>
-              <div className="text-sm font-semibold tabular-nums mt-1" style={{ color: "var(--ink-primary)" }}>{s.count}</div>
-              <div className="text-2xs truncate" style={{ color: "var(--ink-muted)" }}>{t(`funnelStage.${s.key}`)}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
