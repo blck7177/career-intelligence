@@ -86,3 +86,36 @@ def run_daily_rules() -> dict:
         result = run_daily_rules_once(session, now_utc)
     logger.info("planner_run: %s", result)
     return result
+
+
+def run_weekly_review_once(session: Any, now_utc: datetime) -> dict:
+    """Generate + upsert a weekly review for every workspace with applications.
+    Each workspace's reviewed week is the Monday of its own local week
+    (settings.timezone), so a single Sunday-night UTC schedule serves all zones.
+    LLM failures degrade per-workspace (NULL narrative), never aborting the
+    sweep. Rows are flushed; the caller's transaction commits them."""
+    from packages.infrastructure.services.weekly_review_service import (
+        generate_weekly_review,
+    )
+
+    ws_ids = JobApplicationRepository(session).list_workspace_ids_with_applications()
+    generated = 0
+    for ws_id in ws_ids:
+        try:
+            if generate_weekly_review(session, ws_id, now_utc=now_utc) is not None:
+                generated += 1
+        except Exception:  # noqa: BLE001
+            # One workspace's hard failure must not abort the sweep. The LLM path
+            # already degrades internally; this guards any other per-workspace
+            # error (bad data, a DB hiccup on one row) so the rest still generate.
+            logger.exception("weekly_review: workspace %s failed; continuing sweep", ws_id)
+    return {"workspaces": len(ws_ids), "reviews_generated": generated}
+
+
+@celery_app.task(name="apps.worker.tasks.planner_run.run_weekly_review", max_retries=0)
+def run_weekly_review() -> dict:
+    now_utc = datetime.now(timezone.utc)
+    with get_session() as session:
+        result = run_weekly_review_once(session, now_utc)
+    logger.info("planner_run.weekly: %s", result)
+    return result

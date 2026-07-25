@@ -247,3 +247,46 @@ class PlannerSettings(BaseModel):
     onsite_target: int = 4
     active_target: int = 15
     review_day: str = "sun"
+
+
+# ---------------------------------------------------------------------------
+# Weekly review (Wave 5) — the planner's Review zone
+# ---------------------------------------------------------------------------
+
+
+class WeeklyReviewStats(BaseModel):
+    """The deterministic numbers a weekly review is built from — computed by the
+    PURE aggregator (packages/domain/planner/weekly.py) and stored verbatim in
+    planner_reviews.stats_json. Also the payload the LLM narrates from."""
+
+    week_start: str  # ISO date (Monday, settings.timezone)
+    # This-week cadence triplet vs targets (same definitions as PlannerStats).
+    applied: int
+    outreach: int
+    follow_ups: int
+    weekly_target: WeeklyTarget
+    # Current pipeline snapshot (same stages as the funnel).
+    funnel: list[FunnelStage]
+    # Distribution of tracked applications by effort lane / channel.
+    by_lane: dict[str, int] = Field(default_factory=dict)
+    by_channel: dict[str, int] = Field(default_factory=dict)
+    # Application → interview conversion vs a coaching benchmark.
+    applied_total: int  # applications that ever reached "applied" (applied_at set)
+    reached_interview: int  # of those, how many got any interview
+    interview_rate: float  # reached_interview / applied_total (0 when no applies)
+    benchmark_interview_rate: float = 0.08  # Job Search Quality Scale app→screen target
+    # Honesty flag: pre-Gmail (P2), an employer "reply" is only what the user
+    # logged (status advance + manual interview events), never inbox-detected.
+    replies_are_manual: bool = True
+
+
+class WeeklyReviewRead(BaseModel):
+    """One weekly review for the Plan view's Review zone. `narrative_md` is the
+    LLM summary; when it is None the generation degraded to the pure-number
+    template (`degraded == True`) and the card renders stats-only."""
+
+    week_start: str
+    stats: WeeklyReviewStats
+    narrative_md: Optional[str] = None
+    degraded: bool = False
+    generated_at: datetime

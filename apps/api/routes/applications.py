@@ -15,6 +15,7 @@ Contract:
   PATCH  /api/app/actions/{action_id}                       -> ActionRead
   GET    /api/app/planner-settings                          -> PlannerSettings
   GET    /api/app/planner-stats?week=                       -> PlannerStats
+  GET    /api/app/planner-review                            -> WeeklyReviewRead | null
 
 Every endpoint is workspace-scoped via get_current_workspace. Every by-id fetch
 is verified against workspace.id (IDOR guard → 404 on miss/foreign). A body
@@ -52,6 +53,8 @@ from packages.contracts.api.applications import (
     PlannerSettings,
     PlannerStats,
     StatusTransition,
+    WeeklyReviewRead,
+    WeeklyReviewStats,
 )
 from packages.domain.applications.transitions import (
     ACTIVE_STATUSES,
@@ -66,6 +69,7 @@ from packages.infrastructure.db.repositories import (
     FitReportRepository,
     JobApplicationRepository,
     JobRepository,
+    PlannerReviewRepository,
     ProfileRepository,
     RunRepository,
 )
@@ -500,4 +504,25 @@ def get_planner_stats(
         outreach=action_repo.count_completed_by_type_in_range(workspace.id, "networking", start, end),
         follow_ups=action_repo.count_completed_by_type_in_range(workspace.id, "follow_up", start, end),
         weekly_target=settings.weekly_target,
+    )
+
+
+@router.get("/planner-review", response_model=Optional[WeeklyReviewRead])
+def get_planner_review(
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> Optional[WeeklyReviewRead]:
+    """The most recent weekly review for the Plan view's Review zone, or null
+    (200) when none has been generated yet. Reviews are written by the weekly
+    Celery beat; narrative_md is null when generation degraded to the
+    number-only template (degraded == True → the card renders stats only)."""
+    row = PlannerReviewRepository(db).get_latest(workspace.id)
+    if row is None:
+        return None
+    return WeeklyReviewRead(
+        week_start=row.week_start.isoformat(),
+        stats=WeeklyReviewStats(**row.stats_json),
+        narrative_md=row.narrative_md,
+        degraded=row.narrative_md is None,
+        generated_at=row.created_at,
     )

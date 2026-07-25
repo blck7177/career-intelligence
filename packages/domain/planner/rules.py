@@ -74,6 +74,8 @@ class ApplicationView:
     created_at: datetime  # UTC
     events: list[EventView] = field(default_factory=list)
     actions: list[ActionView] = field(default_factory=list)  # this app's actions, ANY status
+    lane: Optional[str] = None  # a | b | c (effort tier); used by the weekly review
+    channel: Optional[str] = None  # cold_apply|referral|... ; used by the weekly review
 
 
 @dataclass(frozen=True)

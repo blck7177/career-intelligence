@@ -15,12 +15,13 @@ Rules (enforced here and in AGENTS.md):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -820,3 +821,32 @@ class ApplicationAction(Base):
     )
 
     application: Mapped[Optional["JobApplication"]] = relationship(back_populates="actions")
+
+
+class PlannerReview(Base):
+    """One weekly review per (workspace, ISO-week) — the planner's Review zone.
+
+    Written by the weekly Celery beat (Sun night, per settings.timezone). Holds
+    the deterministic aggregate (stats_json, a WeeklyReviewStats dump) plus an
+    optional LLM narrative; narrative_md is NULL when generation degraded to the
+    pure-number template. Re-running the beat upserts on (workspace_id,
+    week_start) rather than inserting a duplicate."""
+
+    __tablename__ = "planner_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "week_start", name="uq_planner_reviews_workspace_week"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    # Monday of the reviewed week, in the workspace's settings.timezone.
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    stats_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    narrative_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

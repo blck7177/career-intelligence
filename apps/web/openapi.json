@@ -2593,6 +2593,64 @@
         }
       }
     },
+    "/api/app/planner-review": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Review",
+        "description": "The most recent weekly review for the Plan view's Review zone, or null\n(200) when none has been generated yet. Reviews are written by the weekly\nCelery beat; narrative_md is null when generation degraded to the\nnumber-only template (degraded == True \u2192 the card renders stats only).",
+        "operationId": "get_planner_review_api_app_planner_review_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WeeklyReviewRead"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Planner Review Api App Planner Review Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/cost/by-run-type": {
       "get": {
         "tags": [
@@ -6743,6 +6801,126 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeeklyReviewRead": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/WeeklyReviewStats"
+          },
+          "narrative_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Md"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "default": false
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "stats",
+          "generated_at"
+        ],
+        "title": "WeeklyReviewRead",
+        "description": "One weekly review for the Plan view's Review zone. `narrative_md` is the\nLLM summary; when it is None the generation degraded to the pure-number\ntemplate (`degraded == True`) and the card renders stats-only."
+      },
+      "WeeklyReviewStats": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "applied": {
+            "type": "integer",
+            "title": "Applied"
+          },
+          "outreach": {
+            "type": "integer",
+            "title": "Outreach"
+          },
+          "follow_ups": {
+            "type": "integer",
+            "title": "Follow Ups"
+          },
+          "weekly_target": {
+            "$ref": "#/components/schemas/WeeklyTarget"
+          },
+          "funnel": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStage"
+            },
+            "type": "array",
+            "title": "Funnel"
+          },
+          "by_lane": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Lane"
+          },
+          "by_channel": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Channel"
+          },
+          "applied_total": {
+            "type": "integer",
+            "title": "Applied Total"
+          },
+          "reached_interview": {
+            "type": "integer",
+            "title": "Reached Interview"
+          },
+          "interview_rate": {
+            "type": "number",
+            "title": "Interview Rate"
+          },
+          "benchmark_interview_rate": {
+            "type": "number",
+            "title": "Benchmark Interview Rate",
+            "default": 0.08
+          },
+          "replies_are_manual": {
+            "type": "boolean",
+            "title": "Replies Are Manual",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "applied",
+          "outreach",
+          "follow_ups",
+          "weekly_target",
+          "funnel",
+          "applied_total",
+          "reached_interview",
+          "interview_rate"
+        ],
+        "title": "WeeklyReviewStats",
+        "description": "The deterministic numbers a weekly review is built from \u2014 computed by the\nPURE aggregator (packages/domain/planner/weekly.py) and stored verbatim in\nplanner_reviews.stats_json. Also the payload the LLM narrates from."
       },
       "WeeklyTarget": {
         "properties": {

@@ -95,6 +95,14 @@ celery_app.conf.update(
             "schedule": crontab(hour=10, minute=0),
             "options": {"queue": "fast"},
         },
+        # Weekly review — Monday 02:00 UTC ≈ Sunday ~21:00 US-East, so each
+        # workspace's current local week (its Monday..Sunday) is the week that
+        # just finished. Each workspace computes its own week in settings.timezone.
+        "planner-weekly-review": {
+            "task": "apps.worker.tasks.planner_run.run_weekly_review",
+            "schedule": crontab(hour=2, minute=0, day_of_week=1),
+            "options": {"queue": "fast"},
+        },
     },
 )
 

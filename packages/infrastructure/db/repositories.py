@@ -10,7 +10,7 @@ Rules:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -32,6 +32,7 @@ from packages.infrastructure.db.models import (
     JobNotInterested,
     JobReport,
     LLMUsageEvent,
+    PlannerReview,
     Run,
     SearchStrategyStateRow,
     Task,
@@ -1991,3 +1992,56 @@ class ApplicationActionRepository:
             if a.application_id not in result:
                 result[a.application_id] = (a.due_at, a.type)
         return result
+
+
+class PlannerReviewRepository:
+    """The weekly review table (one row per workspace+ISO-week). The weekly beat
+    upserts; the Plan view's Review zone reads the latest. flush-never-commit."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_week(self, workspace_id: str, week_start: date) -> Optional[PlannerReview]:
+        from sqlalchemy import select
+
+        stmt = select(PlannerReview).where(
+            PlannerReview.workspace_id == workspace_id,
+            PlannerReview.week_start == week_start,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def get_latest(self, workspace_id: str) -> Optional[PlannerReview]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(PlannerReview)
+            .where(PlannerReview.workspace_id == workspace_id)
+            .order_by(PlannerReview.week_start.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def upsert(
+        self,
+        *,
+        workspace_id: str,
+        week_start: date,
+        stats_json: dict,
+        narrative_md: str | None,
+    ) -> PlannerReview:
+        """Insert or replace the review for (workspace, week). Idempotent so the
+        weekly beat can re-run (or a regeneration) without duplicating rows."""
+        row = self.get_for_week(workspace_id, week_start)
+        if row is None:
+            row = PlannerReview(
+                workspace_id=workspace_id,
+                week_start=week_start,
+                stats_json=stats_json,
+                narrative_md=narrative_md,
+            )
+            self._s.add(row)
+        else:
+            row.stats_json = stats_json
+            row.narrative_md = narrative_md
+        self._s.flush()
+        return row

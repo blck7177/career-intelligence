@@ -43,4 +43,6 @@ def application_view(app: Any, events: list, actions: list) -> ApplicationView:
         created_at=app.created_at,
         events=[event_view(e) for e in events],
         actions=[action_view(a) for a in actions],
+        lane=app.lane,
+        channel=app.channel,
     )
