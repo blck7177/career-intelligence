@@ -5,23 +5,23 @@ import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import {
-  getFunnel, listApplications, transitionApplication, updateApplication, createAction,
+  getFunnel, listApplications, transitionApplication, updateApplication,
 } from "@/api/client";
 import type { FunnelResponse, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 
 /**
- * Plan · Pipeline zone. Funnel (with onsite target line) + advisory alerts
+ * Plan · Pipeline zone. Funnel (with onsite highlight) + advisory alerts
  * (ghosted suggestions confirm before applying — the audit-D gate) + the
- * planned-to-apply queue with inline excitement/lane and Apply/Drop/Tailor.
+ * planned-to-apply queue: inline excitement, Apply now (opens the posting),
+ * Job details, Drop.
  */
-export function PipelineZone({ onChanged }: { onChanged?: () => void }) {
+export function PipelineZone() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [addedToday, setAddedToday] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     const token = await getToken();
@@ -47,7 +47,6 @@ export function PipelineZone({ onChanged }: { onChanged?: () => void }) {
       const token = await getToken();
       await transitionApplication(id, { status: "ghosted", force: false }, token);
       await load();
-      onChanged?.();
     } finally { setBusyId(null); }
   }
 
@@ -57,18 +56,6 @@ export function PipelineZone({ onChanged }: { onChanged?: () => void }) {
       const token = await getToken();
       await transitionApplication(id, { status: "withdrawn", force: false }, token);
       await load();
-      onChanged?.();
-    } finally { setBusyId(null); }
-  }
-
-  async function applyToday(id: string) {
-    if (addedToday.has(id)) return; // already queued — no duplicate
-    setBusyId(id);
-    try {
-      const token = await getToken();
-      await createAction({ type: "apply", title: t("applyTodayTitle"), application_id: id, due_at: new Date().toISOString() }, token);
-      setAddedToday((prev) => new Set(prev).add(id)); // visible confirmation on the button
-      onChanged?.(); // surface it in the Today zone immediately
     } finally { setBusyId(null); }
   }
 
@@ -151,20 +138,20 @@ export function PipelineZone({ onChanged }: { onChanged?: () => void }) {
                   ))}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    size="sm"
-                    variant={addedToday.has(app.id) ? "ghost" : "outline"}
-                    disabled={addedToday.has(app.id)}
-                    loading={busyId === app.id}
-                    onClick={() => applyToday(app.id)}
-                  >
-                    {addedToday.has(app.id) ? t("applyAdded") : t("applyToday")}
-                  </Button>
-                  {app.job_id && (
-                    <Link href={`/jobs?selected=${app.job_id}`} className="h-7 px-2 rounded-md text-xs font-medium flex items-center" style={{ border: "1px solid var(--border)", color: "var(--ink-secondary)" }}>
-                      {t("tailor")}
-                    </Link>
+                  {(app.job?.canonical_url ?? "").startsWith("http") && (
+                    <a
+                      href={app.job!.canonical_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="h-7 px-2 rounded-md text-xs font-medium flex items-center"
+                      style={{ border: "1px solid var(--primary)", color: "var(--primary)" }}
+                    >
+                      {t("applyNow")}
+                    </a>
                   )}
+                  <Link href={`/jobs/${app.job_id}`} className="h-7 px-2 rounded-md text-xs font-medium flex items-center" style={{ border: "1px solid var(--border)", color: "var(--ink-secondary)" }}>
+                    {t("jobDetails")}
+                  </Link>
                   <Button size="sm" variant="ghost" loading={busyId === app.id} onClick={() => drop(app.id)}>{t("drop")}</Button>
                 </div>
               </li>
