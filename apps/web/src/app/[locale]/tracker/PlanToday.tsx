@@ -6,6 +6,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings } from "@/api/client";
 import type { ActionRead, PlannerStats, PlannerSettings } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { ZoneHead } from "./ZoneHead";
 import { fmtTs } from "@/lib/utils";
 
 const HORIZON_DAYS = 14;
@@ -122,16 +123,6 @@ export function PlanToday() {
     }
   }
 
-  // "Week N of search" — weeks since the user's search-start date (settings).
-  let weekOfSearch: number | null = null;
-  if (settings?.search_started_at) {
-    const start = new Date(settings.search_started_at + "T00:00:00");
-    if (!isNaN(start.getTime())) {
-      const days = Math.floor((Date.now() - start.getTime()) / 86400_000);
-      if (days >= 0) weekOfSearch = Math.floor(days / 7) + 1;
-    }
-  }
-
   const items = actions ?? [];
   const grouped: Record<string, ActionRead[]> = {};
   for (const g of GROUP_ORDER) grouped[g] = [];
@@ -141,15 +132,15 @@ export function PlanToday() {
   const cap = settings?.daily_cap_minutes ?? 0;
   const overCap = cap > 0 && estTotal > cap;
   const isEmpty = actions !== null && actions.length === 0;
+  const restsWeekend = !!settings?.rest_days?.some((d) => d === "sat" || d === "sun");
+  const zoneSub = [
+    items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
+    restsWeekend ? t("restWeekendNote") : null,
+  ].filter(Boolean).join(" · ");
 
   return (
     <section className="w-full">
-      <div className="flex items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>{t("zoneToday")}</h2>
-        {weekOfSearch !== null && (
-          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("settingsWeekOfSearch", { n: weekOfSearch })}</span>
-        )}
-      </div>
+      <ZoneHead eyebrow={t("zoneEyebrowToday")} title={t("todayTitle")} sub={zoneSub || undefined} />
       <div className="space-y-6">
         {/* This-week triplet */}
         {stats && (

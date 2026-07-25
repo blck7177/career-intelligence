@@ -6,6 +6,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { getWeeklyReview } from "@/api/client";
 import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { ZoneHead } from "./ZoneHead";
 import { fmtTs } from "@/lib/utils";
 
 /** Plan · Review zone. The latest LLM weekly review (Wave 5). Renders the
@@ -30,9 +31,13 @@ export function ReviewZone() {
 
   useEffect(() => { load(); }, [load]);
 
+  const zoneSub = review
+    ? `${review.week_start} · ${t("reviewGeneratedAt", { date: fmtTs(review.generated_at) })}`
+    : undefined;
+
   return (
     <section className="w-full">
-      <h2 className="text-sm font-semibold mb-3" style={{ color: "var(--ink-primary)" }}>{t("zoneReview")}</h2>
+      <ZoneHead eyebrow={t("zoneEyebrowReview")} title={t("reviewTitle")} sub={zoneSub} />
       {review === undefined ? (
         error ? (
           <div className="rounded-lg border border-dashed p-4 text-center" style={{ borderColor: "var(--border)" }}>
@@ -63,17 +68,7 @@ function ReviewCard({ review }: { review: WeeklyReviewRead }) {
 
   return (
     <div className="rounded-lg border p-4 space-y-4" style={{ borderColor: "var(--border)" }}>
-      {/* Header: week + generated timestamp */}
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm font-medium" style={{ color: "var(--ink-primary)" }}>
-          {t("reviewWeekOf", { date: s.week_start })}
-        </span>
-        <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>
-          {t("reviewGeneratedAt", { date: fmtTs(review.generated_at) })}
-        </span>
-      </div>
-
-      {/* This-week triplet */}
+      {/* This-week triplet (week + generated time now live in the zone head) */}
       <div className="grid grid-cols-3 gap-3">
         <Meter label={t("weekApplied")} value={s.applied} target={target.apply} />
         <Meter label={t("weekOutreach")} value={s.outreach} target={target.outreach} />

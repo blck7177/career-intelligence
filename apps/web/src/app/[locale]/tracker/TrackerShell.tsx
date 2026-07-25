@@ -6,6 +6,7 @@ import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { ApplicationsMasterDetail, type AppRow, type AppCounts } from "./ApplicationsMasterDetail";
 import { PlanView } from "./PlanView";
 import { SettingsView } from "./SettingsView";
+import { PageHeader } from "./PageHeader";
 
 interface Props {
   applications: AppRow[];
@@ -26,8 +27,9 @@ export function TrackerShell(props: Props) {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
+      <PageHeader />
       <div
-        className="shrink-0 flex items-center gap-1.5 px-[var(--space-row-edge)] pt-3 pb-2"
+        className="shrink-0 flex items-center gap-1.5 px-[var(--space-row-edge)] pt-2 pb-2"
         style={{ borderBottom: "1px solid var(--border)" }}
       >
         <button

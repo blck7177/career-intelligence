@@ -9,8 +9,10 @@ import {
 } from "@/api/client";
 import type { FunnelResponse, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { ZoneHead } from "./ZoneHead";
 
 const DEFAULT_FRESH_DAYS = 3;
+const ACTIVE_STAGES = ["applied", "in_review", "interviewing", "offer"];
 
 /**
  * Plan · Pipeline zone. Funnel (with onsite highlight) + advisory alerts
@@ -76,10 +78,13 @@ export function PipelineZone() {
   const stages = funnel?.stages ?? [];
   const alerts = funnel?.alerts ?? [];
   const maxCount = Math.max(1, ...stages.map((s) => s.count));
+  const stageCount = (k: string) => stages.find((s) => s.key === k)?.count ?? 0;
+  const activeN = ACTIVE_STAGES.reduce((n, k) => n + stageCount(k), 0);
+  const zoneSub = funnel ? t("pipelineSub", { active: activeN, planned: stageCount("planned") }) : undefined;
 
   return (
     <section className="w-full space-y-4">
-      <h2 className="text-sm font-semibold" style={{ color: "var(--ink-primary)" }}>{t("zonePipeline")}</h2>
+      <ZoneHead eyebrow={t("zoneEyebrowPipeline")} title={t("pipelineTitle")} sub={zoneSub} />
 
       {/* Funnel */}
       <div className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
