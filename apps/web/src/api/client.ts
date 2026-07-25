@@ -47,6 +47,8 @@ export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
 export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
 export type FunnelResponse = components["schemas"]["FunnelResponse"];
 export type PlannerStats = components["schemas"]["PlannerStats"];
+export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
+export type WeeklyReviewStats = components["schemas"]["WeeklyReviewStats"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
 export type ActionList = components["schemas"]["ActionList"];
@@ -407,6 +409,11 @@ export async function getPlannerSettings(token?: string | null): Promise<Planner
 export async function getPlannerStats(week?: string, token?: string | null): Promise<PlannerStats> {
   const qs = week ? `?week=${encodeURIComponent(week)}` : "";
   return req<PlannerStats>(`/api/app/planner-stats${qs}`, undefined, token);
+}
+
+// Latest weekly review, or null when none has been generated yet (200 null body).
+export async function getWeeklyReview(token?: string | null): Promise<WeeklyReviewRead | null> {
+  return req<WeeklyReviewRead | null>("/api/app/planner-review", undefined, token);
 }
 
 // ---------------------------------------------------------------------------
