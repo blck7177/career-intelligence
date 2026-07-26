@@ -58,6 +58,10 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.10",
+    # tests/infrastructure/test_llm_client.py drives the real OpenAI
+    # response-format helpers, so the SDK has to be importable to run the
+    # suite — `pip install -e ".[dev]"` alone must be enough to go green.
+    "openai>=1.30",
 ]
 
 [project.scripts]
