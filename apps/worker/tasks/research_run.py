@@ -34,7 +34,7 @@ from packages.contracts.agents.manifests import AgentOutputManifest, ResearchMan
 from packages.contracts.api.runs import JobResearchInput
 from packages.contracts.tasks.envelopes import TaskEnvelope
 from packages.domain.agent_jobs.planner import build_invocation_spec, build_task_input
-from packages.infrastructure.agent_runtime.openclaw import create_runtime
+from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
@@ -46,7 +46,7 @@ from packages.infrastructure.db.repositories import (
     TaskRepository,
 )
 from packages.infrastructure.db.session import get_session
-from packages.infrastructure.jd_fetch.service import MIN_JD_TEXT_LEN
+from packages.infrastructure.jd_fetch.service import MIN_JD_TEXT_LEN, is_shell_text
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +185,7 @@ def handle_research_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = create_runtime()
+    runtime = create_http_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)
@@ -199,6 +199,19 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         )
 
     result = runtime.invoke(spec)
+
+    # Record usage BEFORE any other post-invoke step — result.usage reflects
+    # a real, already-billed charge the moment invoke() returns, and a disk
+    # or DB error further down must not be able to drop it.
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.job_research",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cache_read_tokens=result.usage.cache_read_tokens,
+        )
 
     # ------------------------------------------------------------------
     # Step 6: Update invocation record with result
@@ -224,15 +237,6 @@ def handle_research_run(env: TaskEnvelope) -> dict:
             stderr_uri=stderr_path,
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
-        )
-
-    if result.usage:
-        from packages.infrastructure.llm.usage_writer import persist_agent_usage
-        persist_agent_usage(
-            run_id=env.run_id, task_id=env.task_id,
-            workspace_id=env.workspace_id, call_site="agent.job_research",
-            model=result.usage.model, input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
         )
 
     if result.exit_code != 0 or result.timed_out:
@@ -352,7 +356,11 @@ def handle_research_run(env: TaskEnvelope) -> dict:
         # (e.g. multiple concurrent postings with an identical title), so it
         # stays in 'discovered' for review regardless of claimed source_type.
         promoted = False
-        if manifest.jd_text and len(manifest.jd_text) >= MIN_JD_TEXT_LEN:
+        if (
+            manifest.jd_text
+            and len(manifest.jd_text) >= MIN_JD_TEXT_LEN
+            and not is_shell_text(manifest.jd_text)
+        ):
             jd_hash = hashlib.md5(manifest.jd_text.encode()).hexdigest()[:16]
             job_repo.update_jd(job_id, manifest.jd_text, jd_hash)
             job_repo.merge_raw_payload(job_id, {"jd_source": f"research_{manifest.jd_source_type}"})

@@ -74,6 +74,8 @@ web_search("site:boards.greenhouse.io <role keywords>")
 
 Do not run this move against a Greenhouse/Lever/Ashby company already present in `known_boards` — it was already synced automatically before this run started (see "Known Boards" above). If a URL you find turns out to belong to a company already in `known_boards`, skip it and move on — don't fetch/log it.
 
+**If the result has `"note"` mentioning the ATS structured API:** the text you got back is a short excerpt, not the full posting — that's expected. Realness is already confirmed by the ATS API itself (this is a live entry in that company's board, not a scrape you have to sanity-check), so don't reject it or ask for more text on realness grounds. Just judge relevance/seniority from the excerpt and log it if it fits, same as any other candidate.
+
 **If `career_fetch_source` fails for a URL:**
 1. Try `web_fetch` on the same URL as fallback.
 2. If the URL itself is bad (403/404), try other jobs from the same ATS board.

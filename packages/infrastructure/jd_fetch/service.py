@@ -3,7 +3,10 @@ JD fetch service — shared by worker ingest and career_fetch_source wrapper.
 
 Resolution order (resolve_jd):
   1. Artifact cache at {artifact_dir}/fetched_jds/{url_hash}.txt (Phase B)
-  2. Worker deterministic HTTP fetch (Phase A fallback)
+  2. Worker deterministic HTTP fetch (Phase A fallback), which itself prefers
+     the ATS's structured JSON API (see _fetch_via_ats_api) over scraping the
+     page when the URL matches a known board — cleaner text, no page chrome,
+     and no dependency on the agent correctly self-reporting source_type.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-JdSource = Literal["artifact", "worker_fetch"]
+JdSource = Literal["artifact", "worker_fetch", "ats_api"]
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,11 @@ class JdFetchResult:
     jd_hash: str | None
     error: str | None
     source: JdSource | None
-    fetch_status: str  # "success" | "failed" | "too_short"
+    fetch_status: str  # "success" | "failed" | "too_short" | "doa"
+    http_status: int | None = None
+    # Employer posting date — only the ATS-API tier can supply it; the scrape /
+    # Jina tiers leave it None. UTC-aware.
+    posted_at: datetime | None = None
 
 
 def compute_url_hash(url: str) -> str:
@@ -75,6 +82,72 @@ def _normalize_fetched_content(raw: str, content_type: str = "") -> str:
     return raw.strip()
 
 
+_CLOSED_POSTING_MARKERS = (
+    "no longer accepting applications",
+    "no longer accepting application",
+    "position has been filled",
+    "this job is no longer available",
+    "this position is no longer available",
+    "job posting is closed",
+    "posting has expired",
+    "applications are closed",
+)
+
+
+def _is_closed_posting(text: str) -> bool:
+    """Conservative closed-posting (DOA) detection.
+
+    Only fires when the fetched text is short enough to be a status page rather
+    than a full JD — a real JD that merely mentions one of these phrases in its
+    body must not be misclassified as dead. Long text (a real posting) is never
+    flagged, which biases toward keeping a live posting over dropping one.
+    """
+    if len(text) > 1000:
+        return False
+    low = text.lower()
+    return any(marker in low for marker in _CLOSED_POSTING_MARKERS)
+
+
+_SHELL_STUB_MARKERS = (
+    "enable javascript",
+    "please enable js",
+    "javascript is required",
+    "loading...",
+    "please wait",
+)
+
+# Real JDs measure < 2 CSS/JS markup tokens per 1000 chars; unrendered SPA
+# shells measure 30+. The threshold sits in the wide empty gap between them
+# (calibrated on production data: real JDs 0.0-1.8, shells 30.6-37.2), so a
+# genuine posting is never dropped as a shell.
+_SHELL_DENSITY_THRESHOLD = 10.0
+
+
+def is_shell_text(text: str) -> bool:
+    """High-confidence page-shell detection: the fetched text is mostly CSS/JS
+    chrome (an unrendered single-page-app), not job-description prose. Used so a
+    50KB blob of stylesheet isn't accepted as a valid JD just for being long.
+    """
+    if not text:
+        return False
+    low = text.lower()
+    if len(text) < 2000 and any(m in low for m in _SHELL_STUB_MARKERS):
+        return True
+    tokens = (
+        text.count("{")
+        + text.count("}")
+        + text.count(";")
+        + low.count("function")
+        + low.count("px;")
+        + low.count("rgba")
+        + low.count("@media")
+        + low.count("var ")
+        + low.count("</")
+        + low.count("/>")
+    )
+    return tokens / (len(text) / 1000.0) > _SHELL_DENSITY_THRESHOLD
+
+
 def _validate_jd_text(jd_text: str) -> JdFetchResult:
     if len(jd_text) < MIN_JD_TEXT_LEN:
         return JdFetchResult(
@@ -84,6 +157,15 @@ def _validate_jd_text(jd_text: str) -> JdFetchResult:
             error=f"JD text too short ({len(jd_text)} chars, min {MIN_JD_TEXT_LEN})",
             source=None,
             fetch_status="too_short",
+        )
+    if is_shell_text(jd_text):
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error="Fetched text looks like a page shell (CSS/JS), not a JD",
+            source=None,
+            fetch_status="shell",
         )
     capped = jd_text[:_MAX_JD_TEXT_CHARS]
     jd_hash = compute_jd_hash(capped)
@@ -206,6 +288,63 @@ def _fetch_via_jina(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         )
 
 
+def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | None:
+    """
+    Try resolving a job posting via its ATS's own structured JSON API instead
+    of scraping the page. Detection is URL-pattern based (extract_board_info),
+    not caller-supplied source_type — an agent that misclassifies a URL still
+    gets routed correctly, and one that's right doesn't need to be trusted.
+
+    Returns None (caller falls back to scraping) whenever the shortcut isn't
+    available: URL doesn't match a known ATS board, the board API call fails,
+    or this specific job isn't in the board's current listing (e.g. filled or
+    pulled since the URL was discovered). Never raises.
+    """
+    from packages.domain.agent_jobs.ats_providers import (
+        build_api_url,
+        extract_board_info,
+        parse_board_response,
+    )
+    from packages.domain.agent_jobs.url_normalize import normalize_job_url
+
+    board_info = extract_board_info(url)
+    if not board_info:
+        return None
+    provider, token = board_info
+    api_url = build_api_url(provider, token)
+    if not api_url:
+        return None
+
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(api_url)
+            response.raise_for_status()
+        board_jobs = parse_board_response(provider, response.json())
+    except Exception:
+        return None
+
+    match = next(
+        (bj for bj in board_jobs if normalize_job_url(bj.url) == normalize_job_url(url)),
+        None,
+    )
+    if match is None or not match.jd_plain:
+        return None
+
+    validated = _validate_jd_text(match.jd_plain)
+    if not validated.ok:
+        return None
+
+    return JdFetchResult(
+        ok=True,
+        jd_text=validated.jd_text,
+        jd_hash=validated.jd_hash,
+        error=None,
+        source="ats_api",
+        fetch_status="success",
+        posted_at=match.posted_at,
+    )
+
+
 def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
     """Deterministic HTTP fetch + normalize (worker fallback)."""
     if not url.startswith(("http://", "https://")):
@@ -218,6 +357,10 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
             fetch_status="failed",
         )
 
+    ats_result = _fetch_via_ats_api(url, timeout=min(timeout, 10.0))
+    if ats_result is not None:
+        return ats_result
+
     try:
         with httpx.Client(
             headers=_HEADERS,
@@ -229,13 +372,18 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         raw = response.text[:_MAX_RAW_BYTES]
         content_type = response.headers.get("content-type", "")
     except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        # 404/410 = the posting is gone (DOA). Other statuses (403 anti-bot,
+        # 5xx, etc.) are fetch failures, not proof the job is dead — keep them
+        # as "failed" so the job is still recorded and retried.
         return JdFetchResult(
             ok=False,
             jd_text=None,
             jd_hash=None,
-            error=f"HTTP {exc.response.status_code} fetching {url}",
+            error=f"HTTP {code} fetching {url}",
             source="worker_fetch",
-            fetch_status="failed",
+            fetch_status="doa" if code in (404, 410) else "failed",
+            http_status=code,
         )
     except httpx.TimeoutException:
         return JdFetchResult(
@@ -257,6 +405,18 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         )
 
     jd_text = _normalize_fetched_content(raw, content_type)
+
+    if _is_closed_posting(jd_text):
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error="Posting appears closed (page loaded but says no longer available)",
+            source="worker_fetch",
+            fetch_status="doa",
+            http_status=200,
+        )
+
     validated = _validate_jd_text(jd_text)
 
     if not validated.ok and validated.fetch_status == "too_short":
@@ -278,8 +438,10 @@ def resolve_jd(url: str, source_type: str, artifact_dir: Path) -> JdFetchResult:
     """
     Resolve JD text for a candidate URL.
 
-    Prefers artifact cache (career_fetch_source), falls back to worker fetch.
-    source_type is reserved for future ATS-specific connectors.
+    Prefers artifact cache (career_fetch_source), falls back to worker fetch
+    (which itself tries the ATS structured API before scraping — see
+    _fetch_via_ats_api). source_type is unused: the ATS routing decision is
+    made from the URL itself, not from this caller-supplied hint.
     """
     _ = source_type
     cached = _read_jd_artifact(artifact_dir, url)

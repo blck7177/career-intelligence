@@ -1,13 +1,15 @@
 """
-Jobs API — read, archive, import, and favorite job records.
+Jobs API — read, archive, import, favorite, and dismiss job records.
 
 Contract:
-  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=&favorites_only=  → JobList
+  GET    /api/app/jobs?status=&limit=&offset=&include_report_summary=&favorites_only=&not_interested_only=  → JobList
   GET    /api/app/jobs/{job_id}                → JobRead
   POST   /api/app/jobs/import                  → JobImportResponse
   DELETE /api/app/jobs/{job_id}                → 204 (soft-delete: sets status to "archived")
   POST   /api/app/jobs/{job_id}/favorite       → FavoriteResponse
   DELETE /api/app/jobs/{job_id}/favorite       → FavoriteResponse
+  POST   /api/app/jobs/{job_id}/not-interested → NotInterestedResponse
+  DELETE /api/app/jobs/{job_id}/not-interested → NotInterestedResponse
 
 Results are always scoped to the authenticated user's workspace.
 """
@@ -34,14 +36,22 @@ from packages.contracts.api.jobs import (
     JobImportResponse,
     JobList,
     JobRead,
+    NotInterestedResponse,
 )
 from packages.infrastructure.db.models import Job, Workspace
 from packages.infrastructure.db.repositories import (
+    JobApplicationRepository,
     JobFavoriteRepository,
+    JobNotInterestedRepository,
     JobRepository,
     JobReportRepository,
+    ProfileRepository,
     RunRepository,
     TaskRepository,
+)
+from packages.infrastructure.services.job_ingest_service import (
+    ingest_from_paste,
+    ingest_from_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,7 +97,14 @@ def _get_workspace_job(db: Session, workspace: Workspace, job_id: str) -> Job:
     return job
 
 
-def _job_read(job, report=None, include_jd_structured: bool = False, is_favorited: bool = False) -> JobRead:
+def _job_read(
+    job,
+    report=None,
+    include_jd_structured: bool = False,
+    is_favorited: bool = False,
+    is_not_interested: bool = False,
+    is_applied: bool = False,
+) -> JobRead:
     data = {
         "id": job.id,
         "canonical_url": job.canonical_url,
@@ -103,6 +120,8 @@ def _job_read(job, report=None, include_jd_structured: bool = False, is_favorite
         "last_seen_at": job.last_seen_at,
         "jd_source": (job.raw_payload_json or {}).get("jd_source"),
         "is_favorited": is_favorited,
+        "is_not_interested": is_not_interested,
+        "is_applied": is_applied,
     }
     if report:
         data["latest_job_report_id"] = report.id
@@ -130,6 +149,7 @@ def list_jobs(
         description="Join latest active job report for role category/seniority/confidence fields",
     ),
     favorites_only: bool = Query(False, description="Only return jobs bookmarked in this workspace"),
+    not_interested_only: bool = Query(False, description="Only return jobs dismissed as not interested in this workspace"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -142,11 +162,28 @@ def list_jobs(
         return JobList(items=[], total=0)
 
     favorited_ids = JobFavoriteRepository(db).list_job_ids_for_workspace(workspace.id)
+    not_interested_ids = JobNotInterestedRepository(db).list_job_ids_for_workspace(workspace.id)
+    applied_ids = JobApplicationRepository(db).list_job_ids_for_workspace(workspace.id)
+
+    job_ids_filter = None
+    if favorites_only and not_interested_only:
+        job_ids_filter = favorited_ids & not_interested_ids
+    elif favorites_only:
+        job_ids_filter = favorited_ids
+    elif not_interested_only:
+        job_ids_filter = not_interested_ids
 
     items, total = JobRepository(db).list(
         run_ids=run_ids,
         status=status,
-        job_ids=favorited_ids if favorites_only else None,
+        job_ids=job_ids_filter,
+        # Keep paste-created jobs out of the discovery library. They belong to a
+        # tracked application, not the job feed; the tracker detail reaches them
+        # directly via JobRepository.get, which this filter does not touch. This
+        # is the one server-side change the W1 http-assumption audit requires —
+        # every Home derivation (topPicks/total/company rollup) reuses this same
+        # endpoint, so it is corrected here for free.
+        exclude_source_types=["manual_paste"],
         limit=limit,
         offset=offset,
     )
@@ -157,7 +194,16 @@ def list_jobs(
         report_map = JobReportRepository(db).get_latest_active_map(job_ids)
 
     return JobList(
-        items=[_job_read(j, report_map.get(j.id), is_favorited=j.id in favorited_ids) for j in items],
+        items=[
+            _job_read(
+                j,
+                report_map.get(j.id),
+                is_favorited=j.id in favorited_ids,
+                is_not_interested=j.id in not_interested_ids,
+                is_applied=j.id in applied_ids,
+            )
+            for j in items
+        ],
         total=total,
     )
 
@@ -168,159 +214,50 @@ def import_job(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ) -> JobImportResponse:
-    """Import a single job by URL: fetch JD, extract fields, persist."""
-    url = body.url.strip()
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    """Import a single job — two feed chutes into one pipeline (job_ingest_service):
+    EITHER `url` (fetch + extract) XOR `company`+`title`+`jd_text` (a pasted JD).
 
-    _BLOCKED_HOSTS = ("linkedin.com", "www.linkedin.com")
-    from urllib.parse import urlparse
-    if urlparse(url).hostname in _BLOCKED_HOSTS:
+    W1 http-assumption audit — the paste path stores a synthetic manual://<ws>/<hash>
+    canonical url, so every place that assumes canonical_url is http(s) was checked:
+      - view-posting link (frontend): gated on canonical_url.startsWith("http") in the
+        tracker detail (P0) AND the /jobs detail + pane (added here) — manual:// renders
+        as plain text, never a broken anchor.
+      - list_jobs / discovery library: filtered here via exclude_source_types=["manual_paste"];
+        Home's topPicks/total/company counts reuse that same endpoint → covered for free.
+      - fetch_jd_from_url / re-fetch / reconciliation: already return-early on non-http
+        schemes (jd_fetch/service.py) and no path iterates the jobs table to re-fetch by url,
+        so a manual:// row is never fetched.
+      - dead_urls / G1-G5 gates: only ever see agent candidate-pool http urls, never the
+        jobs table — a paste row (no fetch) never enters them.
+      - normalize_job_url: already passes any non-http scheme through unchanged (no code needed).
+    """
+    # "url provided" = the key is present (even if empty). An empty/whitespace url
+    # is a malformed URL, not a paste — routing it through ingest_from_url keeps
+    # the original 400 "URL must start with http://…" behaviour rather than a
+    # misleading XOR 422.
+    has_url = body.url is not None
+    has_paste = bool(
+        body.company and body.company.strip()
+        and body.title and body.title.strip()
+        and body.jd_text and body.jd_text.strip()
+    )
+    if has_url == has_paste:  # both supplied, or neither
         raise HTTPException(
-            status_code=400,
-            detail="LinkedIn requires login to view job postings. Please use the direct employer or ATS URL instead.",
+            status_code=422,
+            detail="Provide either `url` or all of `company`+`title`+`jd_text`, not both.",
         )
 
-    from packages.infrastructure.llm.usage_writer import set_llm_context
-    set_llm_context(call_site="manual_import")
-
-    job_repo = JobRepository(db)
-
-    existing = job_repo.get_by_canonical_url(url)
-    if existing:
-        run = RunRepository(db).get(existing.discovered_run_id) if existing.discovered_run_id else None
-        if run and run.workspace_id != workspace.id:
-            raise HTTPException(status_code=409, detail="Job already exists in another workspace.")
-        return JobImportResponse(
-            job=_job_read(existing),
-            created=False,
-            jd_fetched=existing.jd_text is not None,
-        )
-
-    from packages.domain.agent_jobs.ats_providers import extract_board_info
-    from packages.domain.agent_jobs.source_registry import normalize_source_type
-    from packages.infrastructure.jd_fetch import fetch_jd_from_url
-    from packages.infrastructure.llm.client import get_llm_client
-    from packages.infrastructure.llm.jd_extractor import extract_jd_fields
-
-    board_info = extract_board_info(url)
-    if board_info:
-        raw_source_type = board_info[0]
+    if has_url:
+        result = ingest_from_url(db, workspace, body.url)
     else:
-        raw_source_type = "unknown"
-    norm_source_type, norm_provider = normalize_source_type(raw_source_type)
-
-    run_repo = RunRepository(db)
-    task_repo = TaskRepository(db)
-    run = run_repo.create(
-        workspace_id=workspace.id,
-        run_type="manual_import",
-        input_snapshot_json={"url": url, "source": "manual_import"},
-    )
-    task = task_repo.create(
-        run_id=run.id,
-        workspace_id=workspace.id,
-        task_type="manual_import",
-        idempotency_key=f"manual_import:{workspace.id}:{url}",
-    )
-    db.flush()
-
-    jd_fetched = False
-    jd_text = None
-    jd_hash = None
-    jd_structured = None
-    status = "discovered"
-    title = ""
-    company = ""
-    location = None
-
-    if board_info:
-        from packages.domain.agent_jobs.ats_providers import build_api_url, parse_board_response
-        import httpx
-        provider, token = board_info
-        api_url = build_api_url(provider, token)
-        if api_url:
-            try:
-                resp = httpx.get(api_url, timeout=10.0)
-                if resp.status_code == 200:
-                    for bj in parse_board_response(provider, resp.json()):
-                        if bj.url == url:
-                            title = bj.title
-                            company = bj.company
-                            location = bj.location
-                            break
-            except Exception:
-                pass
-        if not company:
-            company = token.replace("-", " ").title()
-
-    try:
-        fetch_result = fetch_jd_from_url(url)
-        if fetch_result.ok and fetch_result.jd_text:
-            jd_text = fetch_result.jd_text
-            jd_hash = fetch_result.jd_hash
-            jd_fetched = True
-            status = "reportable"
-            try:
-                jd_structured = extract_jd_fields(
-                    jd_text=jd_text,
-                    company=company,
-                    title=title,
-                    location=location or "",
-                    llm_client=get_llm_client(),
-                )
-            except Exception:
-                logger.warning("import_job: JD extraction failed for %s", url, exc_info=True)
-    except Exception:
-        logger.warning("import_job: JD fetch failed for %s", url, exc_info=True)
-
-    if not title and jd_text:
-        for line in jd_text.splitlines():
-            line = line.strip()
-            if line.lower().startswith("title:"):
-                title = line[6:].strip()
-                break
-    if not title:
-        slug = url.rstrip("/").split("/")[-1].split("?")[0]
-        title = re.sub(r"[_-](?:JR?\d+)$", "", slug, flags=re.IGNORECASE).replace("-", " ").replace("_", " ").strip().title() or "Imported Job"
-    if not company:
-        from urllib.parse import urlparse
-        hostname = urlparse(url).hostname or ""
-        company = hostname.split(".")[0].replace("-", " ").title() if hostname else ""
-
-    job = job_repo.create(
-        canonical_url=url,
-        source_url=url,
-        source_type=norm_source_type,
-        source_provider=norm_provider,
-        title=title,
-        company=company,
-        jd_text=jd_text,
-        jd_hash=jd_hash,
-        raw_payload_json={
-            "source": "manual_import",
-            "jd_structured": jd_structured,
-            "fetch_status": "success" if jd_fetched else "failed",
-        },
-        status=status,
-        discovered_run_id=run.id,
-        discovered_task_id=task.id,
-    )
-
-    task_repo.mark_succeeded(task.id)
-    run_repo.complete(run.id, status="succeeded", result_summary={
-        "job_id": job.id,
-        "jd_fetched": jd_fetched,
-        "source": "manual_import",
-    })
-    db.commit()
-
-    logger.info("import_job: created job %s from %s (status=%s)", job.id, url, status)
+        result = ingest_from_paste(
+            db, workspace, company=body.company, title=body.title, jd_text=body.jd_text
+        )
 
     return JobImportResponse(
-        job=_job_read(job),
-        created=True,
-        jd_fetched=jd_fetched,
+        job=_job_read(result.job),
+        created=result.created,
+        jd_fetched=result.jd_fetched,
     )
 
 
@@ -376,6 +313,20 @@ def batch_analyze(
 
     workspace_run_ids = {r.id for r in run_repo.list_for_workspace(workspace.id, limit=10_000)}
     profile_id = body.profile_id
+
+    # A client-supplied profile_id is threaded into the fit_report (directly,
+    # and via job_report's auto_fit_profile_id auto-chain) and now actually
+    # selects which profile the fit is scored against — so verify ownership
+    # here, at the entry point, rather than only failing the async run in the
+    # worker. Mirrors the job_discovery/run_reflection cross-workspace checks in
+    # apps/api/routes/runs.py::create_run.
+    if profile_id:
+        profile = ProfileRepository(db).get_by_id(profile_id)
+        if profile is None or profile.workspace_id != workspace.id:
+            raise HTTPException(
+                status_code=403,
+                detail="profile_id does not belong to this workspace.",
+            )
 
     run_ids: list[str] = []
     skipped: list[str] = []
@@ -469,7 +420,14 @@ def get_job(
         report = JobReportRepository(db).get_latest_active(job_id)
 
     is_favorited = JobFavoriteRepository(db).is_favorited(workspace.id, job_id)
-    return _job_read(job, report, include_jd_structured=True, is_favorited=is_favorited)
+    is_not_interested = JobNotInterestedRepository(db).is_not_interested(workspace.id, job_id)
+    return _job_read(
+        job,
+        report,
+        include_jd_structured=True,
+        is_favorited=is_favorited,
+        is_not_interested=is_not_interested,
+    )
 
 
 @router.delete("/{job_id}", status_code=204)
@@ -511,3 +469,31 @@ def unfavorite_job(
     JobFavoriteRepository(db).remove(workspace.id, job_id)
     db.commit()
     return FavoriteResponse(favorited=False)
+
+
+@router.post("/{job_id}/not-interested", response_model=NotInterestedResponse)
+def mark_not_interested(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> NotInterestedResponse:
+    """Dismiss a job as not interested in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobNotInterestedRepository(db).add(workspace.id, job_id)
+    db.commit()
+    return NotInterestedResponse(not_interested=True)
+
+
+@router.delete("/{job_id}/not-interested", response_model=NotInterestedResponse)
+def unmark_not_interested(
+    job_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> NotInterestedResponse:
+    """Remove a job's not-interested dismissal in the current workspace. Idempotent."""
+    _get_workspace_job(db, workspace, job_id)
+
+    JobNotInterestedRepository(db).remove(workspace.id, job_id)
+    db.commit()
+    return NotInterestedResponse(not_interested=False)

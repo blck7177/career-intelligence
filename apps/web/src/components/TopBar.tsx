@@ -4,11 +4,11 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import { UserButton } from "@clerk/nextjs";
-import { Inbox, Bookmark, Search, FileText, Menu, UserRound } from "lucide-react";
+import { Inbox, Bookmark, Search, FileText, ClipboardList, Menu, UserRound } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useApiToken } from "@/hooks/useApiToken";
 import { useCountUp } from "@/hooks/useCountUp";
-import { listJobs, listRuns } from "@/api/client";
+import { listJobs, listRuns, getApplicationsSummary } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetTrigger, SheetContent } from "@/components/ui/sheet";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -40,6 +40,7 @@ const NAV_ITEMS: { href: string; key: string; exact: boolean; icon: LucideIcon; 
   { href: "/jobs", key: "saved", exact: false, icon: Bookmark, badgeType: "neutral", action: "search" },
   { href: "/workspace", key: "searches", exact: false, icon: Search, badgeType: "none", action: "none" },
   { href: "/runs", key: "reports", exact: false, icon: FileText, badgeType: "urgent", action: "run" },
+  { href: "/tracker", key: "tracker", exact: false, icon: ClipboardList, badgeType: "urgent", action: "none" },
 ];
 
 /**
@@ -70,13 +71,15 @@ export function TopBar() {
         listJobs({ status: "discovered", limit: 1 }, token).catch(() => null),
         listJobs({ limit: 1 }, token).catch(() => null),
         listRuns(token).catch(() => null),
-      ]).then(([discovered, all, runs]) => {
+        getApplicationsSummary(token).catch(() => null),
+      ]).then(([discovered, all, runs, appSummary]) => {
         setCounts({
           inbox: discovered?.total ?? 0,
           saved: all?.total ?? 0,
           reports: runs
             ? runs.items.filter((r) => r.status === "running" || r.status === "needs_review").length
             : 0,
+          tracker: appSummary?.today_due ?? 0,
         });
       });
     });

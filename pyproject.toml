@@ -20,6 +20,12 @@ dependencies = [
     # Task queue
     "celery[redis]>=5.4",
     "redis>=5.0",
+    # gevent pool for the "agent" queue: httpx's sync client cooperates with
+    # gevent's monkey-patched socket/ssl automatically, but psycopg2 is a C
+    # extension that bypasses Python's socket module entirely — psycogreen
+    # patches it separately (see celery_app.py's worker_process_init hook).
+    "gevent>=24.2",
+    "psycogreen>=1.0",
 
     # Database
     "sqlalchemy>=2.0",
@@ -52,11 +58,14 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.10",
+    # tests/infrastructure/test_llm_client.py drives the real OpenAI
+    # response-format helpers, so the SDK has to be importable to run the
+    # suite — `pip install -e ".[dev]"` alone must be enough to go green.
+    "openai>=1.30",
 ]
 
 [project.scripts]
 # Platform CLI tools (deterministic, no agent)
-career-query-jobs = "tools.cli.query_jobs:main"
 career-validate-run = "tools.cli.validate_run:main"
 career-summarize-run = "tools.cli.summarize_run:main"
 career-register-board = "tools.cli.register_board:main"

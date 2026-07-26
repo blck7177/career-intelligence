@@ -45,7 +45,7 @@ export interface JobReportLabels {
   problemSolved: (text: string) => string;
 }
 
-function IconChip({ icon: Icon }: { icon: ElementType }) {
+export function IconChip({ icon: Icon }: { icon: ElementType }) {
   return (
     <span className="flex items-center justify-center w-5 h-5 rounded-full shrink-0 bg-[var(--secondary)] text-[var(--secondary-foreground)]">
       <Icon size={11} />
@@ -55,7 +55,7 @@ function IconChip({ icon: Icon }: { icon: ElementType }) {
 
 /** text-[16.5px]/bold — a real step above the 14.5px body text, so the
  * heading no longer relies on the icon alone to read as "this is a heading". */
-function SectionHeading({ icon, children }: { icon: ElementType; children: React.ReactNode }) {
+export function SectionHeading({ icon, children }: { icon: ElementType; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2 text-[16.5px] font-bold mb-2" style={{ color: "var(--ink-primary)" }}>
       <IconChip icon={icon} />

@@ -114,3 +114,48 @@ class TestJobReportCacheHit:
         assert result["status"] == "cache_hit"
         assert result["job_report_id"] == seeded_db["job_report_id"]
         mock_analyze.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Test 3: job_report_id has no separate decoy value — the artifact directory
+# name and the JobReport DB row share the exact same id (regression test for
+# the "rpt_"+hex local variable that used to only name a directory and never
+# match the real primary key).
+# ---------------------------------------------------------------------------
+
+
+class TestJobReportIdIsRealDbId:
+    def test_artifact_dir_uses_real_job_report_id(self, db_session: Session, seeded_db, tmp_path):
+        structured = _make_structured_report()
+
+        with patch(
+            "packages.infrastructure.services.job_report_service.analyze_role",
+            return_value=("# report", structured, "0.2.0"),
+        ), patch(
+            "packages.infrastructure.services.job_report_service.get_taxonomy",
+            return_value={},
+        ), patch(
+            "packages.infrastructure.services.job_report_service.get_llm_client",
+            return_value=None,
+        ), patch(
+            "packages.infrastructure.services.job_report_service._ARTIFACTS_DIR",
+            str(tmp_path),
+        ):
+            result = create_job_report(
+                session=db_session,
+                run_id="run_1",
+                task_id="task_1",
+                workspace_id=seeded_db["workspace_id"],
+                job_id=seeded_db["job_id"],
+                use_research=False,
+                force_refresh=True,
+            )
+
+        row = db_session.get(JobReport, result["job_report_id"])
+        assert row is not None
+        assert not result["job_report_id"].startswith("rpt_"), (
+            "job_report_id must be the real uuid4 DB id, not the old 'rpt_'+hex decoy"
+        )
+        assert (tmp_path / "run_1" / "task_1" / result["job_report_id"]).is_dir(), (
+            "artifact directory must be named after the real DB id"
+        )

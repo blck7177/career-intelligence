@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 
 @dataclass(frozen=True)
@@ -90,6 +91,31 @@ class BoardJob:
     location: str | None = None
     jd_html: str | None = None
     jd_plain: str | None = None
+    # Employer's original posting date, when the ATS exposes it (Greenhouse
+    # first_published/updated_at, Lever createdAt, Ashby publishedAt). None when
+    # absent — never fabricated. UTC-aware.
+    posted_at: datetime | None = None
+
+
+def _parse_ats_iso(raw: object) -> datetime | None:
+    """Parse an ISO-8601 timestamp (Greenhouse/Ashby) → UTC-aware datetime."""
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _parse_ats_epoch_ms(raw: object) -> datetime | None:
+    """Parse an epoch-milliseconds timestamp (Lever createdAt) → UTC datetime."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    try:
+        return datetime.fromtimestamp(raw / 1000, tz=timezone.utc)
+    except (ValueError, OverflowError, OSError):
+        return None
 
 
 def _strip_html(html: str) -> str:
@@ -137,6 +163,9 @@ def _parse_greenhouse(data: object) -> list[BoardJob]:
             location=loc.get("name") if isinstance(loc, dict) else None,
             jd_html=content_html or None,
             jd_plain=_strip_html(content_html) if content_html else None,
+            # first_published is the original posting date (present with
+            # ?content=true); updated_at is a weaker fallback.
+            posted_at=_parse_ats_iso(j.get("first_published")) or _parse_ats_iso(j.get("updated_at")),
         ))
     return result
 
@@ -161,6 +190,7 @@ def _parse_lever(data: object) -> list[BoardJob]:
             location=cats.get("location") if isinstance(cats, dict) else None,
             jd_html=desc_html or None,
             jd_plain=desc_plain or (_strip_html(desc_html) if desc_html else None),
+            posted_at=_parse_ats_epoch_ms(j.get("createdAt")),  # epoch ms
         ))
     return result
 
@@ -187,5 +217,6 @@ def _parse_ashby(data: object) -> list[BoardJob]:
             location=j.get("location") or None,
             jd_html=desc_html or None,
             jd_plain=desc_plain or (_strip_html(desc_html) if desc_html else None),
+            posted_at=_parse_ats_iso(j.get("publishedAt")),
         ))
     return result

@@ -78,11 +78,27 @@ _PRICING: dict[str, tuple[float, float]] = {
 }
 
 
-def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
+# OpenAI's published cached-input discount — cached prompt tokens are billed
+# at half the regular input rate. `cache_read_tokens` is a SUBSET of
+# `prompt_tokens` (per OpenAI's usage.prompt_tokens_details.cached_tokens
+# contract), not additive — verify against current OpenAI pricing docs if
+# this needs to be exact for financial reporting rather than an estimate.
+_CACHE_READ_DISCOUNT = 0.5
+
+
+def estimate_cost(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_read_tokens: int = 0,
+) -> float | None:
     for prefix, (prompt_rate, completion_rate) in _PRICING.items():
         if model.startswith(prefix):
+            cache_read_tokens = max(0, min(cache_read_tokens, prompt_tokens))
+            non_cached_prompt_tokens = prompt_tokens - cache_read_tokens
             return (
-                prompt_tokens * prompt_rate / 1_000_000
+                non_cached_prompt_tokens * prompt_rate / 1_000_000
+                + cache_read_tokens * prompt_rate * _CACHE_READ_DISCOUNT / 1_000_000
                 + completion_tokens * completion_rate / 1_000_000
             )
     return None
@@ -122,10 +138,14 @@ def persist_usage(
             session.add(event)
             session.commit()
     except Exception:
-        logger.warning(
-            "Failed to persist LLM usage event (non-blocking): "
-            "model=%s tokens=%d/%d",
+        # ERROR, not WARNING/debug: this is a real, already-incurred charge
+        # that just failed to land in the cost ledger — worth being loud
+        # enough to actually get noticed by log-based alerting.
+        logger.error(
+            "Failed to persist LLM usage event (non-blocking, cost NOT recorded): "
+            "model=%s tokens=%d/%d run_id=%s task_id=%s",
             model, prompt_tokens, completion_tokens,
+            ctx.run_id if ctx else "", ctx.task_id if ctx else "",
             exc_info=True,
         )
 
@@ -144,13 +164,14 @@ def persist_agent_usage(
     model: str,
     input_tokens: int,
     output_tokens: int,
+    cache_read_tokens: int = 0,
 ) -> None:
     """Write a single llm_usage_events row for an OpenClaw agent invocation."""
     total = input_tokens + output_tokens
     if total == 0:
         return
 
-    cost = estimate_cost(model, input_tokens, output_tokens)
+    cost = estimate_cost(model, input_tokens, output_tokens, cache_read_tokens)
 
     try:
         from packages.infrastructure.db.session import get_session
@@ -171,9 +192,13 @@ def persist_agent_usage(
             session.add(event)
             session.commit()
     except Exception:
-        logger.warning(
-            "Failed to persist agent usage event (non-blocking): "
-            "model=%s tokens=%d/%d",
-            model, input_tokens, output_tokens,
+        # ERROR, not WARNING/debug: this is a real, already-incurred agent
+        # invocation charge that just failed to land in the cost ledger —
+        # worth being loud enough to actually get noticed by log-based
+        # alerting.
+        logger.error(
+            "Failed to persist agent usage event (non-blocking, cost NOT recorded): "
+            "model=%s tokens=%d/%d run_id=%s task_id=%s call_site=%s",
+            model, input_tokens, output_tokens, run_id, task_id, call_site,
             exc_info=True,
         )

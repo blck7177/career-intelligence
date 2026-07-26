@@ -100,7 +100,10 @@ services:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     restart: unless-stopped
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=fast --concurrency=2
+    # -B embeds the beat scheduler in this single worker-fast instance (planner
+    # daily rules). Safe only while worker-fast is one unscaled replica; a second
+    # replica would double-fire the daily beat.
+    command: celery -A apps.worker.celery_app worker -B --loglevel=info --queues=fast --concurrency=2
     env_file:
       - ../../.env.prod
     environment:

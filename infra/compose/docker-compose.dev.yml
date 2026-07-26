@@ -88,6 +88,14 @@ services:
       DEV_AUTH_BYPASS: "${DEV_AUTH_BYPASS:-}"
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/configs edits are picked up on container restart,
+      # without rebuilding the image (matches openclaw-gateway's approach
+      # for agent/openclaw/ — see docker-compose.dev.yml history/dev_note
+      # id_audit_0713 for why api/worker previously required a rebuild).
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,7 +113,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=fast --concurrency=2
+    # -B embeds the beat scheduler in this single worker-fast instance (planner
+    # daily rules). Safe only while worker-fast is one unscaled replica; a second
+    # replica would double-fire the daily beat.
+    command: celery -A apps.worker.celery_app worker -B --loglevel=info --queues=fast --concurrency=2
     env_file:
       - ../../.env
     environment:
@@ -114,6 +125,13 @@ services:
       AGENT_ARTIFACTS_DIR: /app/data/agent_artifacts
     volumes:
       - agent_artifacts:/app/data/agent_artifacts
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,7 +156,12 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/worker.Dockerfile
-    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --concurrency=3
+    # gevent pool. Concurrency matches OpenClaw gateway's own
+    # agents.defaults.maxConcurrent default (4, not overridden in our
+    # openclaw.json) — going higher than the gateway's own ceiling just
+    # queues extra greenlets at the gateway, not more real throughput. See
+    # dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
+    command: celery -A apps.worker.celery_app worker --loglevel=info --queues=agent --pool=gevent --concurrency=4
     network_mode: "service:openclaw-gateway"
     init: true
     cap_drop:
@@ -164,6 +187,13 @@ services:
       - openclaw_state:/openclaw/state
       # Read-only: CLI needs to read agent definitions to route gateway calls.
       - openclaw_config:/openclaw/config:ro
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -236,6 +266,14 @@ services:
       - ../../.env
     environment:
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      # Repo source — read-only. Dev: overrides the build-time COPY so
+      # apps/packages/tools/configs edits are picked up on container
+      # restart, without rebuilding the image.
+      - ../../apps:/app/apps:ro
+      - ../../packages:/app/packages:ro
+      - ../../tools:/app/tools:ro
+      - ../../configs:/app/configs:ro
     depends_on:
       redis:
         condition: service_healthy

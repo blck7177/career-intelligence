@@ -37,11 +37,14 @@ class JobRead(BaseModel):
     title: str
     company: str
     location: Optional[str] = None
-    status: str  # "discovered" | "reportable" | "invalid" | "stale"
+    status: str  # "discovered" | "reportable" | "invalid" | "stale" | "archived"
     discovered_run_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_seen_at: Optional[datetime] = None
+    # Employer's original posting date when the ATS exposed one (else None —
+    # created_at is our ingest time, so the UI degrades "posted Xd" to "seen Xd").
+    posted_at: Optional[datetime] = None
     # Populated when include_report_summary=true (from latest active job report)
     latest_job_report_id: Optional[str] = None
     primary_role_category: Optional[str] = None
@@ -56,6 +59,10 @@ class JobRead(BaseModel):
     jd_source: Optional[str] = None
     # Whether the current workspace has bookmarked this job
     is_favorited: bool = False
+    # Whether the current workspace has dismissed this job as not interested
+    is_not_interested: bool = False
+    # Whether the current workspace already has an application tracked for this job
+    is_applied: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -69,12 +76,28 @@ class FavoriteResponse(BaseModel):
     favorited: bool
 
 
+class NotInterestedResponse(BaseModel):
+    not_interested: bool
+
+
 class JobImportRequest(BaseModel):
-    """Import a single job by URL."""
+    """Import a single job. Provide EITHER `url` (fetch + extract) XOR
+    `company`+`title`+`jd_text` (a pasted JD). The exclusivity is enforced at the
+    route layer (repo convention — not a Pydantic validator)."""
 
-    url: str
+    url: Optional[str] = None
+    company: Optional[str] = None
+    title: Optional[str] = None
+    jd_text: Optional[str] = None
 
-    model_config = {"json_schema_extra": {"examples": [{"url": "https://boards.greenhouse.io/acme/jobs/123"}]}}
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"url": "https://boards.greenhouse.io/acme/jobs/123"},
+                {"company": "Acme", "title": "Risk Analyst", "jd_text": "About the role…"},
+            ]
+        }
+    }
 
 
 class JobImportResponse(BaseModel):

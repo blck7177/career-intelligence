@@ -312,7 +312,13 @@ class TestProfileImportDraftSchema:
         draft_only = {"parse_notes", "clean_resume"}
         # update-only: user-set fields not extracted from resume
         update_only = {"label"}
-        actual_missing = update_fields - draft_fields - draft_only - update_only
+        # renamed: extracted from the resume but under a different draft field
+        # name — apps/worker/tasks/profile_import.py maps draft.clean_resume ->
+        # profile_fields["structured_resume_json"] before handing off to the
+        # frontend, so ProfileUpdate.structured_resume_json has no
+        # identically-named counterpart on ProfileImportDraft itself.
+        renamed = {"structured_resume_json"}
+        actual_missing = update_fields - draft_fields - draft_only - update_only - renamed
         assert actual_missing == set(), (
             f"ProfileImportDraft is missing fields from ProfileUpdate: "
             f"{actual_missing}"

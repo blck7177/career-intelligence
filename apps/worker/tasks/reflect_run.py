@@ -44,7 +44,7 @@ from packages.domain.strategy_state import (
     normalize_strategy_patch_raw,
     validate_strategy_patch,
 )
-from packages.infrastructure.agent_runtime.openclaw import create_runtime
+from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
@@ -166,7 +166,7 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = create_runtime()
+    runtime = create_http_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)
@@ -180,6 +180,19 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
         )
 
     result = runtime.invoke(spec)
+
+    # Record usage BEFORE any other post-invoke step — result.usage reflects
+    # a real, already-billed charge the moment invoke() returns, and a disk
+    # or DB error further down must not be able to drop it.
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.run_reflection",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cache_read_tokens=result.usage.cache_read_tokens,
+        )
 
     # ------------------------------------------------------------------
     # Step 6: Update invocation record with result
@@ -205,15 +218,6 @@ def handle_reflect_run(env: TaskEnvelope) -> dict:
             stderr_uri=stderr_path,
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
-        )
-
-    if result.usage:
-        from packages.infrastructure.llm.usage_writer import persist_agent_usage
-        persist_agent_usage(
-            run_id=env.run_id, task_id=env.task_id,
-            workspace_id=env.workspace_id, call_site="agent.run_reflection",
-            model=result.usage.model, input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
         )
 
     if result.exit_code != 0 or result.timed_out:

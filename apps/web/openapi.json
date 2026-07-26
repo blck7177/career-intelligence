@@ -361,6 +361,18 @@
             "description": "Only return jobs bookmarked in this workspace"
           },
           {
+            "name": "not_interested_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only return jobs dismissed as not interested in this workspace",
+              "default": false,
+              "title": "Not Interested Only"
+            },
+            "description": "Only return jobs dismissed as not interested in this workspace"
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -430,7 +442,7 @@
           "jobs"
         ],
         "summary": "Import Job",
-        "description": "Import a single job by URL: fetch JD, extract fields, persist.",
+        "description": "Import a single job \u2014 two feed chutes into one pipeline (job_ingest_service):\nEITHER `url` (fetch + extract) XOR `company`+`title`+`jd_text` (a pasted JD).\n\nW1 http-assumption audit \u2014 the paste path stores a synthetic manual://<ws>/<hash>\ncanonical url, so every place that assumes canonical_url is http(s) was checked:\n  - view-posting link (frontend): gated on canonical_url.startsWith(\"http\") in the\n    tracker detail (P0) AND the /jobs detail + pane (added here) \u2014 manual:// renders\n    as plain text, never a broken anchor.\n  - list_jobs / discovery library: filtered here via exclude_source_types=[\"manual_paste\"];\n    Home's topPicks/total/company counts reuse that same endpoint \u2192 covered for free.\n  - fetch_jd_from_url / re-fetch / reconciliation: already return-early on non-http\n    schemes (jd_fetch/service.py) and no path iterates the jobs table to re-fetch by url,\n    so a manual:// row is never fetched.\n  - dead_urls / G1-G5 gates: only ever see agent candidate-pool http urls, never the\n    jobs table \u2014 a paste row (no fetch) never enters them.\n  - normalize_job_url: already passes any non-http scheme through unchanged (no code needed).",
         "operationId": "import_job_api_app_jobs_import_post",
         "parameters": [
           {
@@ -839,6 +851,122 @@
         }
       }
     },
+    "/api/app/jobs/{job_id}/not-interested": {
+      "post": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Mark Not Interested",
+        "description": "Dismiss a job as not interested in the current workspace. Idempotent.",
+        "operationId": "mark_not_interested_api_app_jobs__job_id__not_interested_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotInterestedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "jobs"
+        ],
+        "summary": "Unmark Not Interested",
+        "description": "Remove a job's not-interested dismissal in the current workspace. Idempotent.",
+        "operationId": "unmark_not_interested_api_app_jobs__job_id__not_interested_delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotInterestedResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/app/job-reports/{job_report_id}": {
       "get": {
         "tags": [
@@ -1219,7 +1347,7 @@
           "profile"
         ],
         "summary": "Upsert Profile",
-        "description": "Create or update the default profile for the current workspace.",
+        "description": "Create or update the default profile for the current workspace.\n\n\"Default\" = the most-recently-updated profile for this workspace (see\nProfileRepository.get_for_workspace) \u2014 ambiguous the moment a workspace has\nmore than one profile, since which row that resolves to depends on edit\norder, not caller intent. In a multi-profile workspace, target a specific\nprofile deterministically via PUT /api/app/profiles/{profile_id} instead.",
         "operationId": "upsert_profile_api_app_profile_put",
         "parameters": [
           {
@@ -1612,6 +1740,973 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "List Applications",
+        "operationId": "list_applications_api_app_applications_get",
+        "parameters": [
+          {
+            "name": "status_group",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "planned | active | closed",
+              "title": "Status Group"
+            },
+            "description": "planned | active | closed"
+          },
+          {
+            "name": "needs_action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only applications with a due pending action",
+              "default": false,
+              "title": "Needs Action"
+            },
+            "description": "Only applications with a due pending action"
+          },
+          {
+            "name": "include_fit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Populate fit_score per row (one batched query \u2014 for the planned queue)",
+              "default": false,
+              "title": "Include Fit"
+            },
+            "description": "Populate fit_score per row (one batched query \u2014 for the planned queue)"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Create Application",
+        "operationId": "create_application_api_app_applications_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications/summary": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Applications Summary",
+        "operationId": "get_applications_summary_api_app_applications_summary_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationSummary"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications/funnel": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Funnel",
+        "description": "Pipeline stages + advisory alerts for the Plan view's Pipeline zone.\n(Declared before /{application_id} so 'funnel' isn't captured as an id.)",
+        "operationId": "get_funnel_api_app_applications_funnel_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FunnelResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications/{application_id}": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Application",
+        "operationId": "get_application_api_app_applications__application_id__get",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Update Application",
+        "operationId": "update_application_api_app_applications__application_id__patch",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications/{application_id}/transition": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Transition Application",
+        "operationId": "transition_application_api_app_applications__application_id__transition_post",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusTransition"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/applications/{application_id}/events": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Add Application Event",
+        "description": "Append a timeline event. event_type is whitelisted to note |\ninterview_scheduled (the enum rejects a forged status_changed); cross-field\nrequirements are checked here.",
+        "operationId": "add_application_event_api_app_applications__application_id__events_post",
+        "parameters": [
+          {
+            "name": "application_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Application Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplicationEventCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationEventRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/actions": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Create Action",
+        "operationId": "create_action_api_app_actions_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "List Actions",
+        "operationId": "list_actions_api_app_actions_get",
+        "parameters": [
+          {
+            "name": "due_on_or_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: now \u2014 the Today view's cutoff",
+              "title": "Due On Or Before"
+            },
+            "description": "Default: now \u2014 the Today view's cutoff"
+          },
+          {
+            "name": "include_undated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Undated"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/actions/{action_id}": {
+      "patch": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Update Action",
+        "operationId": "update_action_api_app_actions__action_id__patch",
+        "parameters": [
+          {
+            "name": "action_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action Id"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/planner-settings": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Settings",
+        "operationId": "get_planner_settings_api_app_planner_settings_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Update Planner Settings",
+        "description": "Partial update: merge the set fields over the stored JSON, re-validate the\nwhole result through PlannerSettings (bounds + timezone/weekday/date checks \u2192\n422), then persist the validated blob. Returns the full effective settings.",
+        "operationId": "update_planner_settings_api_app_planner_settings_put",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerSettingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/planner-stats": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Stats",
+        "description": "This-week triplet: applied / outreach(networking done) / follow_ups(done)\nvs the weekly targets. Week = Mon..Sun in settings.timezone.",
+        "operationId": "get_planner_stats_api_app_planner_stats_get",
+        "parameters": [
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date in the target week; default = this week",
+              "title": "Week"
+            },
+            "description": "ISO date in the target week; default = this week"
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/planner-review": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Review",
+        "description": "The most recent weekly review for the Plan view's Review zone, or null\n(200) when none has been generated yet. Reviews are written by the weekly\nCelery beat; narrative_md is null when generation degraded to the\nnumber-only template (degraded == True \u2192 the card renders stats only).",
+        "operationId": "get_planner_review_api_app_planner_review_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/WeeklyReviewRead"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Get Planner Review Api App Planner Review Get"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -2200,6 +3295,196 @@
   },
   "components": {
     "schemas": {
+      "ActionCreate": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "apply",
+              "follow_up",
+              "networking",
+              "prep",
+              "thank_you",
+              "custom",
+              "global"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application Id"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "title"
+        ],
+        "title": "ActionCreate"
+      },
+      "ActionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActionRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ActionList"
+      },
+      "ActionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "auto_generated": {
+            "type": "boolean",
+            "title": "Auto Generated"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "title",
+          "status",
+          "auto_generated",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ActionRead"
+      },
+      "ActionUpdate": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "snooze",
+              "dismiss"
+            ],
+            "title": "Op"
+          },
+          "snooze_days": {
+            "type": "integer",
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Snooze Days",
+            "default": 1
+          },
+          "snooze_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snooze Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "op"
+        ],
+        "title": "ActionUpdate"
+      },
       "AgentInvocationRead": {
         "properties": {
           "id": {
@@ -2300,6 +3585,864 @@
           "created_at"
         ],
         "title": "AgentInvocationRead"
+      },
+      "ApplicationCreate": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "applied"
+            ],
+            "title": "Status",
+            "default": "planned"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "excitement": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excitement"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "resume_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Run Id"
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
+          },
+          "contact_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Note"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id"
+        ],
+        "title": "ApplicationCreate",
+        "description": "Create an application for an existing job. status is limited to the two\nentry states; later moves go through the transition endpoint."
+      },
+      "ApplicationDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "excitement": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excitement"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "resume_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Run Id"
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
+          },
+          "contact_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Note"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "closed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationJobRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Due At"
+          },
+          "next_action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Type"
+          },
+          "fit_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Score"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ApplicationEventRead"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActionRead"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "fit_report_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Report Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ApplicationDetail"
+      },
+      "ApplicationEventCreate": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "note",
+              "interview_scheduled"
+            ],
+            "title": "Event Type",
+            "default": "note"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "recruiter_screen",
+                  "phone",
+                  "onsite",
+                  "final"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "title": "ApplicationEventCreate",
+        "description": "Body for POST /applications/{id}/events. Two whitelisted kinds (the client\ncannot forge status_changed \u2014 the enum rejects it):\n  - note (default): a freeform timeline note (message required).\n  - interview_scheduled: a scheduled round (round_type + at required); the\n    rules engine reads these to drive thank_you/check_in.\nCross-field requirements are enforced at the route layer (repo convention)."
+      },
+      "ApplicationEventRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "payload_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload Json"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "event_type",
+          "created_at"
+        ],
+        "title": "ApplicationEventRead"
+      },
+      "ApplicationJobRef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "company",
+          "canonical_url",
+          "status"
+        ],
+        "title": "ApplicationJobRef",
+        "description": "Lean projection of the referenced Job for list/detail rows."
+      },
+      "ApplicationList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ApplicationRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "ApplicationList"
+      },
+      "ApplicationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "excitement": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excitement"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "resume_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Run Id"
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
+          },
+          "contact_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Note"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "closed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationJobRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action_due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Due At"
+          },
+          "next_action_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action Type"
+          },
+          "fit_score": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fit Score"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ApplicationRead"
+      },
+      "ApplicationSummary": {
+        "properties": {
+          "today_due": {
+            "type": "integer",
+            "title": "Today Due"
+          },
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "planned": {
+            "type": "integer",
+            "title": "Planned"
+          },
+          "needs_action": {
+            "type": "integer",
+            "title": "Needs Action"
+          },
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "today_due",
+          "active",
+          "planned",
+          "needs_action",
+          "by_status"
+        ],
+        "title": "ApplicationSummary",
+        "description": "Counts for the TopBar badge + Home StatStrip."
+      },
+      "ApplicationUpdate": {
+        "properties": {
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "excitement": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 3.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excitement"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "resume_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Run Id"
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
+          },
+          "contact_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Note"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "closed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed Reason"
+          }
+        },
+        "type": "object",
+        "title": "ApplicationUpdate",
+        "description": "Partial field edit. Excludes status (transition endpoint) and the\nimmutable job_id/workspace_id."
       },
       "BatchAnalyzeRequest": {
         "properties": {
@@ -2575,6 +4718,17 @@
             "type": "boolean",
             "title": "Force Refresh",
             "default": false
+          },
+          "profile_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Id"
           }
         },
         "type": "object",
@@ -2780,6 +4934,88 @@
         ],
         "title": "FitReportSummaryList"
       },
+      "FunnelAlert": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Application Id"
+          },
+          "message_key": {
+            "type": "string",
+            "title": "Message Key"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "severity",
+          "message_key"
+        ],
+        "title": "FunnelAlert"
+      },
+      "FunnelResponse": {
+        "properties": {
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelAlert"
+            },
+            "type": "array",
+            "title": "Alerts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stages",
+          "alerts"
+        ],
+        "title": "FunnelResponse",
+        "description": "Pipeline health for the Plan view's Pipeline zone."
+      },
+      "FunnelStage": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "count"
+        ],
+        "title": "FunnelStage"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2948,19 +5184,61 @@
       "JobImportRequest": {
         "properties": {
           "url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Url"
+          },
+          "company": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "jd_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jd Text"
           }
         },
         "type": "object",
-        "required": [
-          "url"
-        ],
         "title": "JobImportRequest",
-        "description": "Import a single job by URL.",
+        "description": "Import a single job. Provide EITHER `url` (fetch + extract) XOR\n`company`+`title`+`jd_text` (a pasted JD). The exclusivity is enforced at the\nroute layer (repo convention \u2014 not a Pydantic validator).",
         "examples": [
           {
             "url": "https://boards.greenhouse.io/acme/jobs/123"
+          },
+          {
+            "company": "Acme",
+            "jd_text": "About the role\u2026",
+            "title": "Risk Analyst"
           }
         ]
       },
@@ -3082,6 +5360,18 @@
             ],
             "title": "Last Seen At"
           },
+          "posted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Posted At"
+          },
           "latest_job_report_id": {
             "anyOf": [
               {
@@ -3150,6 +5440,16 @@
           "is_favorited": {
             "type": "boolean",
             "title": "Is Favorited",
+            "default": false
+          },
+          "is_not_interested": {
+            "type": "boolean",
+            "title": "Is Not Interested",
+            "default": false
+          },
+          "is_applied": {
+            "type": "boolean",
+            "title": "Is Applied",
             "default": false
           }
         },
@@ -3453,6 +5753,298 @@
         ],
         "title": "LLMUsageEventRead"
       },
+      "NotInterestedResponse": {
+        "properties": {
+          "not_interested": {
+            "type": "boolean",
+            "title": "Not Interested"
+          }
+        },
+        "type": "object",
+        "required": [
+          "not_interested"
+        ],
+        "title": "NotInterestedResponse"
+      },
+      "PlannerSettings": {
+        "properties": {
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "default": "America/New_York"
+          },
+          "weekly_target": {
+            "$ref": "#/components/schemas/WeeklyTarget"
+          },
+          "daily_cap_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Daily Cap Minutes",
+            "default": 90
+          },
+          "rest_days": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rest Days"
+          },
+          "follow_up_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Follow Up Days",
+            "default": 7
+          },
+          "ghost_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Ghost Days",
+            "default": 14
+          },
+          "interview_checkin_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Interview Checkin Days",
+            "default": 7
+          },
+          "fresh_window_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Fresh Window Days",
+            "default": 3
+          },
+          "apply_or_drop_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Apply Or Drop Days",
+            "default": 14
+          },
+          "onsite_target": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Onsite Target",
+            "default": 4
+          },
+          "active_target": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Active Target",
+            "default": 15
+          },
+          "review_day": {
+            "type": "string",
+            "title": "Review Day",
+            "default": "sun"
+          },
+          "search_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Started At"
+          }
+        },
+        "type": "object",
+        "title": "PlannerSettings",
+        "description": "All planner-tunable numbers, with product defaults. Read merges the stored\nworkspaces.planner_settings_json over these defaults; PUT /planner-settings\n(W6) validates a merged result through THIS model, so every constraint /\nvalidator below is the write-path's guard too."
+      },
+      "PlannerSettingsUpdate": {
+        "properties": {
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "weekly_target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WeeklyTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "daily_cap_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Cap Minutes"
+          },
+          "rest_days": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rest Days"
+          },
+          "follow_up_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Days"
+          },
+          "ghost_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ghost Days"
+          },
+          "interview_checkin_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interview Checkin Days"
+          },
+          "fresh_window_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fresh Window Days"
+          },
+          "apply_or_drop_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Or Drop Days"
+          },
+          "onsite_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Onsite Target"
+          },
+          "active_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Target"
+          },
+          "review_day": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Day"
+          },
+          "search_started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Started At"
+          }
+        },
+        "type": "object",
+        "title": "PlannerSettingsUpdate",
+        "description": "Partial update for PUT /planner-settings \u2014 every field optional so the\nclient can send only what changed. The route merges the set fields over the\nstored JSON and re-validates the result through PlannerSettings (that model\nowns the bounds/validators), so this mirror carries types only."
+      },
+      "PlannerStats": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "applied": {
+            "type": "integer",
+            "title": "Applied"
+          },
+          "outreach": {
+            "type": "integer",
+            "title": "Outreach"
+          },
+          "follow_ups": {
+            "type": "integer",
+            "title": "Follow Ups"
+          },
+          "weekly_target": {
+            "$ref": "#/components/schemas/WeeklyTarget"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "applied",
+          "outreach",
+          "follow_ups",
+          "weekly_target"
+        ],
+        "title": "PlannerStats",
+        "description": "This-week triplet for the Plan view: done-vs-target on the three weekly\ncadence dimensions (Job Search Quality Scale 2022)."
+      },
       "ProfileImportInput": {
         "properties": {
           "resume_text": {
@@ -3616,6 +6208,18 @@
               }
             ],
             "title": "Search Defaults"
+          },
+          "structured_resume_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structured Resume Json"
           }
         },
         "type": "object",
@@ -4201,6 +6805,45 @@
         "title": "RunResultSummary",
         "description": "Structured diagnostic payload written by the worker at run completion.\n\nPopulated for both terminal statuses:\n  - validation_status=\"passed\"  \u2192 run succeeded; candidate_count / job_ids present\n  - validation_status=\"failed\"  \u2192 run needs_review; phase / failed_validators present\n\nAll fields except validation_status are Optional because the exact set depends\non which execution phase produced the summary."
       },
+      "StatusTransition": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "applied",
+              "in_review",
+              "interviewing",
+              "offer",
+              "rejected",
+              "withdrawn",
+              "ghosted"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "force": {
+            "type": "boolean",
+            "title": "Force",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "StatusTransition"
+      },
       "TaskEventRead": {
         "properties": {
           "id": {
@@ -4442,6 +7085,153 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WeeklyReviewRead": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/WeeklyReviewStats"
+          },
+          "narrative_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative Md"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "default": false
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "stats",
+          "generated_at"
+        ],
+        "title": "WeeklyReviewRead",
+        "description": "One weekly review for the Plan view's Review zone. `narrative_md` is the\nLLM summary; when it is None the generation degraded to the pure-number\ntemplate (`degraded == True`) and the card renders stats-only."
+      },
+      "WeeklyReviewStats": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "applied": {
+            "type": "integer",
+            "title": "Applied"
+          },
+          "outreach": {
+            "type": "integer",
+            "title": "Outreach"
+          },
+          "follow_ups": {
+            "type": "integer",
+            "title": "Follow Ups"
+          },
+          "weekly_target": {
+            "$ref": "#/components/schemas/WeeklyTarget"
+          },
+          "funnel": {
+            "items": {
+              "$ref": "#/components/schemas/FunnelStage"
+            },
+            "type": "array",
+            "title": "Funnel"
+          },
+          "by_lane": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Lane"
+          },
+          "by_channel": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Channel"
+          },
+          "applied_total": {
+            "type": "integer",
+            "title": "Applied Total"
+          },
+          "reached_interview": {
+            "type": "integer",
+            "title": "Reached Interview"
+          },
+          "interview_rate": {
+            "type": "number",
+            "title": "Interview Rate"
+          },
+          "benchmark_interview_rate": {
+            "type": "number",
+            "title": "Benchmark Interview Rate",
+            "default": 0.08
+          },
+          "replies_are_manual": {
+            "type": "boolean",
+            "title": "Replies Are Manual",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "applied",
+          "outreach",
+          "follow_ups",
+          "weekly_target",
+          "funnel",
+          "applied_total",
+          "reached_interview",
+          "interview_rate"
+        ],
+        "title": "WeeklyReviewStats",
+        "description": "The deterministic numbers a weekly review is built from \u2014 computed by the\nPURE aggregator (packages/domain/planner/weekly.py) and stored verbatim in\nplanner_reviews.stats_json. Also the payload the LLM narrates from."
+      },
+      "WeeklyTarget": {
+        "properties": {
+          "apply": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Apply",
+            "default": 10
+          },
+          "outreach": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Outreach",
+            "default": 5
+          },
+          "follow_up": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Follow Up",
+            "default": 6
+          }
+        },
+        "type": "object",
+        "title": "WeeklyTarget"
       },
       "WorkspaceRead": {
         "properties": {

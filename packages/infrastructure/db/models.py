@@ -15,12 +15,13 @@ Rules (enforced here and in AGENTS.md):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -149,6 +150,11 @@ class Workspace(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    # Per-workspace planner configuration (weekly targets, follow-up/ghost
+    # thresholds, rest days, ...) as one JSON blob. Null = use code defaults;
+    # the read layer merges this over the PlannerSettings defaults. UI to edit
+    # it lands in P1 — P0 only reads defaults.
+    planner_settings_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     runs: Mapped[list["Run"]] = relationship(back_populates="workspace")
     members: Mapped[list["WorkspaceMember"]] = relationship(back_populates="workspace")
@@ -456,7 +462,15 @@ class Job(Base):
     jd_hash: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     raw_payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(
-        Enum("discovered", "reportable", "invalid", "stale", name="job_status"),
+        # 'archived' is a legacy per-user workflow value (added to the DB enum
+        # by migration r9s0t1u2v3w4 but never to this model, which made ORM
+        # hydration of archived rows raise LookupError). It belongs in
+        # workspace_jobs.user_status and will move there; listed here so
+        # existing rows load. Postgres can't drop an enum value, so it remains.
+        Enum(
+            "discovered", "reportable", "invalid", "stale", "archived",
+            name="job_status",
+        ),
         nullable=False,
         default="discovered",
     )
@@ -469,6 +483,36 @@ class Job(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Employer's original posting date, captured from the ATS board API when it
+    # exposes one (Greenhouse/Lever/Ashby). NULL when unknown — created_at is our
+    # ingest time, not the posting date, so "posted Xd" falls back to "seen Xd".
+    posted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class DeadUrl(Base):
+    """A job-posting URL confirmed dead on arrival — HTTP 404/410, or a page
+    that loads (200) but says the posting is closed. Recorded here instead of
+    creating a zombie 'discovered' job row, and used as a negative cache so the
+    same dead URL isn't re-fetched on every discovery run. url_hash is over the
+    normalized URL (see url_normalize). Revival is left to a later liveness
+    sweep; a 404 rarely comes back."""
+
+    __tablename__ = "dead_urls"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    url_hash: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)  # http_404 | http_410 | closed_posting
+    http_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    times_seen: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    discovered_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class JobReport(Base):
@@ -540,6 +584,28 @@ class JobFavorite(Base):
     __tablename__ = "job_favorites"
     __table_args__ = (
         UniqueConstraint("workspace_id", "job_id", name="uq_job_favorites_workspace_job"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class JobNotInterested(Base):
+    """Workspace-private dismissal of a job. Structurally identical to
+    JobFavorite — Favorite already carries the positive "interested" signal,
+    so this only needs to exist for the negative one."""
+
+    __tablename__ = "job_not_interested"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "job_id", name="uq_job_not_interested_workspace_job"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -644,4 +710,147 @@ class SearchStrategyStateRow(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+# ---------------------------------------------------------------------------
+# Application Tracker — workspace-private application tracking + planner
+# (migration c0d1e2f3g4h5). Keep columns/indexes in sync with that migration.
+# ---------------------------------------------------------------------------
+
+
+class JobApplication(Base):
+    """One row per application the user is tracking (submitted or planned).
+
+    Workspace-private, mirroring the JobFavorite split: a Job is global/shared,
+    while an *application* to it is per-workspace intent data. Every application
+    references a job row (job_id NOT NULL): the job is created either by URL
+    import or from a pasted JD (synthetic manual:// canonical_url) — both via the
+    shared manual_import ingest pipeline. There are no bare/off-platform rows.
+
+    Status machine (planned -> applied -> in_review -> interviewing -> offer,
+    plus rejected|withdrawn|ghosted from any live state) lives in
+    packages/domain/applications/transitions.py. Interview *rounds* are
+    application_events, not statuses. `ghosted` is a suggested terminal marker
+    (proposed by the planner, confirmed by the user).
+    """
+
+    __tablename__ = "job_applications"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "job_id", name="uq_job_applications_workspace_job"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    job_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("jobs.id"), nullable=False, index=True
+    )
+    profile_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("candidate_profiles.id"), nullable=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="planned", index=True)
+    lane: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)  # a | b | c
+    excitement: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 1-3 gut feel
+    channel: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resume_run_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    contact_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    contact_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    closed_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    events: Mapped[list["ApplicationEvent"]] = relationship(back_populates="application")
+    actions: Mapped[list["ApplicationAction"]] = relationship(back_populates="application")
+
+
+class ApplicationEvent(Base):
+    """Append-only timeline for an application: status changes, follow-ups,
+    interview scheduling (datetime + round type in payload_json), email matches
+    (P2). Same shape as TaskEvent. workspace_id is denormalized (copied from the
+    parent) so Today/summary queries need no join — matches the migration, which
+    puts no FK on it."""
+
+    __tablename__ = "application_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    application_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("job_applications.id"), nullable=False, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    application: Mapped["JobApplication"] = relationship(back_populates="events")
+
+
+class ApplicationAction(Base):
+    """A planner to-do. The "Today" view is a query over this table. Most rows
+    are auto-generated by the (P1) rules engine; users can add rows manually.
+    application_id is nullable for global actions (e.g. "run a discovery to
+    refill the queue")."""
+
+    __tablename__ = "application_actions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    application_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("job_applications.id"), nullable=True, index=True
+    )
+    # apply | follow_up | networking | prep | thank_you | custom | global
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # pending | done | snoozed | dismissed
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
+    auto_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    application: Mapped[Optional["JobApplication"]] = relationship(back_populates="actions")
+
+
+class PlannerReview(Base):
+    """One weekly review per (workspace, ISO-week) — the planner's Review zone.
+
+    Written by the weekly Celery beat (Sun night, per settings.timezone). Holds
+    the deterministic aggregate (stats_json, a WeeklyReviewStats dump) plus an
+    optional LLM narrative; narrative_md is NULL when generation degraded to the
+    pure-number template. Re-running the beat upserts on (workspace_id,
+    week_start) rather than inserting a duplicate."""
+
+    __tablename__ = "planner_reviews"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "week_start", name="uq_planner_reviews_workspace_week"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    # Monday of the reviewed week, in the workspace's settings.timezone.
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    stats_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    narrative_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -44,3 +44,6 @@ backups/
 .idea/
 .vscode/
 *.swp
+
+# Stray personal working files (not part of the codebase)
+/revised_resume_jpmorgan.md

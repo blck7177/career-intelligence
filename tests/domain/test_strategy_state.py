@@ -181,7 +181,11 @@ class TestMaterializeDiscoveryHints:
 
         assert "https://boards.greenhouse.io/acme" in src.known_boards
         assert "linkedin.com/jobs" not in src.known_boards
-        assert src.avoid_sources == ["blocked.com — 403"]
+        # Blocked/403 sources are annotated so the agent retries them when no
+        # alternative exists (materialize_discovery_hints).
+        assert src.avoid_sources == [
+            "blocked.com — 403 (may be temporary — retry if no alternatives)"
+        ]
         assert any("market_risk" in g.lower() or "Market Risk" in g for g in diag.coverage_gaps)
         assert diag.recommended_next_searches == ["Retry valuation control with broader titles"]
         assert any("Avoid query pattern" in l for l in diag.key_learnings)

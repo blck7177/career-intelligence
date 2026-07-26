@@ -38,6 +38,24 @@ export type ProfileRead = components["schemas"]["ProfileRead"];
 export type ProfileUpdate = components["schemas"]["ProfileUpdate"];
 export type FitReportSummary = components["schemas"]["FitReportSummary"];
 export type FitReportSummaryList = components["schemas"]["FitReportSummaryList"];
+export type ApplicationRead = components["schemas"]["ApplicationRead"];
+export type ApplicationDetail = components["schemas"]["ApplicationDetail"];
+export type ApplicationList = components["schemas"]["ApplicationList"];
+export type ApplicationCreate = components["schemas"]["ApplicationCreate"];
+export type ApplicationUpdate = components["schemas"]["ApplicationUpdate"];
+export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
+export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
+export type FunnelResponse = components["schemas"]["FunnelResponse"];
+export type PlannerStats = components["schemas"]["PlannerStats"];
+export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
+export type WeeklyReviewStats = components["schemas"]["WeeklyReviewStats"];
+export type StatusTransition = components["schemas"]["StatusTransition"];
+export type ActionRead = components["schemas"]["ActionRead"];
+export type ActionList = components["schemas"]["ActionList"];
+export type ActionCreate = components["schemas"]["ActionCreate"];
+export type ActionUpdate = components["schemas"]["ActionUpdate"];
+export type PlannerSettings = components["schemas"]["PlannerSettings"];
+export type PlannerSettingsUpdate = components["schemas"]["PlannerSettingsUpdate"];
 
 // ---------------------------------------------------------------------------
 // Base URL
@@ -161,6 +179,7 @@ export async function listJobs(
     status?: string;
     include_report_summary?: boolean;
     favorites_only?: boolean;
+    not_interested_only?: boolean;
     limit?: number;
     offset?: number;
   },
@@ -170,6 +189,7 @@ export async function listJobs(
   if (params?.status) qs.set("status", params.status);
   if (params?.include_report_summary) qs.set("include_report_summary", "true");
   if (params?.favorites_only) qs.set("favorites_only", "true");
+  if (params?.not_interested_only) qs.set("not_interested_only", "true");
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
   const query = qs.toString();
@@ -206,6 +226,28 @@ export async function unfavoriteJob(
   );
 }
 
+export async function markJobNotInterested(
+  jobId: string,
+  token?: string | null,
+): Promise<{ not_interested: boolean }> {
+  return req<{ not_interested: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/not-interested`,
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function unmarkJobNotInterested(
+  jobId: string,
+  token?: string | null,
+): Promise<{ not_interested: boolean }> {
+  return req<{ not_interested: boolean }>(
+    `/api/app/jobs/${encodeURIComponent(jobId)}/not-interested`,
+    { method: "DELETE" },
+    token,
+  );
+}
+
 export async function batchArchiveJobs(
   jobIds: string[],
   token?: string | null,
@@ -216,13 +258,17 @@ export async function batchArchiveJobs(
   }, token);
 }
 
+export type JobImportBody =
+  | { url: string }
+  | { company: string; title: string; jd_text: string };
+
 export async function importJob(
-  url: string,
+  body: JobImportBody,
   token?: string | null,
 ): Promise<{ job: JobRead; created: boolean; jd_fetched: boolean }> {
   return req<{ job: JobRead; created: boolean; jd_fetched: boolean }>("/api/app/jobs/import", {
     method: "POST",
-    body: JSON.stringify({ url }),
+    body: JSON.stringify(body),
   }, token);
 }
 
@@ -235,6 +281,154 @@ export async function batchAnalyzeJobs(
     method: "POST",
     body: JSON.stringify({ job_ids: jobIds, profile_id: profileId }),
   }, token);
+}
+
+// ---------------------------------------------------------------------------
+// Applications  (/api/app/applications/*, /api/app/actions/*)
+// ---------------------------------------------------------------------------
+
+export async function listApplications(
+  params?: { status_group?: string; needs_action?: boolean; include_fit?: boolean; limit?: number; offset?: number },
+  token?: string | null,
+): Promise<ApplicationList> {
+  const qs = new URLSearchParams();
+  if (params?.status_group) qs.set("status_group", params.status_group);
+  if (params?.needs_action) qs.set("needs_action", "true");
+  if (params?.include_fit) qs.set("include_fit", "true");
+  if (params?.limit) qs.set("limit", String(params.limit));
+  if (params?.offset) qs.set("offset", String(params.offset));
+  const query = qs.toString();
+  return req<ApplicationList>(`/api/app/applications${query ? `?${query}` : ""}`, undefined, token);
+}
+
+export async function getApplication(
+  applicationId: string,
+  token?: string | null,
+): Promise<ApplicationDetail> {
+  return req<ApplicationDetail>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}`,
+    undefined,
+    token,
+  );
+}
+
+export async function createApplication(
+  body: ApplicationCreate,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    "/api/app/applications",
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function updateApplication(
+  applicationId: string,
+  body: ApplicationUpdate,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function transitionApplication(
+  applicationId: string,
+  body: StatusTransition,
+  token?: string | null,
+): Promise<ApplicationRead> {
+  return req<ApplicationRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}/transition`,
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function getApplicationsSummary(
+  token?: string | null,
+): Promise<ApplicationSummary> {
+  return req<ApplicationSummary>("/api/app/applications/summary", undefined, token);
+}
+
+export async function getFunnel(token?: string | null): Promise<FunnelResponse> {
+  return req<FunnelResponse>("/api/app/applications/funnel", undefined, token);
+}
+
+export type ApplicationEventBody =
+  | { event_type?: "note"; message: string }
+  | { event_type: "interview_scheduled"; round_type: string; at: string; message?: string };
+
+export async function addApplicationEvent(
+  applicationId: string,
+  body: ApplicationEventBody,
+  token?: string | null,
+): Promise<ApplicationEventRead> {
+  return req<ApplicationEventRead>(
+    `/api/app/applications/${encodeURIComponent(applicationId)}/events`,
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function listActions(
+  params?: { due_on_or_before?: string; include_undated?: boolean },
+  token?: string | null,
+): Promise<ActionList> {
+  const qs = new URLSearchParams();
+  if (params?.due_on_or_before) qs.set("due_on_or_before", params.due_on_or_before);
+  if (params?.include_undated === false) qs.set("include_undated", "false");
+  const query = qs.toString();
+  return req<ActionList>(`/api/app/actions${query ? `?${query}` : ""}`, undefined, token);
+}
+
+export async function createAction(body: ActionCreate, token?: string | null): Promise<ActionRead> {
+  return req<ActionRead>(
+    "/api/app/actions",
+    { method: "POST", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function updateAction(
+  actionId: string,
+  body: ActionUpdate,
+  token?: string | null,
+): Promise<ActionRead> {
+  return req<ActionRead>(
+    `/api/app/actions/${encodeURIComponent(actionId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function getPlannerSettings(token?: string | null): Promise<PlannerSettings> {
+  return req<PlannerSettings>("/api/app/planner-settings", undefined, token);
+}
+
+// Partial update — send only changed fields; the server merges + re-validates
+// (422 on out-of-range / bad timezone / bad date) and returns the full settings.
+export async function updatePlannerSettings(
+  body: PlannerSettingsUpdate,
+  token?: string | null,
+): Promise<PlannerSettings> {
+  return req<PlannerSettings>(
+    "/api/app/planner-settings",
+    { method: "PUT", body: JSON.stringify(body) },
+    token,
+  );
+}
+
+export async function getPlannerStats(week?: string, token?: string | null): Promise<PlannerStats> {
+  const qs = week ? `?week=${encodeURIComponent(week)}` : "";
+  return req<PlannerStats>(`/api/app/planner-stats${qs}`, undefined, token);
+}
+
+// Latest weekly review, or null when none has been generated yet (200 null body).
+export async function getWeeklyReview(token?: string | null): Promise<WeeklyReviewRead | null> {
+  return req<WeeklyReviewRead | null>("/api/app/planner-review", undefined, token);
 }
 
 // ---------------------------------------------------------------------------

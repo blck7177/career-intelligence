@@ -82,6 +82,14 @@ class FitReportInput(BaseModel):
     job_id: str
     job_report_id: Optional[str] = None
     force_refresh: bool = False
+    profile_id: Optional[str] = None
+    # Which workspace profile to score against. None → the workspace's default
+    # (most-recently-updated) profile, for backward compatibility. When set, the
+    # worker resolves this exact profile and verifies it belongs to the calling
+    # workspace before use (fail-closed — never silently falls back to the
+    # default, which would re-introduce silent mis-targeting). Threaded end to
+    # end from POST /api/app/runs, jobs.batch_analyze (profile_id), and
+    # job_report's auto-chain (auto_fit_profile_id).
 
 
 class ProfileImportInput(BaseModel):

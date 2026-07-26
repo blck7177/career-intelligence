@@ -45,6 +45,7 @@ PRODUCT_ROUTES = [
     ("GET", "/api/app/jobs"),
     ("GET", "/api/app/runs"),
     ("GET", "/api/app/profile"),
+    ("GET", "/api/app/applications"),
 ]
 
 ADMIN_ROUTES = [

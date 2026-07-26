@@ -1,0 +1,12 @@
+{
+  "id": "career-exec-identity-guard",
+  "name": "Career Exec Identity Guard",
+  "description": "Injects the worker-authoritative run_id/task_id (parsed from session_key) into exec environment for career-intelligence agent wrapper calls, so a wrapper can cross-check them instead of trusting only what the agent typed.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}

@@ -10,7 +10,7 @@ Rules:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -19,14 +19,20 @@ from packages.infrastructure.db.models import (
     AgentInvocation,
     AgentToolEvent,
     AgentValidationResult,
+    ApplicationAction,
+    ApplicationEvent,
     Artifact,
     CandidateProfile,
     CompanySource,
+    DeadUrl,
     FitReport,
     Job,
+    JobApplication,
     JobFavorite,
+    JobNotInterested,
     JobReport,
     LLMUsageEvent,
+    PlannerReview,
     Run,
     SearchStrategyStateRow,
     Task,
@@ -153,6 +159,19 @@ class WorkspaceRepository:
         self._s.add(member)
         self._s.flush()
         return member
+
+    def set_planner_settings(
+        self, workspace_id: str, settings_json: dict
+    ) -> Optional[Workspace]:
+        """Overwrite the workspace's planner_settings_json with the given blob
+        (the route has already merged partial edits over the stored value and
+        validated the result). Returns None if the workspace is missing."""
+        ws = self.get(workspace_id)
+        if ws is None:
+            return None
+        ws.planner_settings_json = settings_json
+        self._s.flush()
+        return ws
 
 
 # ---------------------------------------------------------------------------
@@ -650,11 +669,13 @@ class JobRepository:
         status: Optional[str] = None,
         include_archived: bool = False,
         job_ids: Optional[set[str]] = None,
+        exclude_source_types: Optional[list[str]] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[Job], int]:
         """List jobs, optionally filtered by run_ids, status, and/or an explicit job_id set
-        (the latter used for favorites_only)."""
+        (the latter used for favorites_only). exclude_source_types drops rows by
+        source_type (used to keep manual_paste jobs out of the discovery library)."""
         from sqlalchemy import select, func
         stmt = select(Job)
         if run_ids is not None:
@@ -665,6 +686,8 @@ class JobRepository:
             stmt = stmt.where(Job.status != "archived")
         if job_ids is not None:
             stmt = stmt.where(Job.id.in_(job_ids))
+        if exclude_source_types:
+            stmt = stmt.where(Job.source_type.not_in(tuple(exclude_source_types)))
         stmt = stmt.order_by(Job.created_at.desc())
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = self._s.execute(count_stmt).scalar_one()
@@ -687,6 +710,7 @@ class JobRepository:
         status: str = "discovered",
         discovered_run_id: Optional[str] = None,
         discovered_task_id: Optional[str] = None,
+        posted_at: Optional[datetime] = None,
     ) -> Job:
         job = Job(
             canonical_url=canonical_url,
@@ -702,6 +726,7 @@ class JobRepository:
             status=status,
             discovered_run_id=discovered_run_id,
             discovered_task_id=discovered_task_id,
+            posted_at=posted_at,
         )
         self._s.add(job)
         self._s.flush()
@@ -791,6 +816,122 @@ class JobFavoriteRepository:
 
 
 # ---------------------------------------------------------------------------
+# JobNotInterested — workspace-private dismissal of a (global) job
+# ---------------------------------------------------------------------------
+
+
+class JobNotInterestedRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def is_not_interested(self, workspace_id: str, job_id: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(JobNotInterested.id).where(
+            JobNotInterested.workspace_id == workspace_id,
+            JobNotInterested.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        from sqlalchemy import select
+
+        stmt = select(JobNotInterested.job_id).where(JobNotInterested.workspace_id == workspace_id)
+        return set(self._s.execute(stmt).scalars().all())
+
+    def add(self, workspace_id: str, job_id: str) -> None:
+        if self.is_not_interested(workspace_id, job_id):
+            return
+        self._s.add(JobNotInterested(workspace_id=workspace_id, job_id=job_id))
+        self._s.flush()
+
+    def remove(self, workspace_id: str, job_id: str) -> None:
+        from sqlalchemy import delete
+
+        stmt = delete(JobNotInterested).where(
+            JobNotInterested.workspace_id == workspace_id,
+            JobNotInterested.job_id == job_id,
+        )
+        self._s.execute(stmt)
+        self._s.flush()
+
+
+# ---------------------------------------------------------------------------
+# DeadUrl
+# ---------------------------------------------------------------------------
+
+
+class DeadUrlRepository:
+    """Records URLs confirmed dead on arrival and answers negative-cache lookups.
+
+    ``url`` is expected already normalized (url_normalize.normalize_job_url);
+    the hash matches jd_fetch.compute_url_hash (md5[:16]) so lookups agree with
+    the artifact cache key.
+    """
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    @staticmethod
+    def _hash(url: str) -> str:
+        import hashlib
+
+        return hashlib.md5(url.encode("utf-8")).hexdigest()[:16]
+
+    def is_dead(self, url: str) -> bool:
+        from sqlalchemy import select
+
+        stmt = select(DeadUrl.id).where(DeadUrl.url_hash == self._hash(url))
+        return self._s.execute(stmt).scalar_one_or_none() is not None
+
+    def record(
+        self,
+        *,
+        url: str,
+        reason: str,
+        http_status: Optional[int] = None,
+        discovered_run_id: Optional[str] = None,
+    ) -> DeadUrl:
+        from urllib.parse import urlparse
+
+        from sqlalchemy import select
+
+        h = self._hash(url)
+        existing = self._s.execute(
+            select(DeadUrl).where(DeadUrl.url_hash == h)
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.times_seen += 1
+            existing.last_seen_at = datetime.now(timezone.utc)
+            self._s.flush()
+            return existing
+        dead = DeadUrl(
+            url_hash=h,
+            canonical_url=url[:2048],
+            domain=urlparse(url).hostname or None,
+            reason=reason,
+            http_status=http_status,
+            discovered_run_id=discovered_run_id,
+        )
+        self._s.add(dead)
+        self._s.flush()
+        return dead
+
+    def touch(self, url: str) -> None:
+        """Negative-cache hit on an already-recorded dead URL: bump counters
+        without needing the (unchanged) reason."""
+        from sqlalchemy import select
+
+        existing = self._s.execute(
+            select(DeadUrl).where(DeadUrl.url_hash == self._hash(url))
+        ).scalar_one_or_none()
+        if existing is not None:
+            existing.times_seen += 1
+            existing.last_seen_at = datetime.now(timezone.utc)
+            self._s.flush()
+
+
+# ---------------------------------------------------------------------------
 # JobReport
 # ---------------------------------------------------------------------------
 
@@ -863,8 +1004,9 @@ class JobReportRepository:
         structured_json: Optional[dict] = None,
         summary_json: Optional[dict] = None,
         status: str = "active",
+        id: str | None = None,
     ) -> JobReport:
-        row = JobReport(
+        kwargs: dict = dict(
             job_id=job_id,
             jd_hash=jd_hash,
             prompt_version=prompt_version,
@@ -878,6 +1020,9 @@ class JobReportRepository:
             summary_json=summary_json,
             status=status,
         )
+        if id is not None:
+            kwargs["id"] = id
+        row = JobReport(**kwargs)
         self._s.add(row)
         self._s.flush()
         return row
@@ -974,6 +1119,48 @@ class FitReportRepository:
         )
         return self._s.execute(stmt).scalar_one_or_none()
 
+    def get_latest_for_job(
+        self, *, workspace_id: str, job_id: str, profile_id: Optional[str] = None
+    ) -> Optional[FitReport]:
+        """Most recent active fit report for a job in this workspace (optionally
+        profile-scoped) — powers the application detail's Fit badge."""
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.job_id == job_id,
+            FitReport.status == "active",
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc()).limit(1)
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def latest_score_map(
+        self, workspace_id: str, job_ids: list[str], profile_id: Optional[str] = None
+    ) -> dict[str, int]:
+        """{job_id: latest active overall_match_score} for the given jobs — one
+        batched query (newest-per-job wins). Powers the planned queue's Fit
+        column without a per-row lookup."""
+        if not job_ids:
+            return {}
+        from sqlalchemy import select
+
+        stmt = select(FitReport).where(
+            FitReport.workspace_id == workspace_id,
+            FitReport.job_id.in_(job_ids),
+            FitReport.status == "active",
+        )
+        if profile_id:
+            stmt = stmt.where(FitReport.candidate_profile_id == profile_id)
+        stmt = stmt.order_by(FitReport.updated_at.desc())
+        out: dict[str, int] = {}
+        for r in self._s.execute(stmt).scalars().all():
+            # ordered newest-first → first seen per job is the latest.
+            if r.job_id not in out and r.overall_match_score is not None:
+                out[r.job_id] = r.overall_match_score
+        return out
+
     def supersede_prior(
         self,
         *,
@@ -1012,8 +1199,9 @@ class FitReportRepository:
         structured_json: Optional[dict] = None,
         summary_json: Optional[dict] = None,
         status: str = "active",
+        id: str | None = None,
     ) -> FitReport:
-        row = FitReport(
+        kwargs: dict = dict(
             workspace_id=workspace_id,
             job_id=job_id,
             job_report_id=job_report_id,
@@ -1027,6 +1215,9 @@ class FitReportRepository:
             summary_json=summary_json,
             status=status,
         )
+        if id is not None:
+            kwargs["id"] = id
+        row = FitReport(**kwargs)
         self._s.add(row)
         self._s.flush()
         return row
@@ -1082,6 +1273,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         profile = CandidateProfile(workspace_id=workspace_id)
         profile.label = label
@@ -1094,6 +1286,7 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        profile.structured_resume_json = structured_resume_json
         self._s.add(profile)
         self._s.flush()
         return profile
@@ -1112,6 +1305,7 @@ class ProfileRepository:
         representative_projects: Optional[list] = None,
         years_experience: Optional[int] = None,
         profile_hash: str = "empty",
+        structured_resume_json: Optional[dict] = None,
     ) -> CandidateProfile:
         profile = self.get_by_id(profile_id)
         if profile is None:
@@ -1127,6 +1321,12 @@ class ProfileRepository:
         profile.representative_projects = representative_projects
         profile.years_experience = years_experience
         profile.profile_hash = profile_hash
+        # Guarded (unlike the fields above, which are always fully replaced):
+        # an ordinary field edit that doesn't resubmit the imported resume's
+        # structured data must not silently wipe it. Matches upsert()'s
+        # existing guard for the same field.
+        if structured_resume_json is not None:
+            profile.structured_resume_json = structured_resume_json
         self._s.flush()
         return profile
 
@@ -1375,3 +1575,513 @@ class LLMUsageEventRepository:
             }
             for r in rows
         ]
+
+
+# ---------------------------------------------------------------------------
+# Application Tracker — job_applications / application_events / application_actions
+# ---------------------------------------------------------------------------
+
+
+class JobApplicationRepository:
+    """Workspace-private application rows. Every read is workspace-scoped
+    (get/list take workspace_id) to keep the IDOR surface closed — see the
+    launch-hardening notes. flush-never-commit, like the other repos."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        job_id: str,
+        profile_id: str | None = None,
+        status: str = "planned",
+        lane: str | None = None,
+        excitement: int | None = None,
+        channel: str | None = None,
+        applied_at: datetime | None = None,
+        resume_run_id: str | None = None,
+        contact_name: str | None = None,
+        contact_note: str | None = None,
+        notes: str | None = None,
+    ) -> JobApplication:
+        # job_id is required — every application references a job row (URL-imported
+        # or created from a pasted JD via the shared manual_import pipeline). There
+        # are no bare/off-platform applications.
+        row = JobApplication(
+            workspace_id=workspace_id,
+            job_id=job_id,
+            profile_id=profile_id,
+            status=status,
+            lane=lane,
+            excitement=excitement,
+            channel=channel,
+            applied_at=applied_at,
+            resume_run_id=resume_run_id,
+            contact_name=contact_name,
+            contact_note=contact_note,
+            notes=notes,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def get(self, application_id: str, workspace_id: str) -> Optional[JobApplication]:
+        from sqlalchemy import select
+
+        stmt = select(JobApplication).where(
+            JobApplication.id == application_id,
+            JobApplication.workspace_id == workspace_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def get_by_job(self, workspace_id: str, job_id: str) -> Optional[JobApplication]:
+        """The application for a (workspace, job), if one exists — enforces the
+        one-application-per-job rule at the API layer with a clean 409."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication).where(
+            JobApplication.workspace_id == workspace_id,
+            JobApplication.job_id == job_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list_for_workspace(
+        self,
+        workspace_id: str,
+        *,
+        status_group: str | None = None,
+        needs_action: bool = False,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[JobApplication]:
+        from sqlalchemy import or_, select
+
+        from packages.domain.applications.transitions import STATUS_GROUPS
+
+        stmt = select(JobApplication).where(JobApplication.workspace_id == workspace_id)
+        if status_group:
+            statuses = STATUS_GROUPS.get(status_group)
+            if statuses is not None:
+                stmt = stmt.where(JobApplication.status.in_(tuple(statuses)))
+        if needs_action:
+            now = datetime.now(timezone.utc)
+            due_ids = (
+                select(ApplicationAction.application_id)
+                .where(
+                    ApplicationAction.workspace_id == workspace_id,
+                    ApplicationAction.application_id.is_not(None),
+                    ApplicationAction.status == "pending",
+                    or_(
+                        ApplicationAction.due_at.is_(None),
+                        ApplicationAction.due_at <= now,
+                    ),
+                )
+            )
+            stmt = stmt.where(JobApplication.id.in_(due_ids))
+        stmt = stmt.order_by(JobApplication.created_at.desc()).limit(limit).offset(offset)
+        return list(self._s.execute(stmt).scalars().all())
+
+    def update_fields(
+        self, application_id: str, workspace_id: str, **fields
+    ) -> Optional[JobApplication]:
+        # status changes go through transition_status (state-machine checked);
+        # id/workspace_id/job_id are immutable.
+        allowed = {
+            "profile_id", "lane", "excitement", "channel", "applied_at",
+            "resume_run_id", "contact_name", "contact_note", "notes",
+            "closed_reason",
+        }
+        row = self.get(application_id, workspace_id)
+        if row is None:
+            return None
+        for key, value in fields.items():
+            if key not in allowed:
+                raise ValueError(f"field not updatable: {key}")
+            setattr(row, key, value)
+        self._s.flush()
+        return row
+
+    def transition_status(
+        self,
+        application_id: str,
+        workspace_id: str,
+        new_status: str,
+        *,
+        note: str | None = None,
+        force: bool = False,
+    ) -> Optional[JobApplication]:
+        from packages.domain.applications.transitions import assert_transition
+
+        row = self.get(application_id, workspace_id)
+        if row is None:
+            return None
+        old_status = row.status
+        assert_transition(old_status, new_status, force=force)  # raises InvalidTransition
+        row.status = new_status
+        # Stamp applied_at the first time we reach "applied" (mirrors
+        # TaskRepository.mark_running stamping started_at).
+        if new_status == "applied" and row.applied_at is None:
+            row.applied_at = datetime.now(timezone.utc)
+        # Same-transaction audit event (append-only timeline).
+        self._s.add(
+            ApplicationEvent(
+                application_id=row.id,
+                workspace_id=workspace_id,
+                event_type="status_changed",
+                message=note,
+                payload_json={"from": old_status, "to": new_status, "forced": force},
+            )
+        )
+        self._s.flush()
+        return row
+
+    def count_by_status(self, workspace_id: str) -> dict[str, int]:
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(JobApplication.status, func.count())
+            .where(JobApplication.workspace_id == workspace_id)
+            .group_by(JobApplication.status)
+        )
+        return {status: count for status, count in self._s.execute(stmt).all()}
+
+    def list_job_ids_for_workspace(self, workspace_id: str) -> set[str]:
+        """Job ids this workspace already has an application for — used to mark
+        the jobs library with an "applied" flag so the user doesn't re-apply.
+        Mirrors JobFavoriteRepository.list_job_ids_for_workspace."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication.job_id).where(
+            JobApplication.workspace_id == workspace_id
+        )
+        return set(self._s.execute(stmt).scalars().all())
+
+    def list_workspace_ids_with_applications(self) -> list[str]:
+        """Distinct workspace ids that have at least one application — the daily
+        planner beat iterates these (skips workspaces with an empty tracker)."""
+        from sqlalchemy import select
+
+        stmt = select(JobApplication.workspace_id).distinct()
+        return list(self._s.execute(stmt).scalars().all())
+
+    def count_applied_in_range(
+        self, workspace_id: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """Applications whose applied_at falls in [start, end) — this-week triplet."""
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(func.count())
+            .select_from(JobApplication)
+            .where(
+                JobApplication.workspace_id == workspace_id,
+                JobApplication.applied_at >= start_utc,
+                JobApplication.applied_at < end_utc,
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
+
+class ApplicationEventRepository:
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def append(
+        self,
+        *,
+        application_id: str,
+        workspace_id: str,
+        event_type: str,
+        message: str | None = None,
+        payload_json: dict | None = None,
+    ) -> ApplicationEvent:
+        event = ApplicationEvent(
+            application_id=application_id,
+            workspace_id=workspace_id,
+            event_type=event_type,
+            message=message,
+            payload_json=payload_json,
+        )
+        self._s.add(event)
+        self._s.flush()
+        return event
+
+    def list_for_application(
+        self, application_id: str, workspace_id: str, limit: int = 200
+    ) -> list[ApplicationEvent]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationEvent)
+            .where(
+                ApplicationEvent.application_id == application_id,
+                ApplicationEvent.workspace_id == workspace_id,
+            )
+            .order_by(ApplicationEvent.created_at)
+            .limit(limit)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+
+class ApplicationActionRepository:
+    """The planner's to-do table. `list_due` powers the Today view; the P1
+    rules engine writes auto_generated rows into it."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def create(
+        self,
+        *,
+        workspace_id: str,
+        type: str,
+        title: str,
+        application_id: str | None = None,
+        due_at: datetime | None = None,
+        status: str = "pending",
+        auto_generated: bool = False,
+        payload_json: dict | None = None,
+    ) -> ApplicationAction:
+        row = ApplicationAction(
+            workspace_id=workspace_id,
+            application_id=application_id,
+            type=type,
+            title=title,
+            due_at=due_at,
+            status=status,
+            auto_generated=auto_generated,
+            payload_json=payload_json,
+        )
+        self._s.add(row)
+        self._s.flush()
+        return row
+
+    def get(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        from sqlalchemy import select
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.id == action_id,
+            ApplicationAction.workspace_id == workspace_id,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list_due(
+        self,
+        workspace_id: str,
+        on_or_before: datetime,
+        *,
+        include_undated: bool = True,
+    ) -> list[ApplicationAction]:
+        """Pending actions due on/before the given instant, soonest-due first.
+        Undated pending actions are included by default (they read as "anytime"
+        to-dos that should still surface in Today) and sort last."""
+        from sqlalchemy import or_, select
+
+        conditions = [ApplicationAction.due_at <= on_or_before]
+        if include_undated:
+            conditions.append(ApplicationAction.due_at.is_(None))
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "pending",
+                or_(*conditions),
+            )
+            .order_by(ApplicationAction.due_at.is_(None), ApplicationAction.due_at)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def list_for_application(
+        self, application_id: str, workspace_id: str
+    ) -> list[ApplicationAction]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.application_id == application_id,
+                ApplicationAction.workspace_id == workspace_id,
+            )
+            .order_by(ApplicationAction.due_at)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def list_global_for_workspace(self, workspace_id: str) -> list[ApplicationAction]:
+        """Workspace-global actions (application_id IS NULL) in any status — the
+        rules engine reads these to dedup queue_refill per week."""
+        from sqlalchemy import select
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.application_id.is_(None),
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def count_completed_by_type_in_range(
+        self, workspace_id: str, type_: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """Completed actions of a type whose completed_at falls in [start, end) —
+        this-week triplet (outreach = networking done, follow_ups = follow_up done)."""
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(func.count())
+            .select_from(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.type == type_,
+                ApplicationAction.status == "done",
+                ApplicationAction.completed_at >= start_utc,
+                ApplicationAction.completed_at < end_utc,
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
+    def complete(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.status = "done"
+        row.completed_at = datetime.now(timezone.utc)
+        # Completing an action worth a timeline entry on its application.
+        if row.application_id:
+            self._s.add(
+                ApplicationEvent(
+                    application_id=row.application_id,
+                    workspace_id=workspace_id,
+                    event_type="action_completed",
+                    message=row.title,
+                    payload_json={"action_id": row.id, "type": row.type},
+                )
+            )
+        self._s.flush()
+        return row
+
+    def snooze(
+        self,
+        action_id: str,
+        workspace_id: str,
+        days: int = 1,
+        *,
+        until: Optional[datetime] = None,
+    ) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        if until is not None:
+            # Absolute target (Rest-until-Monday) — correct for overdue actions,
+            # whose due_at is in the past and would otherwise stay past on +days.
+            row.due_at = until
+        else:
+            base = row.due_at or datetime.now(timezone.utc)
+            row.due_at = base + timedelta(days=days)
+        row.status = "pending"  # stays actionable, just later
+        self._s.flush()
+        return row
+
+    def dismiss(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.status = "dismissed"
+        self._s.flush()
+        return row
+
+    def count_due(self, workspace_id: str, on_or_before: datetime) -> int:
+        from sqlalchemy import func, or_, select
+
+        stmt = (
+            select(func.count())
+            .select_from(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "pending",
+                or_(
+                    ApplicationAction.due_at.is_(None),
+                    ApplicationAction.due_at <= on_or_before,
+                ),
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
+    def earliest_pending_action_map(
+        self, workspace_id: str, application_ids: list[str]
+    ) -> dict[str, tuple[datetime, str]]:
+        """Per application, the soonest pending dated action as (due_at, type).
+        Powers the list row's next-action column (due date + semantic type, e.g.
+        "follow-up due") in one query (avoids per-row N+1)."""
+        if not application_ids:
+            return {}
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.application_id.in_(application_ids),
+                ApplicationAction.status == "pending",
+                ApplicationAction.due_at.is_not(None),
+            )
+            .order_by(ApplicationAction.due_at)
+        )
+        result: dict[str, tuple[datetime, str]] = {}
+        for a in self._s.execute(stmt).scalars().all():
+            # ordered by due_at → first seen per app is the earliest.
+            if a.application_id not in result:
+                result[a.application_id] = (a.due_at, a.type)
+        return result
+
+
+class PlannerReviewRepository:
+    """The weekly review table (one row per workspace+ISO-week). The weekly beat
+    upserts; the Plan view's Review zone reads the latest. flush-never-commit."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_week(self, workspace_id: str, week_start: date) -> Optional[PlannerReview]:
+        from sqlalchemy import select
+
+        stmt = select(PlannerReview).where(
+            PlannerReview.workspace_id == workspace_id,
+            PlannerReview.week_start == week_start,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def get_latest(self, workspace_id: str) -> Optional[PlannerReview]:
+        from sqlalchemy import select
+
+        stmt = (
+            select(PlannerReview)
+            .where(PlannerReview.workspace_id == workspace_id)
+            .order_by(PlannerReview.week_start.desc())
+            .limit(1)
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def upsert(
+        self,
+        *,
+        workspace_id: str,
+        week_start: date,
+        stats_json: dict,
+        narrative_md: str | None,
+    ) -> PlannerReview:
+        """Insert or replace the review for (workspace, week). Idempotent so the
+        weekly beat can re-run (or a regeneration) without duplicating rows."""
+        row = self.get_for_week(workspace_id, week_start)
+        if row is None:
+            row = PlannerReview(
+                workspace_id=workspace_id,
+                week_start=week_start,
+                stats_json=stats_json,
+                narrative_md=narrative_md,
+            )
+            self._s.add(row)
+        else:
+            row.stats_json = stats_json
+            row.narrative_md = narrative_md
+        self._s.flush()
+        return row

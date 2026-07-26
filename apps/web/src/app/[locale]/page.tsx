@@ -2,7 +2,7 @@ import type { ElementType } from "react";
 import { getTranslations } from "next-intl/server";
 import type { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { listJobs, listRuns, getProfile, listFitReports } from "@/api/client";
+import { listJobs, listRuns, getProfile, listFitReports, getApplicationsSummary } from "@/api/client";
 import type { JobRead, RunRead, FitReportSummary } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { bandOf } from "@/lib/matchBand";
@@ -125,6 +125,9 @@ export default async function HomePage() {
   const unreviewedCount = jobs.filter((j) => j.status === "discovered").length;
   const recentSearches = discoveryRuns.slice(0, 3);
 
+  // Application-tracker actions due today (drives the Home CTA row + TopBar badge).
+  const dueToday = (await getApplicationsSummary(token).catch(() => null))?.today_due ?? 0;
+
   const TOP_PICKS_COUNT = 8;
   const topPicks = jobs.slice(0, TOP_PICKS_COUNT);
   const topPicksData: TopPick[] = topPicks.map((job) => {
@@ -218,6 +221,22 @@ export default async function HomePage() {
               </span>
               <span className="text-sm font-semibold whitespace-nowrap" style={{ color: "var(--primary)" }}>
                 {t("reviewNow")} →
+              </span>
+            </Link>
+          )}
+
+          {dueToday > 0 && (
+            <Link
+              href="/tracker"
+              className={cn(rowClassName, "flex items-center gap-3 mb-[var(--space-stack-md)] transition-colors hover:opacity-90")}
+              style={{ background: "var(--sidebar-item-active-bg)" }}
+            >
+              <Metric size="stat" style={{ color: "var(--primary)" }}>{dueToday}</Metric>
+              <span className="flex-1 text-sm" style={{ color: "var(--ink-secondary)" }}>
+                {t("applicationsDueLabel", { count: dueToday })}
+              </span>
+              <span className="text-sm font-semibold whitespace-nowrap" style={{ color: "var(--primary)" }}>
+                {t("openTracker")} →
               </span>
             </Link>
           )}

@@ -59,3 +59,10 @@ tiers:
   # everything else intentionally left unrestricted (no key = no limit).
   beta:
     job_discovery: { monthly_limit: 30, allowed_search_depth: [quick, standard] }
+
+  # Dev-only, unlimited on every run_type (no key = no limit, per the
+  # convention documented at the top of this file). NOT a real product tier —
+  # only ever assigned manually to the DEV_AUTH_BYPASS workspace so local
+  # testing isn't gated by the "new" tier's tight job_discovery cap. Never
+  # assign this tier to a real (Clerk-authenticated) workspace.
+  dev: {}

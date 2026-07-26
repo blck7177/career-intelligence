@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,14 +46,16 @@ from packages.domain.agent_jobs.discovery_planner import (
     budget_for_depth,
 )
 from packages.domain.agent_jobs.planner import build_invocation_spec
+from packages.domain.agent_jobs.url_normalize import normalize_job_url
 from packages.domain.strategy_state import materialize_discovery_hints
-from packages.infrastructure.agent_runtime.openclaw import create_runtime
+from packages.infrastructure.agent_runtime.openclaw_http import create_http_runtime
 from packages.infrastructure.agent_runtime.validator import ValidatorGate
 from packages.infrastructure.db.repositories import (
     AgentInvocationRepository,
     AgentToolEventRepository,
     AgentValidationResultRepository,
     ArtifactRepository,
+    DeadUrlRepository,
     JobRepository,
     ProfileRepository,
     RunRepository,
@@ -62,7 +65,7 @@ from packages.infrastructure.db.repositories import (
 )
 from packages.infrastructure.db.session import get_session
 from packages.infrastructure.llm.client import get_llm_client
-from packages.infrastructure.jd_fetch import resolve_jd
+from packages.infrastructure.jd_fetch import is_shell_text, resolve_jd
 from packages.infrastructure.llm.jd_extractor import extract_jd_fields
 from packages.infrastructure.llm.intent_translator import (
     IntentTranslationError,
@@ -320,7 +323,7 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # ------------------------------------------------------------------
     # Step 5: Invoke OpenClaw
     # ------------------------------------------------------------------
-    runtime = create_runtime()
+    runtime = create_http_runtime()
 
     with get_session() as session:
         inv_repo = AgentInvocationRepository(session)
@@ -333,7 +336,25 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             message=f"OpenClaw invoked: agent={spec.agent_id} session={spec.session_key[:60]}",
         )
 
+    # Anchors the continuation loop's timeout-vs-remaining-budget math below —
+    # budget.timeout_seconds governs total agent invocation time (this call
+    # plus any continuations), not the whole Celery task's wall clock.
+    invoke_budget_start = time.monotonic()
+
     result = runtime.invoke(spec)
+
+    # Record usage BEFORE any other post-invoke step. result.usage reflects
+    # a real, already-billed charge the moment invoke() returns — a disk
+    # write or DB error further down must not be able to drop it.
+    if result.usage:
+        from packages.infrastructure.llm.usage_writer import persist_agent_usage
+        persist_agent_usage(
+            run_id=env.run_id, task_id=env.task_id,
+            workspace_id=env.workspace_id, call_site="agent.job_discovery",
+            model=result.usage.model, input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cache_read_tokens=result.usage.cache_read_tokens,
+        )
 
     # ------------------------------------------------------------------
     # Step 6: Update invocation record with result
@@ -359,15 +380,6 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             stderr_uri=stderr_path,
             error_code="AGENT_EXIT_NONZERO" if result.exit_code != 0 else None,
             error_message=result.stderr[:500] if result.exit_code != 0 else None,
-        )
-
-    if result.usage:
-        from packages.infrastructure.llm.usage_writer import persist_agent_usage
-        persist_agent_usage(
-            run_id=env.run_id, task_id=env.task_id,
-            workspace_id=env.workspace_id, call_site="agent.job_discovery",
-            model=result.usage.model, input_tokens=result.usage.input_tokens,
-            output_tokens=result.usage.output_tokens,
         )
 
     if result.exit_code != 0 or result.timed_out:
@@ -397,7 +409,18 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     # inflation and doubling LLM processing time per turn.
     # ------------------------------------------------------------------
     _CONT_LIMITS_BY_DEPTH = {"quick": 1, "standard": 2, "deep": 2}
-    _CONT_TIMEOUT = 240
+    # A continuation's timeout tracks whatever's actually left of the run's
+    # own timeout budget instead of a flat constant — a fixed 240s cut off
+    # continuations that were still doing real, billed work (observed
+    # directly: 2026-07-12 deep-depth test, candidates still being logged
+    # right up to the 240s mark while ~1660s of the 1800s deep budget sat
+    # unused). Floored so we don't bother starting a continuation with too
+    # little time to do anything; capped so one continuation can't consume
+    # the whole remaining budget when there's a lot of it (deep depth) —
+    # continuations are meant to be quick top-ups, not full re-runs. See
+    # dev_note/career/phase20-launch-hardening/gevent_pool_plan_0713/.
+    _MIN_CONT_TIMEOUT = 60
+    _MAX_CONT_TIMEOUT = 600
     max_continuations = _CONT_LIMITS_BY_DEPTH.get(frontend_input.search_depth, 2)
     candidate_pool_path = run_dir / "candidate_pool.jsonl"
 
@@ -411,10 +434,21 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         if tool_calls_remaining <= 5:
             break
 
+        remaining_budget_seconds = budget.timeout_seconds - (time.monotonic() - invoke_budget_start)
+        if remaining_budget_seconds < _MIN_CONT_TIMEOUT:
+            logger.info(
+                "search_run: skipping continuation %d/%d — only %.0fs left of the %ds budget",
+                continuation, max_continuations, remaining_budget_seconds, budget.timeout_seconds,
+            )
+            break
+        cont_timeout = min(remaining_budget_seconds, _MAX_CONT_TIMEOUT)
+
         logger.info(
-            "search_run: continuation %d/%d — %d candidates (target %d), %d tool calls remaining",
+            "search_run: continuation %d/%d — %d candidates (target %d), %d tool calls remaining, "
+            "%.0fs timeout (%.0fs left of budget)",
             continuation, max_continuations,
             candidates_so_far, budget.max_candidates, tool_calls_remaining,
+            cont_timeout, remaining_budget_seconds,
         )
         with get_session() as session:
             TaskEventRepository(session).append(
@@ -440,14 +474,14 @@ def handle_search_run(env: TaskEnvelope) -> dict:
         cont_session_key = f"{spec.session_key}:cont{continuation}"
         cont_spec = spec.model_copy(update={
             "session_key": cont_session_key,
-            "timeout_seconds": _CONT_TIMEOUT,
+            "timeout_seconds": int(cont_timeout),
         })
 
         cont_result = runtime.invoke(cont_spec, message_override=cont_msg)
 
-        if cont_result.stdout:
-            p = run_dir / f"stdout_cont{continuation}.txt"
-            p.write_text(cont_result.stdout)
+        # Record usage before the disk write below — same reasoning as the
+        # original invocation above: a real charge is already incurred the
+        # moment invoke() returns, regardless of what happens next.
         if cont_result.usage:
             from packages.infrastructure.llm.usage_writer import persist_agent_usage
             persist_agent_usage(
@@ -457,7 +491,12 @@ def handle_search_run(env: TaskEnvelope) -> dict:
                 model=cont_result.usage.model,
                 input_tokens=cont_result.usage.input_tokens,
                 output_tokens=cont_result.usage.output_tokens,
+                cache_read_tokens=cont_result.usage.cache_read_tokens,
             )
+
+        if cont_result.stdout:
+            p = run_dir / f"stdout_cont{continuation}.txt"
+            p.write_text(cont_result.stdout)
 
         if cont_result.exit_code != 0:
             logger.warning(
@@ -607,6 +646,11 @@ def handle_search_run(env: TaskEnvelope) -> dict:
     except Exception:
         logger.warning("search_run: source registration failed (non-blocking)", exc_info=True)
 
+    # ------------------------------------------------------------------
+    # Step 10d: Reconcile fetch outcomes (accepted vs rejected candidates)
+    # ------------------------------------------------------------------
+    fetch_outcomes_path = _reconcile_fetch_outcomes(manifest)
+
     with get_session() as session:
         artifact_repo = ArtifactRepository(session)
         task_repo = TaskRepository(session)
@@ -625,8 +669,35 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             )
             artifact_ids.append(artifact.id)
 
+        if fetch_outcomes_path is not None:
+            artifact = artifact_repo.create(
+                run_id=env.run_id,
+                task_id=env.task_id,
+                artifact_type="fetch_outcomes",
+                storage_uri=str(fetch_outcomes_path),
+                content_hash=_compute_file_sha256(str(fetch_outcomes_path)),
+                metadata_json={"invocation_id": invocation_id},
+            )
+            artifact_ids.append(artifact.id)
+
+        # candidate_count = how many candidates the agent actually logged this
+        # run, counted from the (now-normalized, guaranteed-JSONL) candidate_pool
+        # — NOT manifest.candidate_count. The agent writes its manifest partway
+        # through and can keep calling career_log_candidates afterwards (a
+        # "continuation" past SKILL Step 7 STOP), so manifest.candidate_count is
+        # frozen at whatever it was at manifest-write time and routinely
+        # under-reports the real yield by an order of magnitude (measured: pool
+        # had 21, manifest said 2). result_summary.candidate_count feeds both the
+        # UI run card and the reflection agent's diagnosis, so a stale value here
+        # makes reflection reason about a run that didn't happen. The
+        # DiscoveryCountValidator already flags this mismatch, but only as a
+        # non-blocking warning — it doesn't correct the number. jobs_ingested
+        # (below) remains the separate "unique new jobs persisted" count.
+        real_candidate_count = _count_jsonl_lines(candidate_pool_path)
+
         result_summary = {
-            "candidate_count": manifest.candidate_count,
+            "candidate_count": real_candidate_count,
+            "candidate_count_agent_reported": manifest.candidate_count,
             "job_ids": job_ids,
             "jobs_ingested": ingest_stats["jobs_ingested"],
             "jobs_reportable": ingest_stats["jobs_reportable"],
@@ -644,22 +715,23 @@ def handle_search_run(env: TaskEnvelope) -> dict:
             run_id=env.run_id,
             event_type="task_succeeded",
             message=(
-                f"Discovery complete: {manifest.candidate_count} candidates, "
+                f"Discovery complete: {real_candidate_count} candidates, "
                 f"{len(manifest.sources_tried)} sources tried, "
                 f"{len(job_ids)} jobs persisted to database"
             ),
         )
 
     logger.info(
-        "search_run: task_id=%s succeeded, candidates=%d, jobs_persisted=%d",
+        "search_run: task_id=%s succeeded, candidates=%d (agent reported %d), jobs_persisted=%d",
         env.task_id,
+        real_candidate_count,
         manifest.candidate_count,
         len(job_ids),
     )
     return {
         "status": "succeeded",
         "task_id": env.task_id,
-        "candidate_count": manifest.candidate_count,
+        "candidate_count": real_candidate_count,
         "jobs_persisted": len(job_ids),
     }
 
@@ -1026,6 +1098,118 @@ def _load_profile(workspace_id: str, profile_id: str | None = None) -> ProfileSn
         return snapshot
 
 
+def _parse_platform_trace_entries(trace_path: Path) -> list[dict]:
+    """
+    Defensively parse trace_events.jsonl.
+
+    Platform wrappers (career_fetch_source, career_log_candidates,
+    career_search_status) each append one clean, newline-terminated JSON
+    object per call. The agent is also allowed to append its own free-text
+    tool-use narration to this same file (evidence for web_fetch/web_search,
+    which no platform code wraps) — no fixed schema, and in practice
+    sometimes without a separating newline. Use raw_decode per line instead
+    of assuming one-json-object-per-line so a malformed/concatenated agent
+    entry can't silently swallow the platform entry next to it.
+    """
+    decoder = json.JSONDecoder()
+    entries: list[dict] = []
+    try:
+        raw = trace_path.read_text(encoding="utf-8")
+    except OSError:
+        return entries
+    for line in raw.splitlines():
+        line = line.strip()
+        idx = 0
+        while idx < len(line):
+            try:
+                obj, end = decoder.raw_decode(line, idx)
+            except ValueError:
+                break
+            if isinstance(obj, dict):
+                entries.append(obj)
+            idx = end
+            while idx < len(line) and line[idx] in " \t":
+                idx += 1
+    return entries
+
+
+def _reconcile_fetch_outcomes(manifest: DiscoveryManifest) -> Path | None:
+    """
+    Cross-reference every career_fetch_source call this task made against
+    which URLs actually ended up in candidate_pool.jsonl, and write
+    fetch_outcomes.jsonl: one row per career_fetch_source call, with
+    accepted=True/False.
+
+    Purpose: career_log_candidates (the HMAC-signed ledger) only records
+    ACCEPTED candidates — there is no record anywhere of a URL the agent
+    fetched and then decided wasn't real/relevant. This computes that
+    negative set deterministically from two things platform code already
+    writes (trace_events.jsonl's career_fetch_source entries, and
+    candidate_pool.jsonl), so it doesn't depend on the agent narrating its
+    own rejections. Building a labeled validation set for any future
+    realness-judgment heuristic requires exactly this — see
+    dev_note/career/phase20-launch-hardening (job_discovery cost audit).
+
+    Coverage caveat: this only sees fetches made via the career_fetch_source
+    wrapper. Most real discovery traffic today goes through the generic
+    web_fetch tool (not wrapped by platform code), which this cannot see.
+    Non-blocking: returns None on any failure or if there's nothing to write.
+    """
+    try:
+        pool_path_str = manifest.artifact_paths.get("candidate_pool")
+        trace_path_str = manifest.artifact_paths.get("trace_events")
+        if not trace_path_str:
+            return None
+        trace_path = Path(trace_path_str)
+        if not trace_path.exists():
+            return None
+
+        accepted_urls: set[str] = set()
+        if pool_path_str:
+            pool_path = Path(pool_path_str)
+            if pool_path.exists():
+                for line in pool_path.read_text().splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    url = entry.get("url", "").strip()
+                    if url:
+                        accepted_urls.add(url)
+
+        outcomes = []
+        for event in _parse_platform_trace_entries(trace_path):
+            if event.get("tool_name") != "career_fetch_source":
+                continue
+            url = event.get("url", "")
+            if not url:
+                continue
+            outcomes.append({
+                "url": url,
+                "source_type": event.get("source_type"),
+                "jd_source": event.get("jd_source"),
+                "accepted": url in accepted_urls,
+            })
+
+        if not outcomes:
+            return None
+
+        out_path = trace_path.parent / "fetch_outcomes.jsonl"
+        with out_path.open("w") as f:
+            for row in outcomes:
+                f.write(json.dumps(row) + "\n")
+        return out_path
+    except Exception:
+        logger.warning(
+            "search_run: fetch outcome reconciliation failed (non-blocking)",
+            exc_info=True,
+        )
+        return None
+
+
 def _persist_discovered_jobs(
     manifest: DiscoveryManifest,
     run_id: str,
@@ -1050,6 +1234,7 @@ def _persist_discovered_jobs(
         "jobs_ingested": 0,
         "jobs_reportable": 0,
         "jobs_fetch_failed": 0,
+        "jobs_doa": 0,
     }
 
     pool_path_str = manifest.artifact_paths.get("candidate_pool")
@@ -1070,10 +1255,12 @@ def _persist_discovered_jobs(
     skip_count = 0
     reportable_count = 0
     fetch_failed_count = 0
+    doa_count = 0
 
     try:
         with get_session() as session:
             job_repo = JobRepository(session)
+            dead_url_repo = DeadUrlRepository(session)
             for line in pool_path.read_text().splitlines():
                 line = line.strip()
                 if not line:
@@ -1084,13 +1271,18 @@ def _persist_discovered_jobs(
                     logger.warning("search_run: skipping malformed candidate_pool line: %s", exc)
                     continue
 
-                url = entry.get("url", "").strip()
+                url = normalize_job_url(entry.get("url", "").strip())
                 if not url:
                     continue
 
                 existing = job_repo.get_by_canonical_url(url)
                 if existing:
                     job_ids.append(existing.id)
+                    skip_count += 1
+                    continue
+
+                if dead_url_repo.is_dead(url):
+                    dead_url_repo.touch(url)
                     skip_count += 1
                     continue
 
@@ -1135,8 +1327,23 @@ def _persist_discovered_jobs(
                         status="reportable",
                         discovered_run_id=run_id,
                         discovered_task_id=task_id,
+                        posted_at=jd_result.posted_at,
                     )
                     reportable_count += 1
+                elif jd_result.fetch_status == "doa":
+                    reason = (
+                        "closed_posting"
+                        if jd_result.http_status == 200
+                        else f"http_{jd_result.http_status or 'unknown'}"
+                    )
+                    dead_url_repo.record(
+                        url=url,
+                        reason=reason,
+                        http_status=jd_result.http_status,
+                        discovered_run_id=run_id,
+                    )
+                    doa_count += 1
+                    continue
                 else:
                     fetch_failed_count += 1
                     payload = {
@@ -1175,6 +1382,7 @@ def _persist_discovered_jobs(
             "jobs_ingested": new_count,
             "jobs_reportable": reportable_count,
             "jobs_fetch_failed": fetch_failed_count,
+            "jobs_doa": doa_count,
         }
 
     logger.info(
@@ -1191,6 +1399,7 @@ def _persist_discovered_jobs(
         "jobs_ingested": new_count,
         "jobs_reportable": reportable_count,
         "jobs_fetch_failed": fetch_failed_count,
+        "jobs_doa": doa_count,
     }
 
 
@@ -1421,18 +1630,19 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
         with get_session() as session:
             job_repo = JobRepository(session)
             for bj in board_jobs:
-                if job_repo.get_by_canonical_url(bj.url):
+                bj_url = normalize_job_url(bj.url)
+                if job_repo.get_by_canonical_url(bj_url):
                     continue
                 company = bj.company or src["company_name"]
                 jd_text = (bj.jd_plain or "").strip()
-                has_jd = len(jd_text) >= 200
+                has_jd = len(jd_text) >= 200 and not is_shell_text(jd_text)
                 jd_hash = None
                 if has_jd:
                     import hashlib as _hl
                     jd_hash = _hl.md5(jd_text.encode("utf-8")).hexdigest()[:16]
                 job_repo.create(
-                    canonical_url=bj.url,
-                    source_url=bj.url,
+                    canonical_url=bj_url,
+                    source_url=bj_url,
                     source_type="ats",
                     source_provider=src["ats_provider"],
                     title=bj.title,
@@ -1443,6 +1653,7 @@ def _sync_active_boards(workspace_id: str, run_id: str, task_id: str) -> int:
                     status="reportable" if has_jd else "discovered",
                     discovered_run_id=run_id,
                     discovered_task_id=task_id,
+                    posted_at=bj.posted_at,
                     raw_payload_json={
                         "source": "board_sync",
                         "jd_source": "ats_api",

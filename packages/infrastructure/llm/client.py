@@ -90,7 +90,13 @@ class LLMClient:
                 "OPENAI_API_KEY environment variable is not set."
             )
 
-        return openai.OpenAI(api_key=self._api_key)
+        # max_retries=0: the SDK otherwise retries 429s twice with backoff,
+        # including 'insufficient_quota' (account out of credit) where retrying
+        # is pointless — it just burns time on a failure that won't clear until
+        # someone tops up. Extraction/other failures are recovered later by the
+        # reconciliation sweep (re-run once quota is back), not by retrying
+        # inline here.
+        return openai.OpenAI(api_key=self._api_key, max_retries=0)
 
     def _emit_usage(self, resp: "LLMResponse") -> None:
         """Fire-and-forget: persist token usage to the cost ledger."""
@@ -275,6 +281,19 @@ class LLMClient:
             choice.finish_reason,
         )
 
+        # Emit usage now, before any of the validation checks below can raise.
+        # The API call above already succeeded and OpenAI has already billed
+        # these tokens regardless of whether the output turns out to be
+        # truncated, filtered, refused, or unparseable — recording usage must
+        # not be contingent on the response also being usable.
+        self._emit_usage(LLMResponse(
+            content="",
+            model=response.model,
+            prompt_tokens=usage.prompt_tokens if usage else 0,
+            completion_tokens=usage.completion_tokens if usage else 0,
+            total_tokens=usage.total_tokens if usage else 0,
+        ))
+
         if choice.finish_reason == "length":
             raise LLMCallError(
                 f"LLM output truncated (finish_reason=length). "
@@ -320,13 +339,6 @@ class LLMClient:
                 len(content),
             )
 
-        self._emit_usage(LLMResponse(
-            content="",
-            model=response.model,
-            prompt_tokens=usage.prompt_tokens if usage else 0,
-            completion_tokens=usage.completion_tokens if usage else 0,
-            total_tokens=usage.total_tokens if usage else 0,
-        ))
         return parsed  # type: ignore[return-value]
 
 
