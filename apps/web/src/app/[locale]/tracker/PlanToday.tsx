@@ -19,15 +19,50 @@ const GROUP_OF: Record<string, string> = {
 };
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 
-// Display-side effort estimate by type (the rules engine does not emit
-// est_minutes; a per-type default is enough for the header total + per-item note).
-const EST_MIN: Record<string, number> = {
+// Fallback estimate by type, for rows written before est_minutes existed and for
+// manual to-dos the user did not estimate. The engine now emits its own value
+// (packages/domain/planner/rules.py DEFAULT_EST_MINUTES) — prefer that.
+const EST_FALLBACK: Record<string, number> = {
   follow_up: 15, thank_you: 15, prep: 30, apply: 60, networking: 20, custom: 20, global: 15,
 };
+
+function estOf(a: ActionRead): number {
+  return a.est_minutes ?? EST_FALLBACK[a.type] ?? 20;
+}
 
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
   return GROUP_OF[a.type] ?? "anytime";
+}
+
+// What counts against TODAY's capacity. The list itself spans a 14-day horizon
+// so upcoming deadlines stay visible, but the cap is a per-day number: summing
+// the whole horizon against it would compare two weeks of work to one day of
+// room. Undated work counts (Anytime is "today if there's room"); work due later
+// does not.
+function countsTowardToday(a: ActionRead): boolean {
+  const info = dueInfo(a);
+  return info === null || info.today;
+}
+
+function fmtMinutes(m: number): string {
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  if (!h) return `${mm}m`;
+  return mm ? `${h}h${String(mm).padStart(2, "0")}` : `${h}h`;
+}
+
+// Smallest-first until the excess is covered. Shared by the button's label and
+// its handler so the count shown is exactly the set that moves.
+function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
+  const picked: ActionRead[] = [];
+  let freed = 0;
+  for (const a of candidates) {
+    if (freed >= excess) break;
+    picked.push(a);
+    freed += estOf(a);
+  }
+  return picked;
 }
 
 /**
@@ -48,6 +83,7 @@ export function PlanToday() {
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
+  const [deferring, setDeferring] = useState(false);
   const removingRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
@@ -123,14 +159,37 @@ export function PlanToday() {
     }
   }
 
+  // Overloaded-day escape hatch: push the smallest Anytime items to tomorrow
+  // until today fits again. Anytime first because it is the only work with no
+  // date attached to it — everything else is due today for a reason.
+  async function deferToFit(candidates: ActionRead[], excess: number) {
+    if (deferring || !candidates.length) return;
+    setDeferring(true);
+    const ids = pickToDefer(candidates, excess).map((a) => a.id);
+    ids.forEach((id) => removingRef.current.add(id));
+    setActions((prev) => prev?.filter((a) => !ids.includes(a.id)) ?? null);
+    try {
+      const token = await getToken();
+      await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
+    } catch {
+      load();
+    } finally {
+      ids.forEach((id) => removingRef.current.delete(id));
+      setDeferring(false);
+    }
+  }
+
   const items = actions ?? [];
   const grouped: Record<string, ActionRead[]> = {};
   for (const g of GROUP_ORDER) grouped[g] = [];
   for (const a of items) grouped[groupOf(a)].push(a);
 
-  const estTotal = items.reduce((sum, a) => sum + (EST_MIN[a.type] ?? 20), 0);
+  // Two different totals: the whole visible horizon (informational) vs what is
+  // actually on the hook for today (what the cap governs).
+  const estTotal = items.reduce((sum, a) => sum + estOf(a), 0);
+  const todayItems = items.filter(countsTowardToday);
+  const estToday = todayItems.reduce((sum, a) => sum + estOf(a), 0);
   const cap = settings?.daily_cap_minutes ?? 0;
-  const overCap = cap > 0 && estTotal > cap;
   const isEmpty = actions !== null && actions.length === 0;
   const restsWeekend = !!settings?.rest_days?.some((d) => d === "sat" || d === "sun");
   const zoneSub = [
@@ -145,12 +204,20 @@ export function PlanToday() {
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
           {!isEmpty && actions !== null && (
-            <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
-              <span>
-                {t("todaySummary", { count: items.length, minutes: estTotal })}
-                {overCap && <span className="ml-1.5" style={{ color: "var(--match-partial-fg)" }}>· {t("overCap", { cap })}</span>}
-              </span>
-              <Button size="sm" variant="ghost" onClick={restUntilMonday} loading={resting}>{t("restUntilMon")}</Button>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
+                <span>{t("todaySummary", { count: items.length, minutes: estTotal })}</span>
+                <Button size="sm" variant="ghost" onClick={restUntilMonday} loading={resting}>{t("restUntilMon")}</Button>
+              </div>
+              {cap > 0 && (
+                <CapacityBar
+                  used={estToday}
+                  cap={cap}
+                  deferrable={todayItems.filter((a) => groupOf(a) === "anytime").sort((x, y) => estOf(x) - estOf(y))}
+                  onDefer={deferToFit}
+                  deferring={deferring}
+                />
+              )}
             </div>
           )}
 
@@ -191,6 +258,9 @@ export function PlanToday() {
                 <section key={g}>
                   <h3 className="text-2xs font-semibold uppercase tracking-wide mb-1 flex items-center gap-1.5" style={{ color: "var(--ink-muted)" }}>
                     {t(`planGroup.${g}`)}<span style={{ color: "var(--ink-faint)" }}>· {grouped[g].length}</span>
+                    <span className="ml-auto font-normal tabular-nums" style={{ color: "var(--ink-faint)" }}>
+                      {fmtMinutes(grouped[g].reduce((s, a) => s + estOf(a), 0))}
+                    </span>
                   </h3>
                   <ul>
                     {grouped[g].map((a) => (
@@ -221,6 +291,77 @@ export function PlanToday() {
   );
 }
 
+/**
+ * Today's load against the workspace's daily cap. Three states — under, past the
+ * 85% mark, over — because a plan that fills every available minute has no room
+ * for the day going sideways; 85% is where capacity-planning practice says to
+ * stop. Over-capacity offers a way out rather than just turning red: an overload
+ * is a signal to re-decide, not a debt.
+ *
+ * Colour note: main has no danger or warn semantic tokens yet (the ui-reskin
+ * line is adding them), so the near and over states share the existing
+ * partial-match amber and lean on copy plus weight to separate them. Point the
+ * `over` branch at the danger token once that work lands.
+ */
+function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
+  used: number; cap: number;
+  deferrable: ActionRead[];
+  onDefer: (candidates: ActionRead[], excess: number) => void;
+  deferring: boolean;
+}) {
+  const t = useTranslations("tracker");
+  const pct = Math.round((used / cap) * 100);
+  const state = pct > 100 ? "over" : pct > 85 ? "near" : "under";
+  const fill = state === "under" ? "var(--primary)" : "var(--match-partial-fg)";
+  const excess = used - cap;
+  // Only offer the escape hatch when it can actually move the needle.
+  const wouldMove = state === "over" ? pickToDefer(deferrable, excess).length : 0;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between text-2xs mb-1" style={{ color: "var(--ink-muted)" }}>
+        <span>{t("capacityTitle")}</span>
+        <span className="tabular-nums">{fmtMinutes(used)} / {fmtMinutes(cap)}</span>
+      </div>
+      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "var(--muted)" }}>
+        {/* the "stop here" mark */}
+        <span
+          className="absolute top-0 bottom-0 w-px z-10"
+          style={{ left: "85%", background: "var(--ink-faint)" }}
+          aria-hidden
+        />
+        <div
+          className="h-full rounded-full transition-[width] duration-300"
+          style={{ width: `${Math.min(pct, 100)}%`, background: fill }}
+        />
+      </div>
+      <div className="flex items-center gap-2 flex-wrap mt-1 text-2xs" style={{ color: "var(--ink-faint)" }}>
+        {state === "over" ? (
+          <span className="font-semibold" style={{ color: "var(--match-partial-fg)" }}>
+            {t("capacityOver", { pct: pct - 100 })}
+          </span>
+        ) : state === "near" ? (
+          <span style={{ color: "var(--match-partial-fg)" }}>{t("capacityNear", { pct })}</span>
+        ) : (
+          <span>{t("capacityUnder", { pct })}</span>
+        )}
+        <span>· {t("capacityHint")}</span>
+        {wouldMove > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            loading={deferring}
+            onClick={() => onDefer(deferrable, excess)}
+          >
+            {t("capacityDefer", { n: wouldMove })}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 type DueInfo = { today: boolean; days: number; warn: boolean };
 
 // Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
@@ -240,7 +381,7 @@ function dueInfo(a: ActionRead): DueInfo | null {
 function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: () => void; onSnooze: () => void }) {
   const t = useTranslations("tracker");
   const info = dueInfo(a);
-  const est = EST_MIN[a.type] ?? 20;
+  const est = estOf(a);
   return (
     <li className="group flex items-center gap-2.5 py-2 border-b" style={{ borderColor: "var(--border)" }}>
       <button
