@@ -84,7 +84,10 @@ def test_no_unused_keys_in_the_whitelist():
 
 
 def test_follow_up_fires_after_threshold():
-    specs = _gen([_app(applied_at=_d(8))])
+    # created_at deliberately differs from applied_at: the reason line is about
+    # how long ago you APPLIED, not how long the row has existed, and equal
+    # fixtures would let the wrong one pass.
+    specs = _gen([_app(applied_at=_d(8), created_at=_d(20))])
     fu = [s for s in specs if s.type == "follow_up"]
     assert len(fu) == 1
     assert fu[0].application_id == "a1"
@@ -156,7 +159,10 @@ def test_apply_or_drop_idempotent():
 
 
 def test_queue_refill_fires_when_below_target():
+    # Deliberately mixed: 2 planned among 3 applications, so planned_count can
+    # not be satisfied by "however many applications there are".
     apps = [_app(id=f"p{i}", status="planned", applied_at=None, created_at=_d(1)) for i in range(2)]
+    apps.append(_app(id="already-applied", status="applied", applied_at=_d(2)))
     globals_ = [s for s in _gen(apps) if s.type == "global"]
     assert len(globals_) == 1
     assert globals_[0].application_id is None
