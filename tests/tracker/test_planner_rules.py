@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from packages.contracts.api.applications import PlannerSettings
+from packages.contracts.api.applications import PUBLIC_PAYLOAD_KEYS, PlannerSettings
 from packages.domain.planner.rules import (
     ActionView,
     ApplicationView,
@@ -40,6 +40,44 @@ def _gen(apps, *, settings=None, now=NOW, global_actions=None):
 
 def _types(specs):
     return sorted(s.type for s in specs)
+
+
+def _all_rules_firing():
+    """One snapshot that trips every rule at once, so a change to any of them
+    shows up in the whole-contract tests below."""
+    return [
+        _app(id="fu", applied_at=_d(8)),  # follow_up
+        _app(id="ty", status="interviewing",
+             events=[EventView("interview_scheduled", _d(0), at=NOW - timedelta(hours=2))]),
+        _app(id="ci", status="interviewing",
+             events=[EventView("interview_scheduled", _d(8), at=_d(8))]),  # check_in -> prep
+        _app(id="ad", status="planned", applied_at=None, created_at=_d(15)),  # apply_or_drop
+    ]  # queue_refill fires too: 1 planned < weekly target 10
+
+
+def test_every_recorded_fact_is_exposed_by_the_api():
+    """The whitelist and the engine must not drift. A fact the engine bothers to
+    record but the API silently filters out is invisible for no reason the user
+    could ever discover — this is the only thing that fails when a rule gains a
+    field and nobody adds it to PUBLIC_PAYLOAD_KEYS."""
+    specs = _gen(_all_rules_firing())
+    assert {s.payload["rule"] for s in specs} == {
+        "follow_up", "thank_you", "check_in", "apply_or_drop", "queue_refill",
+    }, "fixture stopped tripping every rule — fix it, the coverage below depends on it"
+    for s in specs:
+        for key in s.payload:
+            assert key in PUBLIC_PAYLOAD_KEYS, (
+                f"rule {s.payload['rule']} records {key!r}, which the API filters out"
+            )
+
+
+def test_no_unused_keys_in_the_whitelist():
+    """The reverse drift: a key nobody emits any more is a permission left open
+    for something the engine no longer intends to say."""
+    emitted = {k for s in _gen(_all_rules_firing()) for k in s.payload}
+    assert PUBLIC_PAYLOAD_KEYS == emitted, (
+        f"whitelist-only: {PUBLIC_PAYLOAD_KEYS - emitted}; emitted-only: {emitted - PUBLIC_PAYLOAD_KEYS}"
+    )
 
 
 # --- follow_up ---------------------------------------------------------------

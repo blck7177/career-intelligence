@@ -647,6 +647,17 @@ class TestActionsMore:
             "rule": "follow_up", "days_since_applied": 9,
         }
 
+    @pytest.mark.parametrize("junk", [["a"], "oops", 5, True])
+    def test_non_object_payload_degrades_instead_of_500ing(self, make_client, junk):
+        """payload_json is a JSON column; nothing enforces that it holds an
+        object. One malformed row must not take down the whole Today list."""
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_due.return_value = [_action(payload_json=junk)]
+            resp = client.get("/api/app/actions")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["payload"] is None
+
     def test_payload_of_only_private_keys_reads_as_none(self, make_client):
         # Nothing renderable left → None, not an empty object the UI must special-case.
         client = make_client()

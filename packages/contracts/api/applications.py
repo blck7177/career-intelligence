@@ -173,9 +173,13 @@ class ActionRead(BaseModel):
     updated_at: datetime
     model_config = {"from_attributes": True, "populate_by_name": True}
 
-    @field_validator("payload", mode="after")
+    # mode="before": runs ahead of the dict type check, so a row whose
+    # payload_json somehow isn't an object degrades to None instead of raising
+    # and 500ing the whole Today list. (After-mode would never see it — pydantic
+    # would have rejected the value first, making the isinstance guard dead code.)
+    @field_validator("payload", mode="before")
     @classmethod
-    def _only_public_keys(cls, v: Optional[dict]) -> Optional[dict]:
+    def _only_public_keys(cls, v: object) -> Optional[dict]:
         if not isinstance(v, dict):
             return None
         kept = {k: val for k, val in v.items() if k in PUBLIC_PAYLOAD_KEYS}
