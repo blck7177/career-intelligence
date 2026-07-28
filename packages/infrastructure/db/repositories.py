@@ -1972,6 +1972,7 @@ class ApplicationActionRepository:
         row = self.get(action_id, workspace_id)
         if row is None:
             return None
+        was_due = row.due_at
         if until is not None:
             # Absolute target (Rest-until-Monday) — correct for overdue actions,
             # whose due_at is in the past and would otherwise stay past on +days.
@@ -1980,6 +1981,18 @@ class ApplicationActionRepository:
             base = row.due_at or datetime.now(timezone.utc)
             row.due_at = base + timedelta(days=days)
         row.status = "pending"  # stays actionable, just later
+        # Count only actual postponement. Rest-until-Monday applies one absolute
+        # target to every visible action, which pulls anything due later than
+        # that Monday EARLIER — counting those would inflate the number on rows
+        # that were never put off, and two taps would light up "deferred" across
+        # the whole list. Undated work does count: giving it tomorrow's date is
+        # a postponement of something that was available today.
+        # (SQLite round-trips drop tzinfo, so normalise before comparing.)
+        def _aware(dt: datetime) -> datetime:
+            return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+        if was_due is None or _aware(row.due_at) > _aware(was_due):
+            row.snooze_count = (row.snooze_count or 0) + 1
         self._s.flush()
         return row
 

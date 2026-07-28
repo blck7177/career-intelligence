@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from packages.contracts.api.applications import PlannerSettings
+from packages.contracts.api.applications import PUBLIC_PAYLOAD_KEYS, PlannerSettings
 from packages.domain.planner.rules import (
     ActionView,
     ApplicationView,
@@ -42,17 +42,60 @@ def _types(specs):
     return sorted(s.type for s in specs)
 
 
+def _all_rules_firing():
+    """One snapshot that trips every rule at once, so a change to any of them
+    shows up in the whole-contract tests below."""
+    return [
+        _app(id="fu", applied_at=_d(8)),  # follow_up
+        _app(id="ty", status="interviewing",
+             events=[EventView("interview_scheduled", _d(0), at=NOW - timedelta(hours=2))]),
+        _app(id="ci", status="interviewing",
+             events=[EventView("interview_scheduled", _d(8), at=_d(8))]),  # check_in -> prep
+        _app(id="ad", status="planned", applied_at=None, created_at=_d(15)),  # apply_or_drop
+    ]  # queue_refill fires too: 1 planned < weekly target 10
+
+
+def test_every_recorded_fact_is_exposed_by_the_api():
+    """The whitelist and the engine must not drift. A fact the engine bothers to
+    record but the API silently filters out is invisible for no reason the user
+    could ever discover — this is the only thing that fails when a rule gains a
+    field and nobody adds it to PUBLIC_PAYLOAD_KEYS."""
+    specs = _gen(_all_rules_firing())
+    assert {s.payload["rule"] for s in specs} == {
+        "follow_up", "thank_you", "check_in", "apply_or_drop", "queue_refill",
+    }, "fixture stopped tripping every rule — fix it, the coverage below depends on it"
+    for s in specs:
+        for key in s.payload:
+            assert key in PUBLIC_PAYLOAD_KEYS, (
+                f"rule {s.payload['rule']} records {key!r}, which the API filters out"
+            )
+
+
+def test_no_unused_keys_in_the_whitelist():
+    """The reverse drift: a key nobody emits any more is a permission left open
+    for something the engine no longer intends to say."""
+    emitted = {k for s in _gen(_all_rules_firing()) for k in s.payload}
+    assert PUBLIC_PAYLOAD_KEYS == emitted, (
+        f"whitelist-only: {PUBLIC_PAYLOAD_KEYS - emitted}; emitted-only: {emitted - PUBLIC_PAYLOAD_KEYS}"
+    )
+
+
 # --- follow_up ---------------------------------------------------------------
 
 
 def test_follow_up_fires_after_threshold():
-    specs = _gen([_app(applied_at=_d(8))])
+    # created_at deliberately differs from applied_at: the reason line is about
+    # how long ago you APPLIED, not how long the row has existed, and equal
+    # fixtures would let the wrong one pass.
+    specs = _gen([_app(applied_at=_d(8), created_at=_d(20))])
     fu = [s for s in specs if s.type == "follow_up"]
     assert len(fu) == 1
     assert fu[0].application_id == "a1"
     # due = local midnight (2026-07-15 00:00 EDT = 04:00 UTC)
     assert fu[0].due_at == local_day_start_utc(date(2026, 7, 15), "America/New_York")
     assert fu[0].est_minutes == 15
+    # The row has to be able to explain itself: "applied 8 days ago, no reply".
+    assert fu[0].payload == {"rule": "follow_up", "days_since_applied": 8}
 
 
 def test_follow_up_no_fire_before_threshold():
@@ -98,6 +141,7 @@ def test_apply_or_drop_fires():
     specs = [s for s in _gen([app]) if s.type == "apply"]
     assert len(specs) == 1
     assert specs[0].est_minutes == 60
+    assert specs[0].payload == {"rule": "apply_or_drop", "days_planned": 15}
 
 
 def test_apply_or_drop_no_fire_before_threshold():
@@ -115,12 +159,21 @@ def test_apply_or_drop_idempotent():
 
 
 def test_queue_refill_fires_when_below_target():
+    # Deliberately mixed: 2 planned among 3 applications, so planned_count can
+    # not be satisfied by "however many applications there are".
     apps = [_app(id=f"p{i}", status="planned", applied_at=None, created_at=_d(1)) for i in range(2)]
+    apps.append(_app(id="already-applied", status="applied", applied_at=_d(2)))
     globals_ = [s for s in _gen(apps) if s.type == "global"]
     assert len(globals_) == 1
     assert globals_[0].application_id is None
-    assert globals_[0].payload["rule"] == "queue_refill"
     assert globals_[0].est_minutes == 15
+    # Carries both sides of the comparison it fired on, so the row can say
+    # "2 queued against a target of 10".
+    assert globals_[0].payload == {
+        "rule": "queue_refill",
+        "planned_count": 2,
+        "target": 10,
+    }
 
 
 def test_queue_refill_no_fire_when_at_target():
@@ -150,6 +203,9 @@ def test_thank_you_fires_after_recent_interview():
     # due = day after the interview
     assert ty[0].due_at == local_day_start_utc(date(2026, 7, 16), "America/New_York")
     assert ty[0].est_minutes == 15
+    assert ty[0].payload["rule"] == "thank_you"
+    # The interview instant travels with the row so the UI can date the note.
+    assert ty[0].payload["interview_at"] == (NOW - timedelta(hours=2)).isoformat()
 
 
 def test_thank_you_no_fire_for_old_interview():
@@ -162,6 +218,7 @@ def test_check_in_fires_when_stale_after_interview():
     prep = [s for s in _gen([app]) if s.type == "prep"]
     assert len(prep) == 1
     assert prep[0].est_minutes == 30
+    assert prep[0].payload == {"rule": "check_in", "days_since_interview": 8}
 
 
 def test_check_in_no_fire_when_later_event_exists():

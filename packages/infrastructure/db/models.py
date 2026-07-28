@@ -816,6 +816,11 @@ class ApplicationAction(Base):
     # NULL on legacy rows and on manual rows the user did not estimate, so every
     # consumer needs a fallback (never SUM() this column blindly).
     est_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # How many times this to-do has been pushed to a later day. Unlike
+    # est_minutes, 0 is a real value here (never deferred), not "unknown".
+    snooze_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     # pending | done | snoozed | dismissed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     auto_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
