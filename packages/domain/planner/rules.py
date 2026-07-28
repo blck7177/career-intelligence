@@ -20,6 +20,17 @@ Rules (thresholds all read from settings):
   5. queue_refill  — planned count < weekly apply target → one global "run
                    discovery" to-do (deduped per ISO week).
 (3B7/networking is intentionally NOT here — deferred, see exec_plan W2-C1.)
+
+Payload contract: every spec carries `rule` plus the facts that rule fired on,
+so the UI can say *why* a to-do exists ("applied 9 days ago, no reply, 1st
+follow-up") instead of showing an unexplained instruction. These fields are
+whitelisted through ActionRead (see contracts), so keep them plain scalars and
+free of anything the user should not see:
+  follow_up     — days_since_applied
+  thank_you     — interview_at (ISO 8601)
+  check_in      — days_since_interview
+  apply_or_drop — days_planned
+  queue_refill  — planned_count, target
 """
 from __future__ import annotations
 
@@ -176,13 +187,18 @@ def _follow_up(app, settings, today, due_today, tz) -> list[ActionSpec]:
         return []
     if _suppressed(app.actions, "follow_up"):
         return []
+    # No "nth follow-up" counter here: the completed-check above makes this a
+    # once-per-application rule, so any such counter would be a constant 1.
     return [
         ActionSpec(
             type="follow_up",
             title="Follow up on this application",
             application_id=app.id,
             due_at=due_today,
-            payload={"rule": "follow_up"},
+            payload={
+                "rule": "follow_up",
+                "days_since_applied": (today - applied_date).days,
+            },
             est_minutes=DEFAULT_EST_MINUTES["follow_up"],
         )
     ]
@@ -207,7 +223,10 @@ def _thank_you(app, settings, now_utc, tz) -> list[ActionSpec]:
             title="Send a thank-you note",
             application_id=app.id,
             due_at=due,
-            payload={"rule": "thank_you"},
+            payload={
+                "rule": "thank_you",
+                "interview_at": interview_at.isoformat(),
+            },
             est_minutes=DEFAULT_EST_MINUTES["thank_you"],
         )
     ]
@@ -232,7 +251,10 @@ def _check_in(app, settings, today, due_today, tz) -> list[ActionSpec]:
             title="Check in — no word since the interview",
             application_id=app.id,
             due_at=due_today,
-            payload={"rule": "check_in"},
+            payload={
+                "rule": "check_in",
+                "days_since_interview": (today - _local_date(last_at, tz)).days,
+            },
             est_minutes=DEFAULT_EST_MINUTES["prep"],
         )
     ]
@@ -251,7 +273,10 @@ def _apply_or_drop(app, settings, today, due_today, tz) -> list[ActionSpec]:
             title="Apply now or drop this one",
             application_id=app.id,
             due_at=due_today,
-            payload={"rule": "apply_or_drop"},
+            payload={
+                "rule": "apply_or_drop",
+                "days_planned": (today - _local_date(app.created_at, tz)).days,
+            },
             est_minutes=DEFAULT_EST_MINUTES["apply"],
         )
     ]
@@ -282,7 +307,11 @@ def _queue_refill(applications, settings, now_utc, today, due_today, tz, global_
             title="Run a discovery to refill your apply queue",
             application_id=None,
             due_at=due_today,
-            payload={"rule": "queue_refill"},
+            payload={
+                "rule": "queue_refill",
+                "planned_count": planned,
+                "target": settings.weekly_target.apply,
+            },
             est_minutes=DEFAULT_EST_MINUTES["global"],
         )
     ]

@@ -53,6 +53,8 @@ def test_follow_up_fires_after_threshold():
     # due = local midnight (2026-07-15 00:00 EDT = 04:00 UTC)
     assert fu[0].due_at == local_day_start_utc(date(2026, 7, 15), "America/New_York")
     assert fu[0].est_minutes == 15
+    # The row has to be able to explain itself: "applied 8 days ago, no reply".
+    assert fu[0].payload == {"rule": "follow_up", "days_since_applied": 8}
 
 
 def test_follow_up_no_fire_before_threshold():
@@ -98,6 +100,7 @@ def test_apply_or_drop_fires():
     specs = [s for s in _gen([app]) if s.type == "apply"]
     assert len(specs) == 1
     assert specs[0].est_minutes == 60
+    assert specs[0].payload == {"rule": "apply_or_drop", "days_planned": 15}
 
 
 def test_apply_or_drop_no_fire_before_threshold():
@@ -119,8 +122,14 @@ def test_queue_refill_fires_when_below_target():
     globals_ = [s for s in _gen(apps) if s.type == "global"]
     assert len(globals_) == 1
     assert globals_[0].application_id is None
-    assert globals_[0].payload["rule"] == "queue_refill"
     assert globals_[0].est_minutes == 15
+    # Carries both sides of the comparison it fired on, so the row can say
+    # "2 queued against a target of 10".
+    assert globals_[0].payload == {
+        "rule": "queue_refill",
+        "planned_count": 2,
+        "target": 10,
+    }
 
 
 def test_queue_refill_no_fire_when_at_target():
@@ -150,6 +159,9 @@ def test_thank_you_fires_after_recent_interview():
     # due = day after the interview
     assert ty[0].due_at == local_day_start_utc(date(2026, 7, 16), "America/New_York")
     assert ty[0].est_minutes == 15
+    assert ty[0].payload["rule"] == "thank_you"
+    # The interview instant travels with the row so the UI can date the note.
+    assert ty[0].payload["interview_at"] == (NOW - timedelta(hours=2)).isoformat()
 
 
 def test_thank_you_no_fire_for_old_interview():
@@ -162,6 +174,7 @@ def test_check_in_fires_when_stale_after_interview():
     prep = [s for s in _gen([app]) if s.type == "prep"]
     assert len(prep) == 1
     assert prep[0].est_minutes == 30
+    assert prep[0].payload == {"rule": "check_in", "days_since_interview": 8}
 
 
 def test_check_in_no_fire_when_later_event_exists():
