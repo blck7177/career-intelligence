@@ -56,6 +56,12 @@ function fmtMinutes(m: number): string {
 // packages/domain/planner/rules.py); this turns them into the line under the
 // title, so a generated row explains itself instead of just issuing an order.
 // Manual rows and anything predating the contract have no payload and show less.
+//
+// These are a snapshot from the moment the rule fired, not a live count. A row
+// deferred for a week still says the number it was created with, so the day
+// counts read low rather than high — understating the case for acting is the
+// safe direction for an error, and re-deriving them here would need fields
+// (applied_at, the interview date) that ActionRead does not carry.
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
