@@ -52,6 +52,7 @@ def test_follow_up_fires_after_threshold():
     assert fu[0].application_id == "a1"
     # due = local midnight (2026-07-15 00:00 EDT = 04:00 UTC)
     assert fu[0].due_at == local_day_start_utc(date(2026, 7, 15), "America/New_York")
+    assert fu[0].est_minutes == 15
 
 
 def test_follow_up_no_fire_before_threshold():
@@ -94,7 +95,9 @@ def test_follow_up_no_fire_when_not_applied_status():
 
 def test_apply_or_drop_fires():
     app = _app(status="planned", applied_at=None, created_at=_d(15))
-    assert len([s for s in _gen([app]) if s.type == "apply"]) == 1
+    specs = [s for s in _gen([app]) if s.type == "apply"]
+    assert len(specs) == 1
+    assert specs[0].est_minutes == 60
 
 
 def test_apply_or_drop_no_fire_before_threshold():
@@ -117,6 +120,7 @@ def test_queue_refill_fires_when_below_target():
     assert len(globals_) == 1
     assert globals_[0].application_id is None
     assert globals_[0].payload["rule"] == "queue_refill"
+    assert globals_[0].est_minutes == 15
 
 
 def test_queue_refill_no_fire_when_at_target():
@@ -145,6 +149,7 @@ def test_thank_you_fires_after_recent_interview():
     assert len(ty) == 1
     # due = day after the interview
     assert ty[0].due_at == local_day_start_utc(date(2026, 7, 16), "America/New_York")
+    assert ty[0].est_minutes == 15
 
 
 def test_thank_you_no_fire_for_old_interview():
@@ -154,7 +159,9 @@ def test_thank_you_no_fire_for_old_interview():
 
 def test_check_in_fires_when_stale_after_interview():
     app = _app(status="interviewing", events=[EventView("interview_scheduled", _d(8), at=_d(8))])
-    assert len([s for s in _gen([app]) if s.type == "prep"]) == 1
+    prep = [s for s in _gen([app]) if s.type == "prep"]
+    assert len(prep) == 1
+    assert prep[0].est_minutes == 30
 
 
 def test_check_in_no_fire_when_later_event_exists():

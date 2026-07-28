@@ -64,6 +64,7 @@ def run_for_workspace(session: Any, workspace_id: str, now_utc: datetime) -> int
             due_at=spec.due_at,
             auto_generated=True,
             payload_json=spec.payload,
+            est_minutes=spec.est_minutes,
         )
     return len(specs)
 

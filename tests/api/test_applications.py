@@ -55,7 +55,7 @@ def _event(**over) -> SimpleNamespace:
 
 def _action(**over) -> SimpleNamespace:
     base = dict(id="act-1", application_id="app-1", type="follow_up", title="Ping",
-                due_at=_NOW, status="pending", auto_generated=False,
+                due_at=_NOW, est_minutes=15, status="pending", auto_generated=False,
                 completed_at=None, created_at=_NOW, updated_at=_NOW)
     base.update(over)
     return SimpleNamespace(**base)
@@ -280,6 +280,33 @@ class TestActions:
         assert resp.status_code == 201, resp.text
         assert resp.json()["type"] == "global"
 
+    def test_create_action_forwards_est_minutes(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.create.return_value = _action(
+                type="custom", application_id=None, est_minutes=30
+            )
+            resp = client.post(
+                "/api/app/actions",
+                json={"type": "custom", "title": "draft outreach", "est_minutes": 30},
+            )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["est_minutes"] == 30
+        _, kwargs = MockAct.return_value.create.call_args
+        assert kwargs["est_minutes"] == 30
+
+    def test_create_action_without_est_minutes_forwards_none(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.create.return_value = _action(
+                type="custom", application_id=None, est_minutes=None
+            )
+            resp = client.post("/api/app/actions", json={"type": "custom", "title": "no est"})
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["est_minutes"] is None
+        _, kwargs = MockAct.return_value.create.call_args
+        assert kwargs["est_minutes"] is None
+
     def test_list_actions_defaults_to_now(self, make_client):
         client = make_client()
         with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
@@ -287,6 +314,7 @@ class TestActions:
             resp = client.get("/api/app/actions")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
+        assert resp.json()["items"][0]["est_minutes"] == 15
 
     def test_patch_action_complete(self, make_client):
         client = make_client()
@@ -561,6 +589,39 @@ class TestActionsMore:
         client = make_client()
         resp = client.patch("/api/app/actions/act-1", json={"op": "snooze", "snooze_days": 91})
         assert resp.status_code == 422
+
+    @pytest.mark.parametrize("bad", [4, 481])
+    def test_est_minutes_out_of_range_returns_422(self, make_client, bad):
+        client = make_client()
+        resp = client.post(
+            "/api/app/actions", json={"type": "custom", "title": "x", "est_minutes": bad}
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize("ok", [5, 480])
+    def test_est_minutes_accepts_inclusive_bounds(self, make_client, ok):
+        """The reject-side test alone would still pass if the range were narrowed;
+        this pins both ends as inclusive."""
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.create.return_value = _action(
+                type="custom", application_id=None, est_minutes=ok
+            )
+            resp = client.post(
+                "/api/app/actions", json={"type": "custom", "title": "x", "est_minutes": ok}
+            )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["est_minutes"] == ok
+
+    def test_read_model_serialises_out_of_range_est_minutes(self, make_client):
+        """ActionRead deliberately carries no ge/le: a legacy or engine-written row
+        outside the create-time range must serialise, not 500."""
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_due.return_value = [_action(est_minutes=600)]
+            resp = client.get("/api/app/actions")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["est_minutes"] == 600
 
 
 def test_list_forwards_needs_action_filter(make_client):

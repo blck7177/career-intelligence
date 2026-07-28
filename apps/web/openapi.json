@@ -3338,6 +3338,19 @@
               }
             ],
             "title": "Due At"
+          },
+          "est_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 480.0,
+                "minimum": 5.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Est Minutes"
           }
         },
         "type": "object",
@@ -3345,7 +3358,8 @@
           "type",
           "title"
         ],
-        "title": "ActionCreate"
+        "title": "ActionCreate",
+        "description": "A manual to-do. est_minutes is the user's own effort estimate; omitting it\nleaves the row NULL and the Today view falls back to a per-type default."
       },
       "ActionList": {
         "properties": {
@@ -3404,6 +3418,17 @@
               }
             ],
             "title": "Due At"
+          },
+          "est_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Est Minutes"
           },
           "status": {
             "type": "string",

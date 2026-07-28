@@ -428,6 +428,7 @@ def create_action(
         application_id=body.application_id,
         due_at=body.due_at,
         auto_generated=False,
+        est_minutes=body.est_minutes,
     )
     db.commit()
     return ActionRead.model_validate(action)

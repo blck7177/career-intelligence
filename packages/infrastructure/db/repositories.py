@@ -1843,6 +1843,7 @@ class ApplicationActionRepository:
         status: str = "pending",
         auto_generated: bool = False,
         payload_json: dict | None = None,
+        est_minutes: int | None = None,
     ) -> ApplicationAction:
         row = ApplicationAction(
             workspace_id=workspace_id,
@@ -1853,6 +1854,7 @@ class ApplicationActionRepository:
             status=status,
             auto_generated=auto_generated,
             payload_json=payload_json,
+            est_minutes=est_minutes,
         )
         self._s.add(row)
         self._s.flush()
