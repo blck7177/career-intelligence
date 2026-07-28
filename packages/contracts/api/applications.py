@@ -116,10 +116,14 @@ class ApplicationEventCreate(BaseModel):
 
 
 class ActionCreate(BaseModel):
+    """A manual to-do. est_minutes is the user's own effort estimate; omitting it
+    leaves the row NULL and the Today view falls back to a per-type default."""
+
     type: ActionType
     title: str = Field(..., min_length=1, max_length=512)
     application_id: Optional[str] = None
     due_at: Optional[datetime] = None
+    est_minutes: Optional[int] = Field(None, ge=5, le=480)
 
 
 class ActionUpdate(BaseModel):
@@ -136,6 +140,9 @@ class ActionRead(BaseModel):
     type: str
     title: str
     due_at: Optional[datetime] = None
+    # No ge/le here (read models don't re-validate, per this file's convention) —
+    # legacy rows are NULL and must serialise, not 500.
+    est_minutes: Optional[int] = None
     status: str
     auto_generated: bool
     completed_at: Optional[datetime] = None

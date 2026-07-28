@@ -44,6 +44,20 @@ _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
 
 _WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
+# Effort estimate per action type, in minutes. Coarse on purpose — the point is
+# a believable day total to check against the daily cap, not precision (an exact
+# estimate would only lend false confidence to the planning fallacy). Keyed by
+# the emitted ActionSpec.type, so check_in appears as "prep" and queue_refill as
+# "global". The frontend keeps its own copy as the fallback for rows that
+# predate this column.
+DEFAULT_EST_MINUTES = {
+    "follow_up": 15,
+    "thank_you": 15,
+    "prep": 30,
+    "apply": 60,
+    "global": 15,
+}
+
 
 # --- input / output views (the worker maps ORM rows into these) --------------
 
@@ -85,6 +99,7 @@ class ActionSpec:
     application_id: Optional[str] = None
     due_at: Optional[datetime] = None  # UTC (local-midnight of the due date)
     payload: Optional[dict] = None
+    est_minutes: Optional[int] = None  # effort estimate; per-type default below
 
 
 # --- day-boundary helpers (the whole system's one definition of "today") -----
@@ -168,6 +183,7 @@ def _follow_up(app, settings, today, due_today, tz) -> list[ActionSpec]:
             application_id=app.id,
             due_at=due_today,
             payload={"rule": "follow_up"},
+            est_minutes=DEFAULT_EST_MINUTES["follow_up"],
         )
     ]
 
@@ -192,6 +208,7 @@ def _thank_you(app, settings, now_utc, tz) -> list[ActionSpec]:
             application_id=app.id,
             due_at=due,
             payload={"rule": "thank_you"},
+            est_minutes=DEFAULT_EST_MINUTES["thank_you"],
         )
     ]
 
@@ -216,6 +233,7 @@ def _check_in(app, settings, today, due_today, tz) -> list[ActionSpec]:
             application_id=app.id,
             due_at=due_today,
             payload={"rule": "check_in"},
+            est_minutes=DEFAULT_EST_MINUTES["prep"],
         )
     ]
 
@@ -234,6 +252,7 @@ def _apply_or_drop(app, settings, today, due_today, tz) -> list[ActionSpec]:
             application_id=app.id,
             due_at=due_today,
             payload={"rule": "apply_or_drop"},
+            est_minutes=DEFAULT_EST_MINUTES["apply"],
         )
     ]
 
@@ -264,5 +283,6 @@ def _queue_refill(applications, settings, now_utc, today, due_today, tz, global_
             application_id=None,
             due_at=due_today,
             payload={"rule": "queue_refill"},
+            est_minutes=DEFAULT_EST_MINUTES["global"],
         )
     ]

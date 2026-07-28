@@ -812,6 +812,10 @@ class ApplicationAction(Base):
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Effort estimate in minutes. The rules engine emits a per-type default;
+    # NULL on legacy rows and on manual rows the user did not estimate, so every
+    # consumer needs a fallback (never SUM() this column blindly).
+    est_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # pending | done | snoozed | dismissed
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     auto_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

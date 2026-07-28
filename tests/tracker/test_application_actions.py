@@ -27,6 +27,15 @@ def test_create_and_get_action(db_session: Session):
     assert repo.get(act.id, OTHER_WS) is None  # workspace-scoped
 
 
+def test_create_persists_est_minutes(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    estimated = repo.create(workspace_id=WS, type="apply", title="with est", est_minutes=60)
+    assert estimated.est_minutes == 60
+    # Omitted → NULL, never 0: consumers fall back to a per-type default.
+    unestimated = repo.create(workspace_id=WS, type="apply", title="no est")
+    assert unestimated.est_minutes is None
+
+
 def test_list_due_includes_overdue_and_undated_excludes_future(db_session: Session):
     repo = ApplicationActionRepository(db_session)
     now = _now()
