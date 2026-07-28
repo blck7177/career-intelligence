@@ -86,6 +86,26 @@ def test_snooze_pushes_due_at(db_session: Session):
     assert act.id not in {a.id for a in repo.list_due(WS, now)}  # now in the future
 
 
+def test_snooze_counts_deferrals(db_session: Session):
+    """A repeatedly-deferred to-do has to be able to say so — the Today row
+    surfaces the count once it climbs."""
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="apply", title="x", due_at=_now())
+    assert act.snooze_count == 0  # a real value, not "unknown"
+    repo.snooze(act.id, WS, days=1)
+    repo.snooze(act.id, WS, days=1)
+    repo.snooze(act.id, WS, days=1)
+    assert act.snooze_count == 3
+
+
+def test_snooze_until_also_counts(db_session: Session):
+    # Rest-until-Monday takes the absolute-target branch; it is still a deferral.
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="apply", title="x", due_at=_now())
+    repo.snooze(act.id, WS, until=_now() + timedelta(days=4))
+    assert act.snooze_count == 1
+
+
 def test_dismiss(db_session: Session):
     repo = ApplicationActionRepository(db_session)
     act = repo.create(workspace_id=WS, type="custom", title="x")

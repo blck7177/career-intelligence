@@ -14,7 +14,7 @@ from datetime import date, datetime
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 _WEEKDAYS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
 
@@ -134,6 +134,23 @@ class ActionUpdate(BaseModel):
     snooze_until: Optional[datetime] = None
 
 
+# Payload keys the API may expose. The rules engine writes the facts a rule
+# fired on (see packages/domain/planner/rules.py) and the UI renders them into
+# "why this exists" copy. Allow-list rather than block-list, so a field added to
+# a payload later is invisible to clients until someone deliberately lists it.
+PUBLIC_PAYLOAD_KEYS = frozenset(
+    {
+        "rule",
+        "days_since_applied",
+        "interview_at",
+        "days_since_interview",
+        "days_planned",
+        "planned_count",
+        "target",
+    }
+)
+
+
 class ActionRead(BaseModel):
     id: str
     application_id: Optional[str] = None
@@ -143,12 +160,26 @@ class ActionRead(BaseModel):
     # No ge/le here (read models don't re-validate, per this file's convention) —
     # legacy rows are NULL and must serialise, not 500.
     est_minutes: Optional[int] = None
+    # Times pushed to a later day. 0 is a real value (never deferred), not unknown.
+    snooze_count: int = 0
+    # Whitelisted rule facts; None for manual rows and anything pre-dating this.
+    payload: Optional[dict] = Field(
+        None, validation_alias=AliasChoices("payload", "payload_json")
+    )
     status: str
     auto_generated: bool
     completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @field_validator("payload", mode="after")
+    @classmethod
+    def _only_public_keys(cls, v: Optional[dict]) -> Optional[dict]:
+        if not isinstance(v, dict):
+            return None
+        kept = {k: val for k, val in v.items() if k in PUBLIC_PAYLOAD_KEYS}
+        return kept or None
 
 
 class ActionList(BaseModel):

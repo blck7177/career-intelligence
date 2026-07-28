@@ -3430,6 +3430,23 @@
             ],
             "title": "Est Minutes"
           },
+          "snooze_count": {
+            "type": "integer",
+            "title": "Snooze Count",
+            "default": 0
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          },
           "status": {
             "type": "string",
             "title": "Status"

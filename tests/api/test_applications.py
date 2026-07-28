@@ -55,7 +55,8 @@ def _event(**over) -> SimpleNamespace:
 
 def _action(**over) -> SimpleNamespace:
     base = dict(id="act-1", application_id="app-1", type="follow_up", title="Ping",
-                due_at=_NOW, est_minutes=15, status="pending", auto_generated=False,
+                due_at=_NOW, est_minutes=15, snooze_count=0, payload_json=None,
+                status="pending", auto_generated=False,
                 completed_at=None, created_at=_NOW, updated_at=_NOW)
     base.update(over)
     return SimpleNamespace(**base)
@@ -612,6 +613,50 @@ class TestActionsMore:
             )
         assert resp.status_code == 201, resp.text
         assert resp.json()["est_minutes"] == ok
+
+    def test_list_actions_exposes_rule_facts(self, make_client):
+        """The engine's reason for a to-do reaches the client, so the row can
+        explain itself instead of issuing an unexplained instruction."""
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_due.return_value = [
+                _action(payload_json={"rule": "follow_up", "days_since_applied": 9}, snooze_count=2)
+            ]
+            resp = client.get("/api/app/actions")
+        assert resp.status_code == 200, resp.text
+        item = resp.json()["items"][0]
+        assert item["payload"] == {"rule": "follow_up", "days_since_applied": 9}
+        assert item["snooze_count"] == 2
+
+    def test_payload_is_whitelisted_not_passed_through(self, make_client):
+        """Allow-list, so a field added to a rule payload later cannot reach the
+        client until someone lists it deliberately."""
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_due.return_value = [
+                _action(payload_json={
+                    "rule": "follow_up",
+                    "days_since_applied": 9,
+                    "internal_debug_note": "do not ship",
+                    "candidate_email": "a@b.c",
+                })
+            ]
+            resp = client.get("/api/app/actions")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["payload"] == {
+            "rule": "follow_up", "days_since_applied": 9,
+        }
+
+    def test_payload_of_only_private_keys_reads_as_none(self, make_client):
+        # Nothing renderable left → None, not an empty object the UI must special-case.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_due.return_value = [
+                _action(payload_json={"internal_only": 1})
+            ]
+            resp = client.get("/api/app/actions")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["items"][0]["payload"] is None
 
     def test_read_model_serialises_out_of_range_est_minutes(self, make_client):
         """ActionRead deliberately carries no ge/le: a legacy or engine-written row

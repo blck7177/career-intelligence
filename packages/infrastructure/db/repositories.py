@@ -1980,6 +1980,7 @@ class ApplicationActionRepository:
             base = row.due_at or datetime.now(timezone.utc)
             row.due_at = base + timedelta(days=days)
         row.status = "pending"  # stays actionable, just later
+        row.snooze_count = (row.snooze_count or 0) + 1
         self._s.flush()
         return row
 
