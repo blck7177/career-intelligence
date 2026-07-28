@@ -98,11 +98,32 @@ def test_snooze_counts_deferrals(db_session: Session):
     assert act.snooze_count == 3
 
 
-def test_snooze_until_also_counts(db_session: Session):
-    # Rest-until-Monday takes the absolute-target branch; it is still a deferral.
+def test_snooze_until_counts_when_it_pushes_later(db_session: Session):
+    # Rest-until-Monday takes the absolute-target branch; pushing later counts.
     repo = ApplicationActionRepository(db_session)
     act = repo.create(workspace_id=WS, type="apply", title="x", due_at=_now())
     repo.snooze(act.id, WS, until=_now() + timedelta(days=4))
+    assert act.snooze_count == 1
+
+
+def test_snooze_does_not_count_when_it_pulls_earlier(db_session: Session):
+    """Rest-until-Monday applies one absolute target to every visible action, so
+    anything due after that Monday gets pulled EARLIER. Counting those would
+    inflate the number on rows nobody put off — two taps and the whole list
+    would claim to be repeatedly deferred."""
+    repo = ApplicationActionRepository(db_session)
+    now = _now()
+    far = repo.create(workspace_id=WS, type="prep", title="future", due_at=now + timedelta(days=10))
+    repo.snooze(far.id, WS, until=now + timedelta(days=3))
+    assert far.due_at < now + timedelta(days=10)  # it did move
+    assert far.snooze_count == 0  # ...but earlier is not a deferral
+
+
+def test_snooze_counts_undated_work(db_session: Session):
+    # Giving "anytime" work tomorrow's date postpones something available today.
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="custom", title="someday")
+    repo.snooze(act.id, WS, days=1)
     assert act.snooze_count == 1
 
 
