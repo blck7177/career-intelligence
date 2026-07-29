@@ -133,3 +133,28 @@ def test_week_bounds_are_local_midnight_to_local_midnight():
     assert start == datetime(2026, 7, 13, 4, 0, tzinfo=timezone.utc)  # 00:00 EDT
     assert end == datetime(2026, 7, 20, 4, 0, tzinfo=timezone.utc)
     assert end - start == timedelta(days=7)
+
+
+def test_dst_weeks_are_seven_local_days_not_168_hours():
+    """A week is seven local midnights, so the clock change makes it 167 or 169
+    hours long. Computing the end as start + 7 days would look right all year
+    and silently shift the last day of exactly the two weeks that change."""
+    spring_start, spring_end = week_bounds_utc(date(2026, 3, 2), NY)  # DST begins Sun 03-08
+    assert (spring_end - spring_start) == timedelta(hours=167)
+    autumn_start, autumn_end = week_bounds_utc(date(2026, 10, 26), NY)  # DST ends Sun 11-01
+    assert (autumn_end - autumn_start) == timedelta(hours=169)
+
+
+def test_interview_on_the_dst_shift_day_stays_on_that_day():
+    # 05:30 UTC on the spring-forward Sunday is 00:30 EST, still that Sunday.
+    at = datetime(2026, 3, 8, 5, 30, tzinfo=timezone.utc)
+    week = build_week(
+        interviews=[_slot(at)],
+        due_ats=[at],
+        settings=_settings(),
+        now_utc=datetime(2026, 3, 4, 12, 0, tzinfo=timezone.utc),
+        week_start=date(2026, 3, 2),
+    )
+    days = {d["date"]: d for d in week["days"]}
+    assert len(days["2026-03-08"]["interviews"]) == 1
+    assert days["2026-03-08"]["due_count"] == 1
