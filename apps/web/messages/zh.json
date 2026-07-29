@@ -557,6 +557,8 @@
     "capacityHint": "排到 85% 就停，给意外留缓冲",
     "capacityDefer": "移 {n} 件到明天",
     "restUntilMon": "休到周一",
+    "weekStripLabel": "本周概览",
+    "weekStripDue": "{n} 件到期",
     "todayCleared": "今日清零 ✓",
     "zoneToday": "今天",
     "zonePipeline": "管线",
