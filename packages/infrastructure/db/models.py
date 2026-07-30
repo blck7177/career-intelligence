@@ -860,6 +860,12 @@ class PlannerReview(Base):
     week_start: Mapped[date] = mapped_column(Date, nullable=False)
     stats_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     narrative_md: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # When the user first opened this review; NULL = unread, which is what the
+    # Plan view's banner keys off. Never overwritten on a second read — "when did
+    # you first see it" is the fact worth keeping.
+    read_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

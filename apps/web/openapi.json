@@ -2789,6 +2789,66 @@
         }
       }
     },
+    "/api/app/planner-review/read": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Mark Planner Review Read",
+        "description": "Mark one week's review as seen \u2014 what the Plan banner's \"view\" button\ncalls. The body names the week so a tab left open across the Sunday beat\ncannot mark a review the user never saw. Idempotent: a repeat keeps the first\nread_at. 404 when this workspace has no review for that week (the same answer\nanother workspace's week gets).",
+        "operationId": "mark_planner_review_read_api_app_planner_review_read_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyReviewMarkRead"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyReviewRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/cost/by-run-type": {
       "get": {
         "tags": [
@@ -7289,6 +7349,20 @@
         ],
         "title": "ValidationError"
       },
+      "WeeklyReviewMarkRead": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start"
+        ],
+        "title": "WeeklyReviewMarkRead",
+        "description": "Body of POST /planner-review/read. The client names the week it actually\nread rather than the server assuming \"the latest\": a tab left open across the\nSunday-night beat would otherwise mark the NEW review read without anyone\nhaving seen it, and its banner would never appear."
+      },
       "WeeklyReviewRead": {
         "properties": {
           "week_start": {
@@ -7318,6 +7392,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Generated At"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
           }
         },
         "type": "object",

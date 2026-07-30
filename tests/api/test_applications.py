@@ -6,7 +6,7 @@ path, TestClient(raise_server_exceptions=False), clear overrides in teardown.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import MagicMock, patch
@@ -875,3 +875,63 @@ def test_planner_settings_merges_stored_overrides():
         assert body["follow_up_days"] == 7  # top-level unspecified -> default
     finally:
         app.dependency_overrides.clear()
+
+
+# --- weekly review read state (V5-C2) ----------------------------------------
+
+
+def _review_row(**over) -> SimpleNamespace:
+    base = dict(
+        week_start=date(2026, 7, 13),
+        stats_json={
+            "week_start": "2026-07-13", "applied": 6, "outreach": 2, "follow_ups": 3,
+            "weekly_target": {"apply": 10, "outreach": 5, "follow_up": 6},
+            "funnel": [], "by_lane": {}, "by_channel": {},
+            "applied_total": 27, "reached_interview": 6, "interview_rate": 0.22,
+        },
+        narrative_md="You applied to six roles.",
+        read_at=None,
+        created_at=_NOW,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_planner_review_exposes_read_state(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.PlannerReviewRepository") as MockRepo:
+        MockRepo.return_value.get_latest.return_value = _review_row()
+        resp = client.get("/api/app/planner-review")
+    assert resp.status_code == 200, resp.text
+    # The banner's whole condition is read_at == null, so it has to reach the wire.
+    assert resp.json()["read_at"] is None
+
+
+def test_mark_review_read_returns_the_stamped_review(make_client):
+    client = make_client()
+    stamped = _review_row(read_at=_NOW)
+    with patch("apps.api.routes.applications.PlannerReviewRepository") as MockRepo:
+        MockRepo.return_value.mark_read.return_value = stamped
+        resp = client.post("/api/app/planner-review/read", json={"week_start": "2026-07-13"})
+        # The client names the week it read; the server must not substitute
+        # "whatever is latest" or a tab open across the Sunday beat marks a
+        # review nobody saw.
+        args, kwargs = MockRepo.return_value.mark_read.call_args
+        assert args[0] == WS_ID
+        assert args[1] == date(2026, 7, 13)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["read_at"] is not None
+
+
+def test_mark_review_read_unknown_week_404(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.PlannerReviewRepository") as MockRepo:
+        MockRepo.return_value.mark_read.return_value = None
+        resp = client.post("/api/app/planner-review/read", json={"week_start": "2020-01-06"})
+    assert resp.status_code == 404
+
+
+def test_mark_review_read_bad_date_422(make_client):
+    client = make_client()
+    resp = client.post("/api/app/planner-review/read", json={"week_start": "notadate"})
+    assert resp.status_code == 422

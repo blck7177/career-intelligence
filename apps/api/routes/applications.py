@@ -17,6 +17,7 @@ Contract:
   PUT    /api/app/planner-settings                          -> PlannerSettings
   GET    /api/app/planner-stats?week=                       -> PlannerStats
   GET    /api/app/planner-review                            -> WeeklyReviewRead | null
+  POST   /api/app/planner-review/read                       -> WeeklyReviewRead
 
 Every endpoint is workspace-scoped via get_current_workspace. Every by-id fetch
 is verified against workspace.id (IDOR guard → 404 on miss/foreign). A body
@@ -57,6 +58,7 @@ from packages.contracts.api.applications import (
     PlannerStats,
     PlannerWeek,
     StatusTransition,
+    WeeklyReviewMarkRead,
     WeeklyReviewRead,
     WeeklyReviewStats,
 )
@@ -66,7 +68,7 @@ from packages.domain.applications.transitions import (
     InvalidTransition,
 )
 from packages.domain.planner.settings import load_planner_settings
-from packages.infrastructure.db.models import Job, JobApplication, Workspace
+from packages.infrastructure.db.models import Job, JobApplication, PlannerReview, Workspace
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
     ApplicationEventRepository,
@@ -655,10 +657,34 @@ def get_planner_review(
     row = PlannerReviewRepository(db).get_latest(workspace.id)
     if row is None:
         return None
+    return _review_read(row)
+
+
+@router.post("/planner-review/read", response_model=WeeklyReviewRead)
+def mark_planner_review_read(
+    body: WeeklyReviewMarkRead,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> WeeklyReviewRead:
+    """Mark one week's review as seen — what the Plan banner's "view" button
+    calls. The body names the week so a tab left open across the Sunday beat
+    cannot mark a review the user never saw. Idempotent: a repeat keeps the first
+    read_at. 404 when this workspace has no review for that week (the same answer
+    another workspace's week gets)."""
+    row = PlannerReviewRepository(db).mark_read(
+        workspace.id, date.fromisoformat(body.week_start), now_utc=datetime.now(timezone.utc)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="No review for that week.")
+    return _review_read(row)
+
+
+def _review_read(row: PlannerReview) -> WeeklyReviewRead:
     return WeeklyReviewRead(
         week_start=row.week_start.isoformat(),
         stats=WeeklyReviewStats(**row.stats_json),
         narrative_md=row.narrative_md,
         degraded=row.narrative_md is None,
         generated_at=row.created_at,
+        read_at=row.read_at,
     )

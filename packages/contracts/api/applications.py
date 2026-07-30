@@ -435,3 +435,27 @@ class WeeklyReviewRead(BaseModel):
     narrative_md: Optional[str] = None
     degraded: bool = False
     generated_at: datetime
+    # When the user first opened it; None = never. The Plan view's banner exists
+    # because of this field: a review nobody reads is a weekly job run for
+    # nothing. Regenerating a review with CHANGED content clears it back to None
+    # (see PlannerReviewRepository.upsert) — different numbers are a different
+    # review, and the user should get the chance to see them.
+    read_at: Optional[datetime] = None
+
+
+class WeeklyReviewMarkRead(BaseModel):
+    """Body of POST /planner-review/read. The client names the week it actually
+    read rather than the server assuming "the latest": a tab left open across the
+    Sunday-night beat would otherwise mark the NEW review read without anyone
+    having seen it, and its banner would never appear."""
+
+    week_start: str  # ISO date (Monday, settings.timezone)
+
+    @field_validator("week_start")
+    @classmethod
+    def _valid_week_start(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("week_start must be an ISO date (YYYY-MM-DD)") from exc
+        return v

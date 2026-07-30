@@ -2155,7 +2155,13 @@ class PlannerReviewRepository:
         narrative_md: str | None,
     ) -> PlannerReview:
         """Insert or replace the review for (workspace, week). Idempotent so the
-        weekly beat can re-run (or a regeneration) without duplicating rows."""
+        weekly beat can re-run (or a regeneration) without duplicating rows.
+
+        Changed content resets read_at: the commonest regeneration is a retry
+        after the LLM degraded, so the user read a numbers-only card and the
+        narrative arrived afterwards. Keeping it "read" would bury the very thing
+        the retry produced. An identical re-run leaves read_at alone, so a beat
+        that simply ran twice does not re-nag."""
         row = self.get_for_week(workspace_id, week_start)
         if row is None:
             row = PlannerReview(
@@ -2166,7 +2172,27 @@ class PlannerReviewRepository:
             )
             self._s.add(row)
         else:
+            if row.stats_json != stats_json or row.narrative_md != narrative_md:
+                row.read_at = None
             row.stats_json = stats_json
             row.narrative_md = narrative_md
         self._s.flush()
+        return row
+
+    def mark_read(
+        self, workspace_id: str, week_start: date, *, now_utc: datetime
+    ) -> Optional[PlannerReview]:
+        """Stamp when the user first opened this week's review; None if there is
+        no such review for this workspace (the route turns that into a 404, which
+        is also the IDOR answer for another workspace's week).
+
+        A second call keeps the original timestamp — "when did you first see it"
+        is the fact worth having, and it makes the endpoint idempotent under the
+        double-click the banner's button invites."""
+        row = self.get_for_week(workspace_id, week_start)
+        if row is None:
+            return None
+        if row.read_at is None:
+            row.read_at = now_utc
+            self._s.flush()
         return row

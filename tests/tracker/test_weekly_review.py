@@ -2,7 +2,7 @@
 path (LLM failure → NULL narrative), and beat idempotency (upsert per week)."""
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -214,3 +214,71 @@ def test_planner_review_repo_get_latest_picks_newest_week(db_session):
     repo.upsert(workspace_id="ws6", week_start=date(2026, 7, 13), stats_json={"a": 2}, narrative_md="new")
     db_session.flush()
     assert repo.get_latest("ws6").week_start == date(2026, 7, 13)
+
+
+# --- read state (V5-C2) ------------------------------------------------------
+
+READ_AT = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
+
+
+def _utc(dt):
+    """The test DB is SQLite, which drops tzinfo on round-trip; postgres keeps it.
+    Normalise so these assertions are about the instant, not the driver."""
+    return dt if dt is None or dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def test_mark_read_stamps_once_and_is_idempotent(db_session):
+    """The banner's button invites a double-click, and the first time you saw a
+    review is the fact worth keeping — so a repeat must not slide the timestamp
+    forward."""
+    repo = PlannerReviewRepository(db_session)
+    repo.upsert(workspace_id="ws7", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    db_session.flush()
+    assert repo.get_for_week("ws7", WEEK_START).read_at is None
+
+    first = repo.mark_read("ws7", WEEK_START, now_utc=READ_AT)
+    assert _utc(first.read_at) == READ_AT
+
+    again = repo.mark_read("ws7", WEEK_START, now_utc=READ_AT + timedelta(hours=5))
+    assert _utc(again.read_at) == READ_AT
+
+
+def test_mark_read_is_workspace_scoped(db_session):
+    """Another workspace's week must be indistinguishable from a week that does
+    not exist — the route turns both into 404."""
+    repo = PlannerReviewRepository(db_session)
+    repo.upsert(workspace_id="ws8", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    db_session.flush()
+
+    assert repo.mark_read("ws9-other", WEEK_START, now_utc=READ_AT) is None
+    assert repo.mark_read("ws8", date(2026, 6, 1), now_utc=READ_AT) is None
+    # ...and the real row was not touched by either miss.
+    assert repo.get_for_week("ws8", WEEK_START).read_at is None
+
+
+def test_identical_regeneration_keeps_read_state(db_session):
+    """A beat that simply ran twice produces the same review; re-nagging about it
+    would train the user to dismiss the banner without looking."""
+    repo = PlannerReviewRepository(db_session)
+    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    repo.mark_read("ws10", WEEK_START, now_utc=READ_AT)
+
+    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    assert _utc(repo.get_for_week("ws10", WEEK_START).read_at) == READ_AT
+
+
+def test_changed_regeneration_reopens_the_review(db_session):
+    """The commonest regeneration is a retry after the LLM degraded: the user read
+    a numbers-only card and the narrative arrived afterwards. Staying "read" would
+    bury exactly what the retry produced."""
+    repo = PlannerReviewRepository(db_session)
+    repo.upsert(workspace_id="ws11", week_start=WEEK_START, stats_json={"a": 1}, narrative_md=None)
+    repo.mark_read("ws11", WEEK_START, now_utc=READ_AT)
+
+    repo.upsert(workspace_id="ws11", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="arrived")
+    assert repo.get_for_week("ws11", WEEK_START).read_at is None
+
+    # Changed numbers count too, not just a changed narrative.
+    repo.mark_read("ws11", WEEK_START, now_utc=READ_AT)
+    repo.upsert(workspace_id="ws11", week_start=WEEK_START, stats_json={"a": 2}, narrative_md="arrived")
+    assert repo.get_for_week("ws11", WEEK_START).read_at is None
