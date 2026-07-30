@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
 import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek } from "@/api/client";
 import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { ZoneHead } from "./ZoneHead";
+import { parseQuickAdd, dueAtFor } from "@/lib/quickParse";
 
 const HORIZON_DAYS = 14;
 
@@ -130,7 +131,22 @@ export function PlanToday() {
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
+  const [rejected, setRejected] = useState<{ date?: boolean; duration?: boolean; type?: boolean }>({});
   const removingRef = useRef<Set<string>>(new Set());
+
+  // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
+  // the encoding the rules engine writes. Until settings arrive we know no zone,
+  // so nothing is parsed as a date rather than guessing one and filing the to-do
+  // a day off.
+  const tz = settings?.timezone ?? null;
+  const parsed = useMemo(
+    () => (tz
+      ? parseQuickAdd(title, tz, {
+          accept: { date: !rejected.date, duration: !rejected.duration, type: !rejected.type },
+        })
+      : { title: title.trim() }),
+    [title, tz, rejected],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -156,12 +172,26 @@ export function PlanToday() {
 
   useEffect(() => { load(); }, [load]);
 
+  // The list updates optimistically, but the strip's per-day counts come from
+  // the server (they fold in overdue and undated work, and that arithmetic
+  // belongs in one place). Without this, clearing the last to-do left "today's
+  // cleared" sitting next to a strip still showing dots on today.
+  const refreshWeek = useCallback(async () => {
+    try {
+      const token = await getToken();
+      setWeek(await getPlannerWeek(undefined, token));
+    } catch {
+      // Context, not content: keep the last good strip rather than blanking it.
+    }
+  }, [getToken]);
+
   async function mutate(id: string, op: "complete" | "snooze") {
     removingRef.current.add(id);
     setActions((prev) => prev?.filter((a) => a.id !== id) ?? null);
     try {
       const token = await getToken();
       await updateAction(id, { op, snooze_days: 1 }, token);
+      await refreshWeek();
     } catch {
       load();
     } finally {
@@ -171,13 +201,24 @@ export function PlanToday() {
 
   async function add() {
     if (adding) return;
-    const title_ = title.trim();
-    if (!title_) return;
+    if (!(parsed.title || title.trim())) return;
     setAdding(true);
     try {
       const token = await getToken();
-      await createAction({ type: "custom", title: title_ }, token);
+      await createAction(
+        {
+          // The parsed type is what finally lets a networking to-do be created
+          // at all — this call used to hardcode "custom", so the outreach
+          // counter could never be fed from the UI.
+          type: parsed.type?.value ?? "custom",
+          title: parsed.title || title.trim(),
+          due_at: tz ? dueAtFor(parsed, tz) : undefined,
+          est_minutes: parsed.duration?.minutes,
+        },
+        token,
+      );
       setTitle("");
+      setRejected({});
       await load();
     } catch {
       // keep the typed title for retry
@@ -201,6 +242,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: until }, token)));
+      await refreshWeek();
     } catch {
       load();
     } finally {
@@ -221,6 +263,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
+      await refreshWeek();
     } catch {
       load();
     } finally {
@@ -275,17 +318,41 @@ export function PlanToday() {
             </div>
           )}
 
-          {/* Manual add */}
-          <div className="flex items-center gap-2">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !adding) add(); }}
-              placeholder={t("actionTitlePlaceholder")}
-              className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
-              style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
-            />
-            <Button size="sm" onClick={add} disabled={!title.trim()} loading={adding}>{t("add")}</Button>
+          {/* Manual add — parses what you type, and shows every guess it makes */}
+          <div>
+            <div className="flex items-center gap-2">
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter" && !adding) add(); }}
+                placeholder={t("quickAddPlaceholder")}
+                className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+                style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+              />
+              <Button size="sm" onClick={add} disabled={!title.trim()} loading={adding}>{t("add")}</Button>
+            </div>
+            {/* Every match is shown and revocable: a silent wrong guess files the
+                to-do on the wrong day and the user only finds out later. */}
+            {(parsed.date || parsed.duration || parsed.type) && (
+              <div className="flex items-center gap-1.5 flex-wrap mt-1.5 text-2xs">
+                {parsed.date && (
+                  <ParseChip tone="date" onRevoke={() => setRejected((r) => ({ ...r, date: true }))} t={t}>
+                    {parsed.date.date}
+                  </ParseChip>
+                )}
+                {parsed.duration && (
+                  <ParseChip tone="duration" onRevoke={() => setRejected((r) => ({ ...r, duration: true }))} t={t}>
+                    {fmtMinutes(parsed.duration.minutes)}
+                  </ParseChip>
+                )}
+                {parsed.type && (
+                  <ParseChip tone="type" onRevoke={() => setRejected((r) => ({ ...r, type: true }))} t={t}>
+                    {t(`actionType.${parsed.type.value}`)}
+                  </ParseChip>
+                )}
+                <span style={{ color: "var(--ink-faint)" }}>{t("quickAddRevokeHint")}</span>
+              </div>
+            )}
           </div>
 
           {actions === null ? (
@@ -359,6 +426,37 @@ export function PlanToday() {
  * nothing here re-derives a day — parsing the ISO date locally would reintroduce
  * exactly the off-by-one the server-side contract exists to prevent.
  */
+/**
+ * One thing quick-add understood, and a way to say it got it wrong. Clicking
+ * removes that guess and puts the text back in the title, which is the whole
+ * point: parsing is only safe if it is visible and reversible.
+ */
+function ParseChip({ tone, onRevoke, t, children }: {
+  tone: "date" | "duration" | "type";
+  onRevoke: () => void;
+  t: (k: string, v?: Record<string, string | number>) => string;
+  children: React.ReactNode;
+}) {
+  const colors = {
+    date: { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" },
+    duration: { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" },
+    type: { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" },
+  }[tone];
+  return (
+    <button
+      type="button"
+      onClick={onRevoke}
+      title={t("quickAddRevoke")}
+      aria-label={t("quickAddRevoke")}
+      className="px-1.5 rounded font-semibold hover:line-through"
+      style={{ background: colors.bg, color: colors.fg }}
+    >
+      {children}
+      <span aria-hidden className="ml-1 opacity-60">×</span>
+    </button>
+  );
+}
+
 const MAX_DUE_DOTS = 4;
 
 function WeekStrip({ week }: { week: PlannerWeek }) {
