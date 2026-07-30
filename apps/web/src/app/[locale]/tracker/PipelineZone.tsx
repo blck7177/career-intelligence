@@ -10,7 +10,7 @@ import {
 import type { FunnelResponse, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { bandOf, BAND } from "@/lib/matchBand";
-import { ZoneHead } from "./ZoneHead";
+import { ZoneHead } from "@/components/ui/zone-head";
 
 const DEFAULT_FRESH_DAYS = 3;
 const DEFAULT_APPLY_OR_DROP = 14;

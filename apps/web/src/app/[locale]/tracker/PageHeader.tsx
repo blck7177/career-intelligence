@@ -4,10 +4,15 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
 import { getPlannerSettings } from "@/api/client";
+import { PageHeader as SharedPageHeader } from "@/components/ui/page-header";
 
-/** Tracker page header (mockup .pagehead): "Tracker" + today's date + "Week N of
- *  search". Date/week are computed client-side (in an effect, to avoid an SSR
- *  hydration mismatch); Week N reads settings.search_started_at. */
+/** Tracker's page header: the shared ui/PageHeader plus this tab's own meta
+ *  stamp ("Fri, Jul 25 · Week 3 of search").
+ *
+ *  The date/week computation stays here, in an effect, on purpose: it reads the
+ *  *client's* local date, so computing it during a server render would both
+ *  cause a hydration mismatch and show the server's timezone. Everything
+ *  data-shaped reaches the shared component as an already-rendered string. */
 export function PageHeader() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
@@ -34,14 +39,14 @@ export function PageHeader() {
   }, [getToken]);
 
   return (
-    <div className="shrink-0 flex items-baseline gap-3 px-[var(--space-row-edge)] pt-4 pb-1">
-      <h1 className="text-lg font-semibold leading-none" style={{ color: "var(--ink-primary)" }}>{t("pageTitle")}</h1>
-      {meta && (
-        <span className="ml-auto text-2xs" style={{ color: "var(--ink-faint)" }}>
-          {meta.date}
-          {meta.week !== null && <> · {t("settingsWeekOfSearch", { n: meta.week })}</>}
-        </span>
-      )}
-    </div>
+    <SharedPageHeader
+      title={t("pageTitle")}
+      gutter="edge"
+      meta={
+        meta
+          ? `${meta.date}${meta.week !== null ? ` · ${t("settingsWeekOfSearch", { n: meta.week })}` : ""}`
+          : undefined
+      }
+    />
   );
 }
