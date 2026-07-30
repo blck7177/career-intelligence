@@ -933,6 +933,53 @@ class ApplicationAction(Base):
     application: Mapped[Optional["JobApplication"]] = relationship(back_populates="actions")
 
 
+class PlannerDayLog(Base):
+    """One day's plan-versus-outcome, per (workspace, local day).
+
+    Written by the two rituals: the morning one snapshots what the user agreed
+    to (committed_est), the evening one records what actually got done
+    (done_est, measured server-side from completed_at) plus an optional
+    reflection. The weekly review reads the pair back as a per-day comparison.
+
+    Both totals are nullable and mean different things when absent: no row at
+    all = the ritual never ran that day; a row with committed_est set and
+    done_est NULL = planned but never closed. Treating either as zero would
+    turn "didn't run the ritual" into "committed to nothing", which reads as a
+    bad day rather than an unrecorded one."""
+
+    __tablename__ = "planner_day_logs"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "local_date", name="uq_planner_day_logs_workspace_date"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id"), nullable=False, index=True
+    )
+    # The calendar day in settings.timezone — the planner's one day boundary.
+    local_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Sum of the effective estimates of the to-dos kept in the morning ritual.
+    # A snapshot: the list moves all day, this number does not.
+    committed_est: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Sum of the effective estimates completed during this local day, measured
+    # at close time from completed_at — never supplied by the client.
+    done_est: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    reflection: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # When the day was FIRST closed. Re-closing refreshes done_est but leaves
+    # this alone: the ritual moment is the fact worth keeping.
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class PlannerReview(Base):
     """One weekly review per (workspace, ISO-week) — the planner's Review zone.
 

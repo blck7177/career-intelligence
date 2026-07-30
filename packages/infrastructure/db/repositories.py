@@ -32,6 +32,7 @@ from packages.infrastructure.db.models import (
     JobNotInterested,
     JobReport,
     LLMUsageEvent,
+    PlannerDayLog,
     PlannerReview,
     Run,
     SearchStrategyStateRow,
@@ -2011,6 +2012,49 @@ class ApplicationActionRepository:
         )
         return int(self._s.execute(stmt).scalar_one())
 
+    def sum_est_for_ids(self, workspace_id: str, action_ids: list[str]) -> int:
+        """Total effective estimate of these to-dos, workspace-scoped.
+
+        Ids that don't exist, or belong to someone else, contribute nothing and
+        raise nothing: the caller is snapshotting what the user kept, and a
+        stale id from a list that moved under them should not fail the ritual.
+        The route reports how many were counted so a silent mismatch is visible.
+        """
+        if not action_ids:
+            return 0
+        from sqlalchemy import select
+
+        from packages.domain.planner.rules import effective_est_minutes
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.id.in_(action_ids),
+        )
+        rows = self._s.execute(stmt).scalars().all()
+        return sum(effective_est_minutes(r.type, r.est_minutes) for r in rows)
+
+    def sum_est_completed_in_range(
+        self, workspace_id: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """Total effective estimate of everything completed in [start, end).
+
+        Summed in python rather than SQL because the per-type fallback for a
+        NULL est_minutes lives in the domain layer — a COALESCE here would be a
+        second copy of that table, free to drift from the one the user's
+        capacity bar was drawn with."""
+        from sqlalchemy import select
+
+        from packages.domain.planner.rules import effective_est_minutes
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.status == "done",
+            ApplicationAction.completed_at >= start_utc,
+            ApplicationAction.completed_at < end_utc,
+        )
+        rows = self._s.execute(stmt).scalars().all()
+        return sum(effective_est_minutes(r.type, r.est_minutes) for r in rows)
+
     def complete(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
         row = self.get(action_id, workspace_id)
         if row is None:
@@ -2117,6 +2161,91 @@ class ApplicationActionRepository:
             if a.application_id not in result:
                 result[a.application_id] = (a.due_at, a.type)
         return result
+
+
+class PlannerDayLogRepository:
+    """One row per (workspace, local day) — the morning commitment and the
+    evening close. flush-never-commit, like every repository here."""
+
+    def __init__(self, session: Session) -> None:
+        self._s = session
+
+    def get_for_date(self, workspace_id: str, local_date: date) -> Optional[PlannerDayLog]:
+        from sqlalchemy import select
+
+        stmt = select(PlannerDayLog).where(
+            PlannerDayLog.workspace_id == workspace_id,
+            PlannerDayLog.local_date == local_date,
+        )
+        return self._s.execute(stmt).scalar_one_or_none()
+
+    def list_for_range(
+        self, workspace_id: str, start: date, end: date
+    ) -> list[PlannerDayLog]:
+        """Day logs with local_date in [start, end) — the weekly review's
+        per-day comparison. Ordered so the caller can zip it against a week."""
+        from sqlalchemy import select
+
+        stmt = (
+            select(PlannerDayLog)
+            .where(
+                PlannerDayLog.workspace_id == workspace_id,
+                PlannerDayLog.local_date >= start,
+                PlannerDayLog.local_date < end,
+            )
+            .order_by(PlannerDayLog.local_date)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def commit_day(
+        self, workspace_id: str, local_date: date, *, committed_est: int
+    ) -> PlannerDayLog:
+        """Record the morning commitment, creating the day's row if needed.
+
+        Re-running the ritual overwrites: the latest commitment is the one the
+        user is working against, and a stale first answer would make the evening
+        comparison measure a plan they had already replaced."""
+        row = self.get_for_date(workspace_id, local_date)
+        if row is None:
+            row = PlannerDayLog(
+                workspace_id=workspace_id,
+                local_date=local_date,
+                committed_est=committed_est,
+            )
+            self._s.add(row)
+        else:
+            row.committed_est = committed_est
+        self._s.flush()
+        return row
+
+    def close_day(
+        self,
+        workspace_id: str,
+        local_date: date,
+        *,
+        done_est: int,
+        reflection: Optional[str],
+        now_utc: datetime,
+    ) -> PlannerDayLog:
+        """Record the evening close. Creates the row if the morning ritual was
+        skipped — closing a day you never planned is a real thing to do, and it
+        leaves committed_est NULL, which is exactly what happened.
+
+        done_est is refreshed every time (it is a measurement, and reopening the
+        laptop after closing changes it) while closed_at keeps the FIRST close —
+        when you declared the day over, like read_at on a review. A blank
+        reflection does not erase one already written."""
+        row = self.get_for_date(workspace_id, local_date)
+        if row is None:
+            row = PlannerDayLog(workspace_id=workspace_id, local_date=local_date)
+            self._s.add(row)
+        row.done_est = done_est
+        if reflection:
+            row.reflection = reflection
+        if row.closed_at is None:
+            row.closed_at = now_utc
+        self._s.flush()
+        return row
 
 
 class PlannerReviewRepository:

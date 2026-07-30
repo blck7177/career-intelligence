@@ -72,7 +72,33 @@ DEFAULT_EST_MINUTES = {
     "prep": 30,
     "apply": 60,
     "global": 15,
+    # Never emitted by a rule — these two only ever arrive from the user's own
+    # quick-add, where est_minutes is optional. They are here because
+    # effective_est_minutes() has to answer for EVERY action type: a day log
+    # that silently counts an unestimated to-do as zero would report a lighter
+    # day than the one the user was shown and agreed to.
+    "networking": 20,
+    "custom": 20,
 }
+
+
+def effective_est_minutes(type_: str, est_minutes: Optional[int]) -> int:
+    """What this to-do costs, for any arithmetic that has to total a day.
+
+    est_minutes is nullable — it arrived in V1 and was deliberately not
+    backfilled, and quick-add leaves it unset unless you type a duration. The
+    Today view has always filled the gap with a per-type default when it renders
+    the capacity bar, so the server has to fill it the SAME way: the committed
+    total stored in a day log is a snapshot of the number the user looked at
+    before agreeing to it. Summing raw columns and treating NULL as zero would
+    file a 90-minute morning as a 60-minute one.
+
+    The frontend keeps its own copy of this table (EST_FALLBACK in
+    PlanToday.tsx) because it must render before any of this runs; the two are
+    asserted to agree in tests/tracker/test_planner_day.py."""
+    if est_minutes is not None:
+        return est_minutes
+    return DEFAULT_EST_MINUTES.get(type_, 20)
 
 
 # --- input / output views (the worker maps ORM rows into these) --------------

@@ -399,6 +399,40 @@ class PlannerSettingsUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PlannerDayLogRead(BaseModel):
+    """One day's plan-versus-outcome. `null` from the API means the day has no
+    row at all — the ritual never ran — which the Plan view shows differently
+    from a day committed to nothing."""
+
+    local_date: str  # ISO date in settings.timezone
+    committed_est: Optional[int] = None
+    done_est: Optional[int] = None
+    reflection: Optional[str] = None
+    closed_at: Optional[datetime] = None
+
+
+class PlannerDayCommit(BaseModel):
+    """Body of POST /planner-day/commit — the morning ritual's third step.
+
+    The client sends WHICH to-dos it kept, never the total: the stored number
+    has to be the server's own arithmetic over the same estimates the capacity
+    bar was drawn from, or the weekly comparison is measuring a figure the user
+    could have edited. There is no date field either — the day is resolved from
+    settings.timezone, so a browser in the wrong zone cannot file a commitment
+    against yesterday."""
+
+    kept_action_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class PlannerDayClose(BaseModel):
+    """Body of POST /planner-day/close — the evening ritual.
+
+    done_est is deliberately absent for the same reason: it is measured from
+    completed_at server-side. All the client contributes is the reflection."""
+
+    reflection: Optional[str] = Field(None, max_length=4000)
+
+
 class WeeklyReviewStats(BaseModel):
     """The deterministic numbers a weekly review is built from — computed by the
     PURE aggregator (packages/domain/planner/weekly.py) and stored verbatim in

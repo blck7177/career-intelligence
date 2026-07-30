@@ -18,6 +18,9 @@ Contract:
   GET    /api/app/planner-stats?week=                       -> PlannerStats
   GET    /api/app/planner-review                            -> WeeklyReviewRead | null
   POST   /api/app/planner-review/read                       -> WeeklyReviewRead
+  GET    /api/app/planner-day                               -> PlannerDayLogRead | null
+  POST   /api/app/planner-day/commit                        -> PlannerDayLogRead
+  POST   /api/app/planner-day/close                         -> PlannerDayLogRead
 
 Every endpoint is workspace-scoped via get_current_workspace. Every by-id fetch
 is verified against workspace.id (IDOR guard → 404 on miss/foreign). A body
@@ -53,6 +56,9 @@ from packages.contracts.api.applications import (
     ApplicationSummary,
     ApplicationUpdate,
     FunnelResponse,
+    PlannerDayClose,
+    PlannerDayCommit,
+    PlannerDayLogRead,
     PlannerSettings,
     PlannerSettingsUpdate,
     PlannerStats,
@@ -68,13 +74,20 @@ from packages.domain.applications.transitions import (
     InvalidTransition,
 )
 from packages.domain.planner.settings import load_planner_settings
-from packages.infrastructure.db.models import Job, JobApplication, PlannerReview, Workspace
+from packages.infrastructure.db.models import (
+    Job,
+    JobApplication,
+    PlannerDayLog,
+    PlannerReview,
+    Workspace,
+)
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
     ApplicationEventRepository,
     FitReportRepository,
     JobApplicationRepository,
     JobRepository,
+    PlannerDayLogRepository,
     PlannerReviewRepository,
     ProfileRepository,
     RunRepository,
@@ -643,6 +656,95 @@ def get_planner_stats(
         follow_ups=action_repo.count_completed_by_type_in_range(workspace.id, "follow_up", start, end),
         weekly_target=settings.weekly_target,
     )
+
+
+def _day_log_read(row: PlannerDayLog) -> PlannerDayLogRead:
+    return PlannerDayLogRead(
+        local_date=row.local_date.isoformat(),
+        committed_est=row.committed_est,
+        done_est=row.done_est,
+        reflection=row.reflection,
+        closed_at=row.closed_at,
+    )
+
+
+def _local_today_for(workspace: Workspace) -> tuple[date, PlannerSettings]:
+    """Today in the workspace's timezone, plus the settings it came from. The
+    day rituals never take a date from the client — see PlannerDayCommit."""
+    from packages.domain.planner.rules import local_today
+
+    settings = load_planner_settings(workspace)
+    return local_today(datetime.now(timezone.utc), settings.timezone), settings
+
+
+@router.get("/planner-day", response_model=Optional[PlannerDayLogRead])
+def get_planner_day(
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> Optional[PlannerDayLogRead]:
+    """Today's day log, or null (200) when the day has no row yet — which is
+    what the Plan view's morning banner keys off. Null means the ritual has not
+    run today; it does not mean nothing was committed."""
+    today, _ = _local_today_for(workspace)
+    row = PlannerDayLogRepository(db).get_for_date(workspace.id, today)
+    return _day_log_read(row) if row is not None else None
+
+
+@router.post("/planner-day/commit", response_model=PlannerDayLogRead)
+def commit_planner_day(
+    body: PlannerDayCommit,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> PlannerDayLogRead:
+    """Snapshot the morning commitment: the sum of the effective estimates of
+    the to-dos the user kept.
+
+    The total is computed here, from the same per-type fallback the Today view
+    renders with, so the number filed is the number the user agreed to. Ids that
+    are not this workspace's are ignored rather than rejected — the list can
+    move under a ritual left open — which also makes the endpoint the wrong
+    place to learn whether an id exists."""
+    today, _ = _local_today_for(workspace)
+    committed = ApplicationActionRepository(db).sum_est_for_ids(
+        workspace.id, body.kept_action_ids
+    )
+    row = PlannerDayLogRepository(db).commit_day(
+        workspace.id, today, committed_est=committed
+    )
+    return _day_log_read(row)
+
+
+@router.post("/planner-day/close", response_model=PlannerDayLogRead)
+def close_planner_day(
+    body: PlannerDayClose,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> PlannerDayLogRead:
+    """Close the day: measure what was actually completed during it and stamp
+    the moment.
+
+    done_est is measured server-side over this local day's completed_at window,
+    never taken from the client. Closing a day whose morning ritual never ran is
+    allowed and leaves committed_est NULL — that is a true record of what
+    happened, and inventing a commitment to compare against would be worse."""
+    from packages.domain.planner.rules import local_day_start_utc
+
+    today, settings = _local_today_for(workspace)
+    tz = settings.timezone
+    start = local_day_start_utc(today, tz)
+    end = local_day_start_utc(today + timedelta(days=1), tz)
+
+    done = ApplicationActionRepository(db).sum_est_completed_in_range(
+        workspace.id, start, end
+    )
+    row = PlannerDayLogRepository(db).close_day(
+        workspace.id,
+        today,
+        done_est=done,
+        reflection=(body.reflection or "").strip() or None,
+        now_utc=datetime.now(timezone.utc),
+    )
+    return _day_log_read(row)
 
 
 @router.get("/planner-review", response_model=Optional[WeeklyReviewRead])
