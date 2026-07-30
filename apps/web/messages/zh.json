@@ -578,7 +578,7 @@
     "reasonApplyOrDrop": "计划投递已 {days} 天 · 今天定",
     "reasonQueueRefill": "队列 {count} 家 · 目标 {target}",
     "deferredTimes": "第 {n} 次顺延",
-    "restDayNote": "今天休息 · 不加新待办，已经到期的照常",
+    "restDayNote": "今天休息 · 今天不会有新待办到期，已经到期的照常",
     "reviewBannerTitle": "周复盘已生成",
     "reviewBannerSummary": "{week} 起的一周 · 已投 {applied}/{target} · 面试转化 {rate}%",
     "reviewBannerOpen": "去看看",
