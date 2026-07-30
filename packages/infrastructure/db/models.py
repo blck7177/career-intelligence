@@ -322,6 +322,12 @@ class Artifact(Base):
     )
     artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    # "sha256:<64 hex>" — 71 chars, not 64. The initial schema declared
+    # VARCHAR(64) and nothing ever widened it, so a database built from the
+    # migration chain rejects every value this field is given. The only reason
+    # nothing broke is that the running database was created by create_all()
+    # from this 128 and later stamped. Migration i7j8k9l0m1n2 widens the column
+    # to match; do not narrow this without changing what the writer produces.
     content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
