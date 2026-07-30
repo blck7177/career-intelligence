@@ -2157,11 +2157,17 @@ class PlannerReviewRepository:
         """Insert or replace the review for (workspace, week). Idempotent so the
         weekly beat can re-run (or a regeneration) without duplicating rows.
 
-        Changed content resets read_at: the commonest regeneration is a retry
-        after the LLM degraded, so the user read a numbers-only card and the
-        narrative arrived afterwards. Keeping it "read" would bury the very thing
-        the retry produced. An identical re-run leaves read_at alone, so a beat
-        that simply ran twice does not re-nag."""
+        Re-announcing is driven by the STATS, not the prose. The narrative comes
+        from a model with no temperature or seed pinned, so its text differs on
+        every regeneration — comparing it would clear read_at on literally every
+        re-run and train the user to swat the banner. The stats are the review;
+        the narrative is prose about them.
+
+        The one narrative change that IS new information: a degraded review
+        gaining prose on a retry. The user read a numbers-only card and the
+        summary arrived afterwards, so keeping it "read" would bury exactly what
+        the retry produced. Prose going the other way (a re-run that degrades)
+        does not re-nag — nothing new was said."""
         row = self.get_for_week(workspace_id, week_start)
         if row is None:
             row = PlannerReview(
@@ -2172,7 +2178,8 @@ class PlannerReviewRepository:
             )
             self._s.add(row)
         else:
-            if row.stats_json != stats_json or row.narrative_md != narrative_md:
+            narrative_arrived = row.narrative_md is None and narrative_md is not None
+            if row.stats_json != stats_json or narrative_arrived:
                 row.read_at = None
             row.stats_json = stats_json
             row.narrative_md = narrative_md

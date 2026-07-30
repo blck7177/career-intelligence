@@ -146,6 +146,11 @@ def test_rest_day_does_not_hide_work_already_due(db_session):
     assert [r.id for r in rows] == [due_yesterday.id]
     assert rows[0].status == "pending"
     assert rows[0].due_at == due_yesterday.due_at
+    # ...and the day really was treated as a rest day. Without this the test
+    # passed with the whole feature deleted: the existing pending row suppresses
+    # follow_up on its own, so "nothing new for this application" proves nothing.
+    # The global refill can never be suppressed that way.
+    assert action_repo.list_global_for_workspace("ws5") == []
 
 
 def test_resting_workspace_does_not_stop_the_sweep(db_session):

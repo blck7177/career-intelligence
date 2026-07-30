@@ -6,17 +6,18 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { getWeeklyReview, markWeeklyReviewRead } from "@/api/client";
 import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { shouldAnnounceReview } from "@/lib/reviewBanner";
+import { reviewKey, shouldAnnounceReview } from "@/lib/reviewBanner";
 import { PlanToday } from "./PlanToday";
 import { PipelineZone } from "./PipelineZone";
 import { ReviewZone } from "./ReviewZone";
 
 // "Later" has to survive a tab switch: Plan unmounts when you go to Applications,
 // and a banner that returns every time you come back is one you learn to swat
-// without reading. Keyed by week, so NEXT week's review still announces itself.
-// Module scope rather than storage on purpose — this is a decision about this
-// sitting, not a preference worth remembering forever.
-let dismissedWeek: string | null = null;
+// without reading. Module scope rather than storage on purpose — this is a
+// decision about this sitting, not a preference worth remembering forever.
+// Keyed by the REVIEW (see reviewKey), not the week: a bare week key would carry
+// the dismissal across a client-side account switch and mute the next user.
+let dismissedReview: string | null = null;
 
 /** The Plan sub-view: three stacked zones — Today (execution), Pipeline
  *  (health), Review (weekly). One scroll container.
@@ -29,7 +30,7 @@ export function PlanView() {
   const getToken = useApiToken();
   const [review, setReview] = useState<WeeklyReviewRead | null | undefined>(undefined);
   const [error, setError] = useState(false);
-  const [dismissed, setDismissed] = useState<string | null>(dismissedWeek);
+  const [dismissed, setDismissed] = useState<string | null>(dismissedReview);
   const reviewRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -66,8 +67,8 @@ export function PlanView() {
 
   function later() {
     if (!review) return;
-    dismissedWeek = review.week_start;
-    setDismissed(review.week_start);
+    dismissedReview = reviewKey(review);
+    setDismissed(dismissedReview);
   }
 
   return (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldAnnounceReview } from "./reviewBanner";
+import { reviewKey, shouldAnnounceReview } from "./reviewBanner";
 import type { WeeklyReviewRead } from "@/api/client";
 
 function review(over: Partial<WeeklyReviewRead> = {}): WeeklyReviewRead {
@@ -43,14 +43,26 @@ describe("shouldAnnounceReview", () => {
     expect(shouldAnnounceReview(review({ read_at: "2026-07-20T09:00:00Z" }), null)).toBe(false);
   });
 
-  it("stays quiet for the week that was dismissed", () => {
-    expect(shouldAnnounceReview(review(), "2026-07-13")).toBe(false);
+  it("stays quiet for the review that was dismissed", () => {
+    const r = review();
+    expect(shouldAnnounceReview(r, reviewKey(r))).toBe(false);
   });
 
   it("announces NEXT week even after this week was dismissed", () => {
     // The failure this pins: a boolean "dismissed" flag would mute every future
     // review for the rest of the session after one click on Later.
-    expect(shouldAnnounceReview(review({ week_start: "2026-07-20" }), "2026-07-13")).toBe(true);
+    const dismissed = reviewKey(review());
+    expect(shouldAnnounceReview(review({ week_start: "2026-07-20" }), dismissed)).toBe(true);
+  });
+
+  it("announces a REGENERATED review for the same week", () => {
+    // Dismissal is keyed by the review, not the week. A regenerated review has a
+    // new generated_at, so it gets its own announcement — the client-side echo
+    // of the server clearing read_at when the substance changed. Keying by week
+    // alone would also carry one user's dismissal into the next user's session
+    // after a client-side account switch, since the module is never reloaded.
+    const dismissed = reviewKey(review());
+    expect(shouldAnnounceReview(review({ generated_at: "2026-07-20T06:00:00Z" }), dismissed)).toBe(true);
   });
 
   it("treats an empty-string read_at as unread rather than read", () => {

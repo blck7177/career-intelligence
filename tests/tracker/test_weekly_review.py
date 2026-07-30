@@ -256,15 +256,34 @@ def test_mark_read_is_workspace_scoped(db_session):
     assert repo.get_for_week("ws8", WEEK_START).read_at is None
 
 
-def test_identical_regeneration_keeps_read_state(db_session):
-    """A beat that simply ran twice produces the same review; re-nagging about it
-    would train the user to dismiss the banner without looking."""
+def test_reworded_narrative_keeps_read_state(db_session):
+    """THE production case. The narrative comes from a model with no temperature
+    or seed pinned, so a re-run for the same week produces the same numbers in
+    different words. Treating that as new information would re-nag on every
+    regeneration and train the user to swat the banner without looking.
+
+    (An earlier version compared narrative text, which made the "identical
+    re-run" branch unreachable in production — this test used byte-identical
+    prose and so proved nothing.)"""
     repo = PlannerReviewRepository(db_session)
-    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1},
+                narrative_md="You applied to six roles this week.")
     repo.mark_read("ws10", WEEK_START, now_utc=READ_AT)
 
-    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="n")
+    repo.upsert(workspace_id="ws10", week_start=WEEK_START, stats_json={"a": 1},
+                narrative_md="Six applications went out this week.")
     assert _utc(repo.get_for_week("ws10", WEEK_START).read_at) == READ_AT
+
+
+def test_losing_the_narrative_does_not_re_nag(db_session):
+    """A re-run whose LLM call degraded says nothing new — the user already read
+    the prose. Only prose ARRIVING is new information."""
+    repo = PlannerReviewRepository(db_session)
+    repo.upsert(workspace_id="ws12", week_start=WEEK_START, stats_json={"a": 1}, narrative_md="prose")
+    repo.mark_read("ws12", WEEK_START, now_utc=READ_AT)
+
+    repo.upsert(workspace_id="ws12", week_start=WEEK_START, stats_json={"a": 1}, narrative_md=None)
+    assert _utc(repo.get_for_week("ws12", WEEK_START).read_at) == READ_AT
 
 
 def test_changed_regeneration_reopens_the_review(db_session):

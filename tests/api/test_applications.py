@@ -898,13 +898,20 @@ def _review_row(**over) -> SimpleNamespace:
 
 
 def test_planner_review_exposes_read_state(make_client):
+    """Both directions. Asserting only the null case proved nothing: read_at
+    defaults to None on the response model, so a route that dropped the field
+    entirely still serialised null — and the banner reads exactly this field."""
     client = make_client()
+    read_at = datetime(2026, 7, 20, 9, 0, tzinfo=timezone.utc)
     with patch("apps.api.routes.applications.PlannerReviewRepository") as MockRepo:
-        MockRepo.return_value.get_latest.return_value = _review_row()
-        resp = client.get("/api/app/planner-review")
-    assert resp.status_code == 200, resp.text
-    # The banner's whole condition is read_at == null, so it has to reach the wire.
-    assert resp.json()["read_at"] is None
+        MockRepo.return_value.get_latest.return_value = _review_row(read_at=read_at)
+        seen = client.get("/api/app/planner-review")
+        MockRepo.return_value.get_latest.return_value = _review_row(read_at=None)
+        unseen = client.get("/api/app/planner-review")
+    assert seen.status_code == 200, seen.text
+    assert seen.json()["read_at"] is not None
+    assert datetime.fromisoformat(seen.json()["read_at"]) == read_at
+    assert unseen.json()["read_at"] is None
 
 
 def test_mark_review_read_returns_the_stamped_review(make_client):
