@@ -20,10 +20,8 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from packages.contracts.api.applications import PlannerSettings
+from packages.contracts.api.applications import WEEKDAYS, PlannerSettings
 from packages.domain.planner.rules import local_day_start_utc, local_today
-
-_WEEKDAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 @dataclass
@@ -104,7 +102,7 @@ def build_week(
     days = [start + timedelta(days=i) for i in range(7)]
     in_week = set(days)
 
-    rest = {d for d in settings.rest_days if d in _WEEKDAY_KEYS}
+    rest = {d for d in settings.rest_days if d in WEEKDAYS}
 
     by_day: dict[date, list[InterviewSlot]] = {d: [] for d in days}
     for slot in interviews:
@@ -137,7 +135,7 @@ def build_week(
                     }
                     for s in by_day[d]
                 ],
-                "is_rest": _WEEKDAY_KEYS[d.weekday()] in rest,
+                "is_rest": WEEKDAYS[d.weekday()] in rest,
                 "is_today": d == today,
             }
             for d in days

@@ -16,7 +16,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-_WEEKDAYS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
+# The weekday vocabulary `rest_days` / `review_day` accept — and, because the
+# ORDER matches date.weekday() (Monday == 0), also the index the planner uses to
+# turn a local date into one of those keys. Ordered on purpose: the domain
+# modules index into it, so this tuple must never be reordered or turned back
+# into a set. One definition, imported by rules.py and week.py, so a workspace's
+# rest days can't mean one thing to the validator and another to the engine.
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 # Keep in lockstep with packages/domain/applications/transitions.STATUSES
 # (a test asserts equality).
@@ -343,7 +349,7 @@ class PlannerSettings(BaseModel):
     @field_validator("rest_days")
     @classmethod
     def _valid_rest_days(cls, v: list[str]) -> list[str]:
-        bad = [d for d in v if d not in _WEEKDAYS]
+        bad = [d for d in v if d not in WEEKDAYS]
         if bad:
             raise ValueError(f"invalid weekday(s): {bad}; expected mon..sun")
         return v
@@ -351,7 +357,7 @@ class PlannerSettings(BaseModel):
     @field_validator("review_day")
     @classmethod
     def _valid_review_day(cls, v: str) -> str:
-        if v not in _WEEKDAYS:
+        if v not in WEEKDAYS:
             raise ValueError(f"invalid weekday: {v!r}; expected mon..sun")
         return v
 

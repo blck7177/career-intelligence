@@ -21,6 +21,9 @@ Rules (thresholds all read from settings):
                    discovery" to-do (deduped per ISO week).
 (3B7/networking is intentionally NOT here — deferred, see exec_plan W2-C1.)
 
+Rest days (settings.rest_days) gate all five: on a rest day the engine emits
+nothing at all. That suppresses GENERATION only — see is_rest_day().
+
 Payload contract: every spec carries `rule` plus the facts that rule fired on,
 so the UI can say *why* a to-do exists ("applied 9 days ago, no reply, 1st
 follow-up") instead of showing an unexplained instruction. These fields are
@@ -39,7 +42,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from packages.contracts.api.applications import PlannerSettings
+from packages.contracts.api.applications import WEEKDAYS, PlannerSettings
 
 # Events that count as the EMPLOYER responding (i.e. reasons NOT to nag a
 # follow-up). User's own activity — notes, status changes, completed actions —
@@ -52,8 +55,6 @@ EMPLOYER_RESPONSE_EVENTS = frozenset({"interview_scheduled"})
 # predicates are state-based, so without it the beat resurrects a dismissed
 # action every day.
 _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
-
-_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 # Effort estimate per action type, in minutes. Coarse on purpose — the point is
 # a believable day total to check against the daily cap, not precision (an exact
@@ -125,6 +126,21 @@ def local_day_start_utc(d: date, tz: str) -> datetime:
     return datetime(d.year, d.month, d.day, tzinfo=ZoneInfo(tz)).astimezone(timezone.utc)
 
 
+def is_rest_day(settings: PlannerSettings, now_utc: datetime) -> bool:
+    """True when the workspace's local today is one of `settings.rest_days`.
+
+    A rest day suppresses GENERATION only: no new auto-actions are created, so
+    the day takes on no new debt. To-dos that came due earlier still appear in
+    Today, because a day off is a decision not to add more — not a decision to
+    pretend nothing is owed. Hiding them would also make the count jump back up
+    on Monday with no explanation.
+
+    The weekday is resolved in settings.timezone, the same day boundary the rest
+    of the planner uses, so "Saturday" starts at the user's local midnight and
+    not UTC's."""
+    return WEEKDAYS[local_today(now_utc, settings.timezone).weekday()] in settings.rest_days
+
+
 def _local_date(dt: datetime, tz: str) -> date:
     # Treat naive datetimes as UTC (SQLite round-trips can drop tzinfo).
     if dt.tzinfo is None:
@@ -154,6 +170,15 @@ def generate_actions(
     now_utc: datetime,
     global_actions: Optional[list[ActionView]] = None,
 ) -> list[ActionSpec]:
+    # Rest day → emit nothing (see is_rest_day for what that does and does not
+    # mean). This lives in the engine, not only in the beat, because rest_days is
+    # a generation threshold like every other setting: any caller asking "what
+    # should exist today" must get the same answer. The worker additionally skips
+    # a resting workspace before loading its snapshot — that is a cost saving on
+    # top of this guard, not a replacement for it.
+    if is_rest_day(settings, now_utc):
+        return []
+
     tz = settings.timezone
     today = local_today(now_utc, tz)
     due_today = local_day_start_utc(today, tz)

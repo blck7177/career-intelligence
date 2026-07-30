@@ -3,7 +3,7 @@ session + fixed clock, run a real sweep, assert actions land and re-running is
 idempotent (no duplicates, dismissed stays dead)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from apps.worker.tasks.planner_run import run_daily_rules_once
 from packages.infrastructure.db.repositories import (
@@ -90,3 +90,78 @@ def test_planner_run_respects_dismissed(db_session):
     follow_ups = [a for a in action_repo.list_for_application(app.id, "ws2") if a.type == "follow_up"]
     assert len(follow_ups) == 1  # not resurrected
     assert follow_ups[0].status == "dismissed"
+
+
+def test_planner_run_skips_resting_workspace(db_session):
+    """rest_days = today → the sweep generates nothing and says so. NOW is a
+    Wednesday, so ["wed"] is "today is a day off"."""
+    ws_repo = WorkspaceRepository(db_session)
+    ws_repo.create(name="t", workspace_id="ws4")
+    ws_repo.set_planner_settings("ws4", {"rest_days": ["wed"]})
+    app_repo = JobApplicationRepository(db_session)
+    app = app_repo.create(
+        workspace_id="ws4", job_id="j1", status="applied", applied_at=APPLIED_8D
+    )
+    db_session.flush()
+
+    r = run_daily_rules_once(db_session, NOW)
+
+    assert r == {"workspaces": 1, "resting": 1, "actions_created": 0}
+    action_repo = ApplicationActionRepository(db_session)
+    assert action_repo.list_for_application(app.id, "ws4") == []
+    # The global refill is the load-bearing assertion: unlike the per-application
+    # rules it can never be suppressed by an existing row, so it would appear if
+    # the rest day were ignored.
+    assert action_repo.list_global_for_workspace("ws4") == []
+
+    # Thursday: same workspace, same data, the beat resumes. Without this the test
+    # would also pass against a sweep that was simply broken.
+    r2 = run_daily_rules_once(db_session, NOW + timedelta(days=1))
+    assert r2["resting"] == 0
+    assert r2["actions_created"] == 2  # follow_up + queue_refill
+    assert [a.type for a in action_repo.list_for_application(app.id, "ws4")] == ["follow_up"]
+
+
+def test_rest_day_does_not_hide_work_already_due(db_session):
+    """A rest day means no NEW debt, not hidden work: a to-do that came due before
+    the day off is still there afterwards, untouched."""
+    ws_repo = WorkspaceRepository(db_session)
+    ws_repo.create(name="t", workspace_id="ws5")
+    ws_repo.set_planner_settings("ws5", {"rest_days": ["wed"]})
+    app_repo = JobApplicationRepository(db_session)
+    app = app_repo.create(
+        workspace_id="ws5", job_id="j1", status="applied", applied_at=APPLIED_8D
+    )
+    action_repo = ApplicationActionRepository(db_session)
+    due_yesterday = action_repo.create(
+        workspace_id="ws5", type="follow_up", title="from tuesday",
+        application_id=app.id, due_at=NOW - timedelta(days=1), auto_generated=True,
+    )
+    db_session.flush()
+
+    run_daily_rules_once(db_session, NOW)
+
+    rows = action_repo.list_for_application(app.id, "ws5")
+    assert [r.id for r in rows] == [due_yesterday.id]
+    assert rows[0].status == "pending"
+    assert rows[0].due_at == due_yesterday.due_at
+
+
+def test_resting_workspace_does_not_stop_the_sweep(db_session):
+    """One workspace resting must be a skip, not an exit — `break` where
+    `continue` belongs would silently starve every workspace after it. Asserted
+    per workspace because the sweep's iteration order is not specified."""
+    ws_repo = WorkspaceRepository(db_session)
+    app_repo = JobApplicationRepository(db_session)
+    for ws_id in ("ws6-rest", "ws7-work"):
+        ws_repo.create(name=ws_id, workspace_id=ws_id)
+        app_repo.create(workspace_id=ws_id, job_id="j1", status="applied", applied_at=APPLIED_8D)
+    ws_repo.set_planner_settings("ws6-rest", {"rest_days": ["wed"]})
+    db_session.flush()
+
+    r = run_daily_rules_once(db_session, NOW)
+
+    assert r == {"workspaces": 2, "resting": 1, "actions_created": 2}
+    action_repo = ApplicationActionRepository(db_session)
+    assert action_repo.list_global_for_workspace("ws6-rest") == []
+    assert len(action_repo.list_global_for_workspace("ws7-work")) == 1
