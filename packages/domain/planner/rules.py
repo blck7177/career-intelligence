@@ -14,15 +14,19 @@ an action becomes due from local midnight of its due date.
 Rules (thresholds all read from settings):
   1. follow_up   — applied ≥ follow_up_days ago, no employer response since, no
                    completed follow-up yet.
-  2. thank_you   — a just-occurred interview (within 24h) → note due next day.
+  2. thank_you   — a just-occurred interview (within 24h) → note due the next
+                   WORKING day (this one is perishable, see rest days below).
   3. check_in    — an interview ≥ interview_checkin_days ago with nothing since.
   4. apply_or_drop — a plan-to-apply sitting ≥ apply_or_drop_days.
   5. queue_refill  — planned count < weekly apply target → one global "run
                    discovery" to-do (deduped per ISO week).
 (3B7/networking is intentionally NOT here — deferred, see exec_plan W2-C1.)
 
-Rest days (settings.rest_days) gate all five: on a rest day the engine emits
-nothing at all. That suppresses GENERATION only — see is_rest_day().
+Rest days (settings.rest_days) gate rules 1, 3, 4 and 5 — the ones whose trigger
+PERSISTS, so skipping a day defers them. Rule 2 is exempt because its trigger is
+a 24h window: skipping it would destroy the reminder rather than defer it, so it
+still fires and lands on the next working day. Either way nothing NEW comes due
+on the day off, and nothing already due is hidden — see is_rest_day().
 
 Payload contract: every spec carries `rule` plus the facts that rule fired on,
 so the UI can say *why* a to-do exists ("applied 9 days ago, no reply, 1st
