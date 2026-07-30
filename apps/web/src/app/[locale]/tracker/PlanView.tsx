@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useApiToken } from "@/hooks/useApiToken";
+import { useApiToken, useApiUserId } from "@/hooks/useApiToken";
 import { getWeeklyReview, markWeeklyReviewRead } from "@/api/client";
 import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,9 @@ import { ReviewZone } from "./ReviewZone";
 // and a banner that returns every time you come back is one you learn to swat
 // without reading. Module scope rather than storage on purpose — this is a
 // decision about this sitting, not a preference worth remembering forever.
-// Keyed by the REVIEW (see reviewKey), not the week: a bare week key would carry
-// the dismissal across a client-side account switch and mute the next user.
+// Keyed by user + review (see reviewKey): the module survives a client-side
+// account switch, so without the user component one person's dismissal mutes the
+// next person's banner.
 let dismissedReview: string | null = null;
 
 /** The Plan sub-view: three stacked zones — Today (execution), Pipeline
@@ -28,6 +29,7 @@ let dismissedReview: string | null = null;
  *  stale. */
 export function PlanView() {
   const getToken = useApiToken();
+  const userId = useApiUserId();
   const [review, setReview] = useState<WeeklyReviewRead | null | undefined>(undefined);
   const [error, setError] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(dismissedReview);
@@ -47,7 +49,7 @@ export function PlanView() {
     load();
   }, [load]);
 
-  const unread = shouldAnnounceReview(review, dismissed);
+  const unread = shouldAnnounceReview(review, dismissed, userId);
 
   async function openReview() {
     if (!review) return;
@@ -67,7 +69,7 @@ export function PlanView() {
 
   function later() {
     if (!review) return;
-    dismissedReview = reviewKey(review);
+    dismissedReview = reviewKey(review, userId);
     setDismissed(dismissedReview);
   }
 

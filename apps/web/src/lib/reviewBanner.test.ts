@@ -26,33 +26,35 @@ function review(over: Partial<WeeklyReviewRead> = {}): WeeklyReviewRead {
   } as WeeklyReviewRead;
 }
 
+const USER = "user_aaa";
+
 describe("shouldAnnounceReview", () => {
   it("announces an unread review", () => {
-    expect(shouldAnnounceReview(review(), null)).toBe(true);
+    expect(shouldAnnounceReview(review(), null, USER)).toBe(true);
   });
 
   it("says nothing while the review is still loading", () => {
-    expect(shouldAnnounceReview(undefined, null)).toBe(false);
+    expect(shouldAnnounceReview(undefined, null, USER)).toBe(false);
   });
 
   it("says nothing when no review has been generated yet", () => {
-    expect(shouldAnnounceReview(null, null)).toBe(false);
+    expect(shouldAnnounceReview(null, null, USER)).toBe(false);
   });
 
   it("stays quiet once the review has been read", () => {
-    expect(shouldAnnounceReview(review({ read_at: "2026-07-20T09:00:00Z" }), null)).toBe(false);
+    expect(shouldAnnounceReview(review({ read_at: "2026-07-20T09:00:00Z" }), null, USER)).toBe(false);
   });
 
   it("stays quiet for the review that was dismissed", () => {
     const r = review();
-    expect(shouldAnnounceReview(r, reviewKey(r))).toBe(false);
+    expect(shouldAnnounceReview(r, reviewKey(r, USER), USER)).toBe(false);
   });
 
   it("announces NEXT week even after this week was dismissed", () => {
     // The failure this pins: a boolean "dismissed" flag would mute every future
     // review for the rest of the session after one click on Later.
-    const dismissed = reviewKey(review());
-    expect(shouldAnnounceReview(review({ week_start: "2026-07-20" }), dismissed)).toBe(true);
+    const dismissed = reviewKey(review(), USER);
+    expect(shouldAnnounceReview(review({ week_start: "2026-07-20" }), dismissed, USER)).toBe(true);
   });
 
   it("announces a REGENERATED review for the same week", () => {
@@ -61,14 +63,26 @@ describe("shouldAnnounceReview", () => {
     // of the server clearing read_at when the substance changed. Keying by week
     // alone would also carry one user's dismissal into the next user's session
     // after a client-side account switch, since the module is never reloaded.
-    const dismissed = reviewKey(review());
-    expect(shouldAnnounceReview(review({ generated_at: "2026-07-20T06:00:00Z" }), dismissed)).toBe(true);
+    const dismissed = reviewKey(review(), USER);
+    expect(shouldAnnounceReview(review({ generated_at: "2026-07-20T06:00:00Z" }), dismissed, USER)).toBe(true);
+  });
+
+  it("announces to a DIFFERENT user even after this one dismissed", () => {
+    // The trap this pins: generated_at looks user-specific and is not. The
+    // weekly beat writes every workspace's row in one transaction and postgres
+    // now() is transaction-scoped, so a given week's reviews carry byte-identical
+    // created_at across all users. Without the user component in the key, one
+    // person's "Later" muted the next person's banner — the module survives a
+    // client-side account switch because Clerk routes sign-out through the
+    // router instead of reloading.
+    const dismissed = reviewKey(review(), USER);
+    expect(shouldAnnounceReview(review(), dismissed, "user_bbb")).toBe(true);
   });
 
   it("treats an empty-string read_at as unread rather than read", () => {
     // Defensive: a falsy timestamp is not a reading event. If the API ever sends
     // "" the honest failure is showing the banner once too often, not hiding a
     // review nobody saw.
-    expect(shouldAnnounceReview(review({ read_at: "" }), null)).toBe(true);
+    expect(shouldAnnounceReview(review({ read_at: "" }), null, USER)).toBe(true);
   });
 });
