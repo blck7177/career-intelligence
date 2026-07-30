@@ -72,6 +72,7 @@ def _job(job_id: str, discovered_run_id: str | None = "run-aaa") -> SimpleNamesp
         created_at=_NOW,
         updated_at=_NOW,
         last_seen_at=None,
+        posted_at=None,
     )
 
 

@@ -1,11 +1,13 @@
-"""Unit tests for job_ingest_service.ingest_from_paste (W1-C1).
+"""Unit tests for job_ingest_service (W1-C1 paste path + URL path guards).
 
 In-memory SQLite + real ORM; the only LLM call (extract_jd_fields) is mocked.
-The URL path is a verbatim lift of the prior import_job body (behaviour
-unchanged) and is exercised through the route dispatch tests instead.
+The URL path's fetch tier is mocked at fetch_jd_from_url — what's under test
+here is what the service does with a fetch result, not the fetching itself
+(that lives in tests/worker/test_jd_fetch.py).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -14,8 +16,12 @@ from fastapi import HTTPException
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
-from packages.infrastructure.db.models import Base
-from packages.infrastructure.services.job_ingest_service import ingest_from_paste
+from packages.infrastructure.db.models import Base, Job, Run
+from packages.infrastructure.jd_fetch.service import JdFetchResult
+from packages.infrastructure.services.job_ingest_service import (
+    ingest_from_paste,
+    ingest_from_url,
+)
 
 # A realistic JD: ≥200 chars, not a CSS/JS page shell → passes _validate_jd_text.
 _JD = "Senior Risk Analyst\n\n" + (
@@ -88,3 +94,95 @@ def test_paste_short_jd_rejected(db):
     with pytest.raises(HTTPException) as exc:
         ingest_from_paste(db, _ws(), company="Acme", title="R", jd_text="too short")
     assert exc.value.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# URL path — what the service does with a fetch result it can't build a job from
+# ---------------------------------------------------------------------------
+
+# A careers page that renders its board client-side: fetch comes back empty and
+# the URL alone would yield title "Post" at company "Www".
+_EMBED_URL = "https://www.kkr.com/careers/career-opportunities/post?gh_jid=6107228004"
+
+_UNREADABLE = JdFetchResult(
+    ok=False, jd_text=None, jd_hash=None,
+    error="Fetched text looks like a page shell (CSS/JS), not a JD",
+    source="worker_fetch", fetch_status="shell",
+)
+
+_RESOLVED = JdFetchResult(
+    ok=True,
+    jd_text=_JD,
+    jd_hash="deadbeefdeadbeef",
+    error=None,
+    source="ats_api",
+    fetch_status="success",
+    posted_at=datetime(2026, 7, 2, 20, 0, tzinfo=timezone.utc),
+    title="Quantitative Investment Risk Professional ",  # trailing space is real
+    company="Careers at KKR",
+    location="New York, New York, United States",
+)
+
+
+def _with_fetch(result):
+    """Patch the fetch tier at its source module — ingest_from_url imports it
+    inside the function body."""
+    return patch("packages.infrastructure.jd_fetch.fetch_jd_from_url", return_value=result)
+
+
+@_no_llm
+def test_url_unreadable_posting_is_refused_not_stored(_extract, db):
+    with _with_fetch(_UNREADABLE), pytest.raises(HTTPException) as exc:
+        ingest_from_url(db, _ws(), _EMBED_URL)
+
+    assert exc.value.status_code == 422
+    # No JD *and* no title means the row would be pure URL guesswork — better
+    # no row than "Post" at "Www".
+    assert db.query(Job).count() == 0
+    run = db.query(Run).one()
+    assert run.status == "failed"
+    assert run.result_summary_json["reason"] == "jd_unreadable"
+
+
+@_no_llm
+def test_url_refusal_can_be_retried(_extract, db):
+    """tasks.idempotency_key is UNIQUE and the refused attempt still commits its
+    task, so a url-keyed task would make the second try a 500."""
+    for _ in range(2):
+        with _with_fetch(_UNREADABLE), pytest.raises(HTTPException) as exc:
+            ingest_from_url(db, _ws(), _EMBED_URL)
+        assert exc.value.status_code == 422
+
+
+@_no_llm
+def test_url_adopts_identity_reported_by_the_ats(_extract, db):
+    with _with_fetch(_RESOLVED):
+        result = ingest_from_url(db, _ws(), _EMBED_URL)
+
+    job = result.job
+    assert result.created is True and result.jd_fetched is True
+    assert job.title == "Quantitative Investment Risk Professional"  # stripped
+    assert job.company == "Careers at KKR"  # not "Www"
+    assert job.status == "reportable"
+    assert job.posted_at is not None
+    # Re-read from the DB: the ATS location used to be resolved and then handed
+    # only to the extractor as LLM context, never passed to job_repo.create().
+    db.refresh(job)
+    assert job.location == "New York, New York, United States"
+
+
+@_no_llm
+def test_url_company_fallback_skips_the_careers_subdomain(_extract, db):
+    """No ATS identity, but a readable JD — the row is kept and the company is
+    guessed from the host, which must not collapse to "Www"."""
+    with _with_fetch(JdFetchResult(
+        ok=True, jd_text=_JD, jd_hash="cafecafecafecafe", error=None,
+        source="worker_fetch", fetch_status="success",
+    )):
+        result = ingest_from_url(db, _ws(), "https://www.acme-corp.com/careers/senior-risk-analyst")
+
+    assert result.job.company == "Acme Corp"
+    assert result.job.title == "Senior Risk Analyst"
+    # Unlike title/company there is no guess worth making for location — stay
+    # NULL rather than seed the column with empty strings.
+    assert result.job.location is None

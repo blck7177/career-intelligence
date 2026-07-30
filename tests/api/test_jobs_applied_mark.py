@@ -26,7 +26,7 @@ def _job(**over) -> SimpleNamespace:
         id="job-1", canonical_url="https://ex.com/1", source_url="https://ex.com/1",
         source_type="ats", title="Risk Analyst", company="Bank", location=None,
         status="reportable", discovered_run_id="run-1", created_at=_NOW, updated_at=_NOW,
-        last_seen_at=None, raw_payload_json=None,
+        last_seen_at=None, posted_at=None, raw_payload_json=None,
     )
     base.update(over)
     return SimpleNamespace(**base)

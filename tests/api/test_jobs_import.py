@@ -26,7 +26,7 @@ def _job(**over) -> SimpleNamespace:
         id="job-1", canonical_url="https://ex.com/1", source_url="https://ex.com/1",
         source_type="ats", title="Risk Analyst", company="Bank", location=None,
         status="reportable", discovered_run_id="run-1", created_at=_NOW, updated_at=_NOW,
-        last_seen_at=None, raw_payload_json=None,
+        last_seen_at=None, posted_at=None, raw_payload_json=None,
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -60,6 +60,22 @@ def test_url_dispatches_to_ingest_from_url(client):
     assert resp.json()["created"] is True
     m_url.assert_called_once()
     m_paste.assert_not_called()
+
+
+def test_response_carries_the_employer_posting_date(client):
+    """JobRead declares posted_at with a None default, so a hand-built response
+    dict that omits it serves null however well the column is populated."""
+    posted = datetime(2026, 7, 27, 15, 24, 58, tzinfo=timezone.utc)
+    with patch(
+        "apps.api.routes.jobs.ingest_from_url",
+        return_value=JobIngestResult(job=_job(posted_at=posted), created=True, jd_fetched=True),
+    ), patch("apps.api.routes.jobs.ingest_from_paste"):
+        resp = client.post(
+            "/api/app/jobs/import",
+            json={"url": "https://www.acme.com/careers/post?gh_jid=6107228004"},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["job"]["posted_at"] is not None
 
 
 def test_paste_dispatches_to_ingest_from_paste(client):

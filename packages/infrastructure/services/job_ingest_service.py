@@ -17,9 +17,9 @@ other job, but — being a non-http scheme — never re-enters the fetch /
 reconciliation / dead-url machinery (those all guard on http(s) already; see the
 W1 http-assumption audit note in apps/api/routes/jobs.py).
 
-Note: raises fastapi.HTTPException for the 4 caller-facing error cases (bad
-scheme / LinkedIn / cross-workspace 409 / DOA 404 / paste-JD rejected 422),
-lifted verbatim from the original route handler.
+Note: raises fastapi.HTTPException for the caller-facing error cases (bad
+scheme / LinkedIn 400 / cross-workspace 409 / DOA 404 / unreadable posting 422 /
+paste-JD rejected 422).
 """
 from __future__ import annotations
 
@@ -58,8 +58,8 @@ class JobIngestResult:
 def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestResult:
     """Import a single job by URL: fetch JD, extract fields, persist.
 
-    Verbatim lift of the original import_job body — only the two response
-    constructions become JobIngestResult (the route rebuilds JobImportResponse)."""
+    Refuses (422) when the URL yields neither a JD nor a title — see the guard
+    below for why a URL-guessed row is worse than no row at all."""
     url = url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
@@ -111,7 +111,12 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         run_id=run.id,
         workspace_id=workspace.id,
         task_type="manual_import",
-        idempotency_key=f"manual_import:{workspace.id}:{url}",
+        # Keyed on the run, per the convention elsewhere — NOT on the url.
+        # tasks.idempotency_key is UNIQUE, and every path that ends without a
+        # job row (DOA, and now an unreadable posting) still commits its task,
+        # so a url-keyed retry of the same import collided and surfaced as a
+        # 500. Re-import dedup is the canonical_url lookup above, not this key.
+        idempotency_key=f"manual_import:{workspace.id}:{run.id}",
     )
     db.flush()
 
@@ -186,6 +191,16 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
             detail="This posting appears to be closed or no longer available.",
         )
 
+    # Posting identity as the ATS reported it, when a structured tier resolved
+    # the URL (board listing, or a Greenhouse board embedded in a company
+    # careers page). Adopted before the extraction below so the LLM sees the
+    # real title/company rather than a URL guess.
+    if fetch_result is not None:
+        title = title or (fetch_result.title or "").strip()
+        company = company or (fetch_result.company or "").strip()
+        location = location or fetch_result.location
+        posted_at = posted_at or fetch_result.posted_at
+
     if fetch_result is not None and fetch_result.ok and fetch_result.jd_text:
         jd_text = fetch_result.jd_text
         jd_hash = fetch_result.jd_hash
@@ -208,13 +223,49 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
             if line.lower().startswith("title:"):
                 title = line[6:].strip()
                 break
+    # Past this point the row is built by guessing at the URL string. With no JD
+    # text *and* no title from any structured source, the guess is all there
+    # would be — a slug of "post" and a host of "www.kkr.com" produce a row
+    # titled "Post" at "Www" holding nothing. Refuse rather than write that
+    # husk; the paste path is the way in for a posting we can't read.
+    if not jd_fetched and not title:
+        task_repo.mark_failed(
+            task.id, "jd_unreadable", f"No readable job posting at {url}"
+        )
+        run_repo.complete(
+            run.id,
+            status="failed",
+            result_summary={
+                "source": "manual_import",
+                "reason": "jd_unreadable",
+                "fetch_status": fetch_result.fetch_status if fetch_result else "error",
+            },
+        )
+        db.commit()
+        logger.info("ingest_from_url: refused unreadable posting %s", url)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not read this posting — no job description or title was "
+                "found at that URL (often a login wall, or a board that renders "
+                "only in a browser). Paste the job description text instead."
+            ),
+        )
+
     if not title:
         slug = url.rstrip("/").split("/")[-1].split("?")[0]
         title = re.sub(r"[_-](?:JR?\d+)$", "", slug, flags=re.IGNORECASE).replace("-", " ").replace("_", " ").strip().title() or "Imported Job"
     if not company:
         from urllib.parse import urlparse
-        hostname = urlparse(url).hostname or ""
-        company = hostname.split(".")[0].replace("-", " ").title() if hostname else ""
+        hostname = (urlparse(url).hostname or "").lower()
+        # Skip the label the careers site is hosted under, or every employer
+        # collapses to the same non-name ("Www", "Careers", "Jobs").
+        labels = [
+            label
+            for label in hostname.split(".")
+            if label not in ("www", "careers", "career", "jobs", "job", "apply", "recruiting")
+        ]
+        company = labels[0].replace("-", " ").title() if labels else ""
 
     job = job_repo.create(
         canonical_url=url,
@@ -225,6 +276,7 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         company=company,
         jd_text=jd_text,
         jd_hash=jd_hash,
+        location=location or None,
         raw_payload_json={
             "source": "manual_import",
             "jd_structured": jd_structured,
