@@ -18,7 +18,7 @@ Contract:
   GET    /api/app/planner-stats?week=                       -> PlannerStats
   GET    /api/app/planner-review                            -> WeeklyReviewRead | null
   POST   /api/app/planner-review/read                       -> WeeklyReviewRead
-  GET    /api/app/planner-day                               -> PlannerDayLogRead | null
+  GET    /api/app/planner-day                               -> PlannerDayRead
   POST   /api/app/planner-day/commit                        -> PlannerDayLogRead
   POST   /api/app/planner-day/close                         -> PlannerDayLogRead
 
@@ -59,6 +59,7 @@ from packages.contracts.api.applications import (
     PlannerDayClose,
     PlannerDayCommit,
     PlannerDayLogRead,
+    PlannerDayRead,
     PlannerSettings,
     PlannerSettingsUpdate,
     PlannerStats,
@@ -677,17 +678,31 @@ def _local_today_for(workspace: Workspace) -> tuple[date, PlannerSettings]:
     return local_today(datetime.now(timezone.utc), settings.timezone), settings
 
 
-@router.get("/planner-day", response_model=Optional[PlannerDayLogRead])
+@router.get("/planner-day", response_model=PlannerDayRead)
 def get_planner_day(
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
-) -> Optional[PlannerDayLogRead]:
-    """Today's day log, or null (200) when the day has no row yet — which is
-    what the Plan view's morning banner keys off. Null means the ritual has not
-    run today; it does not mean nothing was committed."""
-    today, _ = _local_today_for(workspace)
+) -> PlannerDayRead:
+    """Today's planner state: the ritual record, plus what has actually been
+    completed so far.
+
+    `log` is null when the day has no row — the morning ritual has not run,
+    which is what the banner keys off. The done totals are measured on every
+    read rather than taken from the log, because the done bar shows them all
+    day while the log's own done_est is not written until the evening close."""
+    from packages.domain.planner.rules import local_day_start_utc
+
+    today, settings = _local_today_for(workspace)
+    start = local_day_start_utc(today, settings.timezone)
+    end = local_day_start_utc(today + timedelta(days=1), settings.timezone)
+
+    action_repo = ApplicationActionRepository(db)
     row = PlannerDayLogRepository(db).get_for_date(workspace.id, today)
-    return _day_log_read(row) if row is not None else None
+    return PlannerDayRead(
+        log=_day_log_read(row) if row is not None else None,
+        done_count=action_repo.count_completed_in_range(workspace.id, start, end),
+        done_est=action_repo.sum_est_completed_in_range(workspace.id, start, end),
+    )
 
 
 @router.post("/planner-day/commit", response_model=PlannerDayLogRead)

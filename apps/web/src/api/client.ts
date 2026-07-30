@@ -51,6 +51,7 @@ export type PlannerWeek = components["schemas"]["PlannerWeek"];
 export type PlannerWeekDay = components["schemas"]["PlannerWeekDay"];
 export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
 export type PlannerDayLogRead = components["schemas"]["PlannerDayLogRead"];
+export type PlannerDayRead = components["schemas"]["PlannerDayRead"];
 export type WeeklyReviewStats = components["schemas"]["WeeklyReviewStats"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
@@ -435,9 +436,10 @@ export async function getPlannerWeek(week?: string, token?: string | null): Prom
   return req<PlannerWeek>(`/api/app/planner-week${qs}`, undefined, token);
 }
 
-// Today's day log, or null when the morning ritual has not run (200 null body).
-export async function getPlannerDay(token?: string | null): Promise<PlannerDayLogRead | null> {
-  return req<PlannerDayLogRead | null>("/api/app/planner-day", undefined, token);
+// Today's planner state: the ritual record (log may be null) plus the live
+// done totals, which arrive whether or not the ritual has run.
+export async function getPlannerDay(token?: string | null): Promise<PlannerDayRead> {
+  return req<PlannerDayRead>("/api/app/planner-day", undefined, token);
 }
 
 // File the morning commitment. Sends WHICH to-dos were kept, never a total —

@@ -411,6 +411,20 @@ class PlannerDayLogRead(BaseModel):
     closed_at: Optional[datetime] = None
 
 
+class PlannerDayRead(BaseModel):
+    """Today's planner state.
+
+    Two things that look alike and are not. `log` is the RITUAL record and may
+    be null — no row means the morning ritual has not run, which is what the
+    banner keys off. done_count/done_est are a MEASUREMENT of what has actually
+    been completed today, always present, recomputed on every read: the done bar
+    shows them all day, whereas the log's done_est is only written at close."""
+
+    log: Optional[PlannerDayLogRead] = None
+    done_count: int = 0
+    done_est: int = 0
+
+
 class PlannerDayCommit(BaseModel):
     """Body of POST /planner-day/commit — the morning ritual's third step.
 
@@ -431,6 +445,14 @@ class PlannerDayClose(BaseModel):
     completed_at server-side. All the client contributes is the reflection."""
 
     reflection: Optional[str] = Field(None, max_length=4000)
+
+
+class PlannerDayStat(BaseModel):
+    """One day's plan versus actual, for the weekly review's per-day strip."""
+
+    date: str  # ISO local date
+    committed_est: Optional[int] = None
+    done_est: Optional[int] = None
 
 
 class WeeklyReviewStats(BaseModel):
@@ -454,6 +476,11 @@ class WeeklyReviewStats(BaseModel):
     reached_interview: int  # of those, how many got any interview
     interview_rate: float  # reached_interview / applied_total (0 when no applies)
     benchmark_interview_rate: float = 0.08  # Job Search Quality Scale app→screen target
+    # Plan versus actual, one entry per day that has a day log. Days the ritual
+    # never ran are ABSENT rather than zero-filled: "did not plan" and "planned
+    # nothing" are different, and a week of zeroes would read as a bad week
+    # instead of an unrecorded one.
+    days: list["PlannerDayStat"] = Field(default_factory=list)
     # Honesty flag: pre-Gmail (P2), an employer "reply" is only what the user
     # logged (status advance + manual interview events), never inbox-detected.
     replies_are_manual: bool = True

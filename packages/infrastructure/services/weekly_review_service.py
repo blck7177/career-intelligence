@@ -20,12 +20,13 @@ from typing import Any, Optional
 
 from packages.domain.planner.rules import ApplicationView, local_today
 from packages.domain.planner.settings import load_planner_settings
-from packages.domain.planner.weekly import build_weekly_stats, weekly_review_prompt
+from packages.domain.planner.weekly import DayLogView, build_weekly_stats, weekly_review_prompt
 from packages.infrastructure.db.models import PlannerReview
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
     ApplicationEventRepository,
     JobApplicationRepository,
+    PlannerDayLogRepository,
     PlannerReviewRepository,
     WorkspaceRepository,
 )
@@ -89,7 +90,26 @@ def generate_weekly_review(
         action_view(a)
         for a in ApplicationActionRepository(session).list_global_for_workspace(workspace_id)
     ]
-    stats = build_weekly_stats(views, settings, week_start, now_utc, global_actions=global_actions)
+    # This week's ritual records, for the plan-versus-actual strip. Absent days
+    # stay absent (see build_weekly_stats).
+    day_logs = [
+        DayLogView(
+            local_date=row.local_date,
+            committed_est=row.committed_est,
+            done_est=row.done_est,
+        )
+        for row in PlannerDayLogRepository(session).list_for_range(
+            workspace_id, week_start, week_start + timedelta(days=7)
+        )
+    ]
+    stats = build_weekly_stats(
+        views,
+        settings,
+        week_start,
+        now_utc,
+        global_actions=global_actions,
+        day_logs=day_logs,
+    )
 
     # weekly_review_prompt is pure (json.dumps + strings) — kept OUTSIDE the try so
     # a bug there surfaces rather than silently degrading.

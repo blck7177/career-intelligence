@@ -13,11 +13,13 @@ NULL narrative and the card degrades to the number-only template.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from typing import Optional
 
 from packages.contracts.api.applications import (
+    PlannerDayStat,
     FunnelStage,
     PlannerSettings,
     WeeklyReviewStats,
@@ -58,6 +60,17 @@ def _reached_interview(app: ApplicationView) -> bool:
     )
 
 
+@dataclass
+class DayLogView:
+    """One day's ritual record, as the pure aggregator sees it. Mirrors the
+    columns of planner_day_logs; the service maps rows into this so weekly.py
+    stays free of the ORM."""
+
+    local_date: date
+    committed_est: Optional[int] = None
+    done_est: Optional[int] = None
+
+
 def build_weekly_stats(
     applications: list[ApplicationView],
     settings: PlannerSettings,
@@ -65,6 +78,7 @@ def build_weekly_stats(
     now_utc: datetime,
     *,
     global_actions: Optional[list[ActionView]] = None,
+    day_logs: Optional[list["DayLogView"]] = None,
 ) -> WeeklyReviewStats:
     """Aggregate one workspace's applications into the weekly review numbers.
     `week_start` is the reviewed week's Monday in settings.timezone.
@@ -73,7 +87,12 @@ def build_weekly_stats(
     to-dos). They MUST be passed so the outreach/follow_ups triplet matches
     PlannerStats, whose SQL count has no application_id filter — otherwise a
     completed standalone networking/follow-up to-do shows up on the Today card
-    but is invisible in the weekly review."""
+    but is invisible in the weekly review.
+
+    `day_logs` are this week's ritual records, if any. Days without one are left
+    OUT of the result rather than zero-filled: a day the ritual never ran is not
+    a day that planned nothing, and a week padded with zeroes reads as a bad
+    week instead of an unrecorded one."""
     tz = settings.timezone
     start = local_day_start_utc(week_start, tz)
     end = local_day_start_utc(week_start + timedelta(days=7), tz)
@@ -131,6 +150,15 @@ def build_weekly_stats(
         applied_total=applied_total,
         reached_interview=reached_interview,
         interview_rate=round(interview_rate, 3),
+        days=[
+            PlannerDayStat(
+                date=d.local_date.isoformat(),
+                committed_est=d.committed_est,
+                done_est=d.done_est,
+            )
+            for d in sorted(day_logs or [], key=lambda d: d.local_date)
+            if week_start <= d.local_date < week_start + timedelta(days=7)
+        ],
     )
 
 

@@ -2033,6 +2033,26 @@ class ApplicationActionRepository:
         rows = self._s.execute(stmt).scalars().all()
         return sum(effective_est_minutes(r.type, r.est_minutes) for r in rows)
 
+    def count_completed_in_range(
+        self, workspace_id: str, start_utc: datetime, end_utc: datetime
+    ) -> int:
+        """How many to-dos were completed in [start, end) — the done bar's
+        count, of any type (unlike count_completed_by_type_in_range, which the
+        weekly triplet uses)."""
+        from sqlalchemy import func, select
+
+        stmt = (
+            select(func.count())
+            .select_from(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "done",
+                ApplicationAction.completed_at >= start_utc,
+                ApplicationAction.completed_at < end_utc,
+            )
+        )
+        return int(self._s.execute(stmt).scalar_one())
+
     def sum_est_completed_in_range(
         self, workspace_id: str, start_utc: datetime, end_utc: datetime
     ) -> int:

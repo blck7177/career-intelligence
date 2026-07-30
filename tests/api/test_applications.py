@@ -959,25 +959,41 @@ def _day_row(**over) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
-def test_planner_day_returns_null_before_the_ritual_runs(make_client):
-    """The morning banner's whole condition. Null here means "no row today",
-    which the view shows differently from a day committed to nothing."""
+def test_planner_day_log_is_null_before_the_ritual_runs(make_client):
+    """The morning banner's whole condition is log == null. The done totals sit
+    OUTSIDE the log precisely so they still arrive on a day with no ritual —
+    the done bar counts from the first completed to-do, not from a commitment."""
     client = make_client()
-    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockRepo:
-        MockRepo.return_value.get_for_date.return_value = None
+    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions:
+        MockDays.return_value.get_for_date.return_value = None
+        MockActions.return_value.count_completed_in_range.return_value = 2
+        MockActions.return_value.sum_est_completed_in_range.return_value = 45
         resp = client.get("/api/app/planner-day")
     assert resp.status_code == 200, resp.text
-    assert resp.json() is None
-
-
-def test_planner_day_exposes_both_totals(make_client):
-    client = make_client()
-    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockRepo:
-        MockRepo.return_value.get_for_date.return_value = _day_row(done_est=60, reflection="slow")
-        resp = client.get("/api/app/planner-day")
     body = resp.json()
-    assert (body["committed_est"], body["done_est"], body["reflection"]) == (90, 60, "slow")
-    assert body["local_date"] == "2026-07-15"
+    assert body["log"] is None
+    assert (body["done_count"], body["done_est"]) == (2, 45)
+
+
+def test_planner_day_measures_done_live_rather_than_reading_the_log(make_client):
+    """The log's own done_est is only written at close. If the endpoint read it
+    back the done bar would sit at zero all day and jump at bedtime."""
+    client = make_client()
+    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions:
+        MockDays.return_value.get_for_date.return_value = _day_row(done_est=None, reflection="slow")
+        MockActions.return_value.count_completed_in_range.return_value = 3
+        MockActions.return_value.sum_est_completed_in_range.return_value = 75
+        resp = client.get("/api/app/planner-day")
+        _, start, end = MockActions.return_value.sum_est_completed_in_range.call_args[0]
+        assert end - start == timedelta(days=1)
+        assert start.hour in (4, 5), "not local midnight for America/New_York"
+    body = resp.json()
+    assert body["log"]["committed_est"] == 90
+    assert body["log"]["done_est"] is None, "the stored field is untouched"
+    assert (body["done_count"], body["done_est"]) == (3, 75), "live totals not measured"
+    assert body["log"]["local_date"] == "2026-07-15"
 
 
 def test_commit_stores_the_servers_own_total_not_the_clients(make_client):
