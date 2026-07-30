@@ -129,16 +129,35 @@ def local_day_start_utc(d: date, tz: str) -> datetime:
 def is_rest_day(settings: PlannerSettings, now_utc: datetime) -> bool:
     """True when the workspace's local today is one of `settings.rest_days`.
 
-    A rest day suppresses GENERATION only: no new auto-actions are created, so
-    the day takes on no new debt. To-dos that came due earlier still appear in
-    Today, because a day off is a decision not to add more — not a decision to
-    pretend nothing is owed. Hiding them would also make the count jump back up
-    on Monday with no explanation.
+    A rest day suppresses GENERATION only: no new auto-actions come due, so the
+    day takes on no new debt. To-dos that came due earlier still appear in Today,
+    because a day off is a decision not to add more — not a decision to pretend
+    nothing is owed. Hiding them would also make the count jump back up on Monday
+    with no explanation.
+
+    It is not a decision to LOSE anything either — see next_working_day and the
+    thank_you exemption in generate_actions.
 
     The weekday is resolved in settings.timezone, the same day boundary the rest
     of the planner uses, so "Saturday" starts at the user's local midnight and
     not UTC's."""
     return WEEKDAYS[local_today(now_utc, settings.timezone).weekday()] in settings.rest_days
+
+
+def next_working_day(settings: PlannerSettings, d: date) -> date:
+    """The first day on or after `d` that is not a rest day.
+
+    Used to date work the engine must not drop onto a day off. Bounded at 8 tries
+    and falling back to `d`: rest_days can legitimately contain all seven days,
+    and a "find the next workday" loop over that configuration would never
+    terminate. Falling back means the to-do lands on the rest day rather than
+    vanishing — with every day marked off there is no better answer, and a
+    visible to-do beats a silently deleted one."""
+    for offset in range(8):
+        cand = d + timedelta(days=offset)
+        if WEEKDAYS[cand.weekday()] not in settings.rest_days:
+            return cand
+    return d
 
 
 def _local_date(dt: datetime, tz: str) -> date:
@@ -170,14 +189,10 @@ def generate_actions(
     now_utc: datetime,
     global_actions: Optional[list[ActionView]] = None,
 ) -> list[ActionSpec]:
-    # Rest day → emit nothing (see is_rest_day for what that does and does not
-    # mean). This lives in the engine, not only in the beat, because rest_days is
-    # a generation threshold like every other setting: any caller asking "what
-    # should exist today" must get the same answer. The worker additionally skips
-    # a resting workspace before loading its snapshot — that is a cost saving on
-    # top of this guard, not a replacement for it.
-    if is_rest_day(settings, now_utc):
-        return []
+    # This guard lives in the engine, not only in the beat, because rest_days is a
+    # generation threshold like every other setting: any caller asking "what
+    # should exist today" has to get the same answer.
+    resting = is_rest_day(settings, now_utc)
 
     tz = settings.timezone
     today = local_today(now_utc, tz)
@@ -185,12 +200,23 @@ def generate_actions(
     specs: list[ActionSpec] = []
 
     for app in applications:
-        specs.extend(_follow_up(app, settings, today, due_today, tz))
+        # thank_you runs even on a rest day. Every other rule's trigger PERSISTS
+        # ("applied ≥ 7 days ago" is still true on Monday), so skipping the beat
+        # defers them. thank_you's trigger is a 24h window around the interview,
+        # so skipping it DESTROYS the reminder: with the default sat+sun rest
+        # days, a Friday-afternoon interview produced no thank-you to-do at all —
+        # silently, and for the most time-critical prompt the planner has. Its
+        # due date lands on the next working day, so the rest day still gains no
+        # work.
         specs.extend(_thank_you(app, settings, now_utc, tz))
+        if resting:
+            continue
+        specs.extend(_follow_up(app, settings, today, due_today, tz))
         specs.extend(_check_in(app, settings, today, due_today, tz))
         specs.extend(_apply_or_drop(app, settings, today, due_today, tz))
 
-    specs.extend(_queue_refill(applications, settings, now_utc, today, due_today, tz, global_actions or []))
+    if not resting:
+        specs.extend(_queue_refill(applications, settings, now_utc, today, due_today, tz, global_actions or []))
     return specs
 
 
@@ -241,7 +267,11 @@ def _thank_you(app, settings, now_utc, tz) -> list[ActionSpec]:
     if not recent:
         return []
     interview_at = _as_utc(max(e.at or e.created_at for e in recent))
-    due = local_day_start_utc(_local_date(interview_at, tz) + timedelta(days=1), tz)
+    # The day after the interview, moved off a rest day if it lands on one. This
+    # is the only rule that dates a FUTURE day, so it is the only one that can
+    # schedule work onto a day the user marked off.
+    due_date = next_working_day(settings, _local_date(interview_at, tz) + timedelta(days=1))
+    due = local_day_start_utc(due_date, tz)
     return [
         ActionSpec(
             type="thank_you",

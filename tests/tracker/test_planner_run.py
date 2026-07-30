@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from apps.worker.tasks.planner_run import run_daily_rules_once
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
+    ApplicationEventRepository,
     JobApplicationRepository,
     WorkspaceRepository,
 )
@@ -92,7 +93,7 @@ def test_planner_run_respects_dismissed(db_session):
     assert follow_ups[0].status == "dismissed"
 
 
-def test_planner_run_skips_resting_workspace(db_session):
+def test_planner_run_adds_no_debt_on_a_rest_day(db_session):
     """rest_days = today → the sweep generates nothing and says so. NOW is a
     Wednesday, so ["wed"] is "today is a day off"."""
     ws_repo = WorkspaceRepository(db_session)
@@ -165,3 +166,34 @@ def test_resting_workspace_does_not_stop_the_sweep(db_session):
     action_repo = ApplicationActionRepository(db_session)
     assert action_repo.list_global_for_workspace("ws6-rest") == []
     assert len(action_repo.list_global_for_workspace("ws7-work")) == 1
+
+
+def test_thank_you_still_lands_on_a_rest_day(db_session):
+    """End-to-end counterpart to the engine test: the sweep must NOT short-circuit
+    a resting workspace, because the one perishable rule still has to run. An
+    earlier version of this wave skipped the workspace before loading its
+    snapshot and silently swallowed every Friday-interview thank-you note."""
+    ws_repo = WorkspaceRepository(db_session)
+    ws_repo.create(name="t", workspace_id="ws8")
+    ws_repo.set_planner_settings("ws8", {"rest_days": ["sat", "sun"]})
+    app_repo = JobApplicationRepository(db_session)
+    app = app_repo.create(workspace_id="ws8", job_id="j1", status="interviewing", applied_at=APPLIED_8D)
+    interview = datetime(2026, 7, 17, 20, 0, tzinfo=timezone.utc)  # Fri 16:00 EDT
+    ApplicationEventRepository(db_session).append(
+        workspace_id="ws8", application_id=app.id, event_type="interview_scheduled",
+        payload_json={"at": interview.isoformat(), "round_type": "onsite"},
+    )
+    db_session.flush()
+
+    saturday_beat = datetime(2026, 7, 18, 10, 0, tzinfo=timezone.utc)
+    r = run_daily_rules_once(db_session, saturday_beat)
+
+    assert r["resting"] == 1  # it IS a rest day...
+    assert r["actions_created"] == 1  # ...and the perishable rule still ran
+    rows = ApplicationActionRepository(db_session).list_for_application(app.id, "ws8")
+    assert [a.type for a in rows] == ["thank_you"]
+    # Due MONDAY, not Saturday: the reminder is kept without disturbing the day
+    # off. (SQLite drops tzinfo on round-trip; compare the instant.)
+    due = rows[0].due_at
+    due = due if due.tzinfo else due.replace(tzinfo=timezone.utc)
+    assert due == datetime(2026, 7, 20, 4, 0, tzinfo=timezone.utc)  # Mon 00:00 EDT

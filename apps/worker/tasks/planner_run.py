@@ -74,12 +74,12 @@ def run_daily_rules_once(session: Any, now_utc: datetime) -> dict:
     (visible in-session); the caller's transaction boundary commits them —
     get_session() in the task, the test's fixture in tests.
 
-    Workspaces whose local today is a rest day are skipped here, before their
-    snapshot is loaded — that load is the expensive part (a query per
-    application). `generate_actions` refuses to emit on a rest day anyway, so
-    this is the cheap path, not the rule. Resting workspaces are counted
-    separately so the beat's log line can tell "nobody was ripe" apart from
-    "everybody was off"; without it a quiet Saturday looks like a broken beat."""
+    Resting workspaces are COUNTED but not skipped. Counted, because otherwise a
+    quiet Saturday and a broken beat produce the same log line. Not skipped,
+    because the engine still emits the one perishable rule on a rest day
+    (thank_you — see generate_actions); short-circuiting here would silently
+    reintroduce exactly the loss that exemption exists to prevent. The engine
+    owns what a rest day means; this loop only reports it."""
     ws_repo = WorkspaceRepository(session)
     ws_ids = JobApplicationRepository(session).list_workspace_ids_with_applications()
     created = 0
@@ -88,7 +88,6 @@ def run_daily_rules_once(session: Any, now_utc: datetime) -> dict:
         workspace = ws_repo.get(ws_id)
         if workspace is not None and is_rest_day(load_planner_settings(workspace), now_utc):
             resting += 1
-            continue
         created += run_for_workspace(session, ws_id, now_utc)
     return {"workspaces": len(ws_ids), "resting": resting, "actions_created": created}
 

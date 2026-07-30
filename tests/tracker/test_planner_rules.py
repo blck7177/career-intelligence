@@ -17,6 +17,7 @@ from packages.domain.planner.rules import (
     is_rest_day,
     local_day_start_utc,
     local_today,
+    next_working_day,
 )
 
 NOW = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)  # 08:00 EDT, local date 2026-07-15
@@ -275,13 +276,14 @@ def test_weekday_keys_are_indexed_by_python_weekday():
     assert WEEKDAYS[date(2026, 7, 18).weekday()] == "sat"
 
 
-def test_rest_day_emits_nothing_at_all():
+def test_rest_day_suppresses_every_rule_except_the_perishable_one():
     """Asserted against the snapshot that trips EVERY rule, so a guard wired into
-    only some of them still fails here. The non-rest assertion comes first: it is
-    what makes the empty one mean something."""
+    only some of them still fails here. thank_you is the deliberate exemption:
+    its trigger is a 24h window, so suppressing it destroys the reminder instead
+    of deferring it (see test_thank_you_survives_the_weekend)."""
     apps = _all_rules_firing()
-    assert _gen(apps) != []  # NOW is a Wednesday → the snapshot is ripe
-    assert _gen(apps, settings=PlannerSettings(rest_days=["wed"])) == []
+    assert set(_types(_gen(apps))) == {"apply", "follow_up", "global", "prep", "thank_you"}
+    assert _types(_gen(apps, settings=PlannerSettings(rest_days=["wed"]))) == ["thank_you"]
 
 
 def test_default_rest_days_silence_the_weekend():
@@ -314,4 +316,47 @@ def test_rest_days_empty_means_never_rest():
     """rest_days is user-editable down to an empty list; that must read as "no day
     off", not as a falsy value some guard treats as "today"."""
     apps = _all_rules_firing()
-    assert _gen(apps, settings=PlannerSettings(rest_days=[])) != []
+    assert len(_gen(apps, settings=PlannerSettings(rest_days=[]))) == 5
+
+
+# --- the perishable rule: thank_you must survive a rest day -------------------
+
+
+def test_thank_you_survives_the_weekend():
+    """THE regression this exemption exists for. Interview Friday 16:00 EDT; the
+    beat fires daily at 10:00 UTC. Saturday's run is the only one inside the 24h
+    window, and with the default sat+sun rest days a plain skip means the
+    thank-you note is never suggested at all — silently, for the most
+    time-critical prompt in the planner."""
+    interview = datetime(2026, 7, 17, 20, 0, tzinfo=timezone.utc)  # Fri 16:00 EDT
+    app = _app(id="ty", status="interviewing", applied_at=_d(20), created_at=_d(20),
+               events=[EventView("interview_scheduled", interview, at=interview)])
+    saturday_beat = datetime(2026, 7, 18, 10, 0, tzinfo=timezone.utc)  # 06:00 EDT
+
+    specs = _gen([app], now=saturday_beat)  # default rest_days = sat, sun
+    assert _types(specs) == ["thank_you"]  # and nothing else: no new debt
+    # Due Monday, not Saturday: the reminder is kept, the day off stays off.
+    assert specs[0].due_at == local_day_start_utc(date(2026, 7, 20), "America/New_York")
+
+
+def test_thank_you_due_date_skips_rest_days_even_on_a_working_day():
+    """The only rule that dates a FUTURE day is the only one that can schedule
+    work onto a day the user marked off. Interview Wednesday with Thursday as the
+    rest day → due Friday."""
+    interview = NOW - timedelta(hours=2)  # Wednesday
+    app = _app(id="ty", status="interviewing",
+               events=[EventView("interview_scheduled", interview, at=interview)])
+    specs = _gen([app], settings=PlannerSettings(rest_days=["thu"]))
+    ty = [s for s in specs if s.type == "thank_you"]
+    assert len(ty) == 1
+    assert ty[0].due_at == local_day_start_utc(date(2026, 7, 17), "America/New_York")  # Fri
+
+
+def test_next_working_day_terminates_when_every_day_is_a_rest_day():
+    """rest_days can legitimately hold all seven. A "find the next workday" loop
+    over that would never end; falling back to the day itself keeps the to-do
+    visible instead of deleting it."""
+    all_off = PlannerSettings(rest_days=list(WEEKDAYS))
+    assert next_working_day(all_off, date(2026, 7, 18)) == date(2026, 7, 18)
+    # And the normal case is unchanged: a working day is its own next working day.
+    assert next_working_day(PlannerSettings(), date(2026, 7, 15)) == date(2026, 7, 15)
