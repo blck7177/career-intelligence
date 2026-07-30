@@ -47,16 +47,16 @@ def test_every_action_type_has_an_estimate():
 
 
 def test_frontend_and_backend_estimate_tables_agree():
-    """The Today view keeps its own copy (it renders before any of this runs).
+    """The frontend keeps its own copy (it renders before any of this runs).
     The number the user sees in the capacity bar becomes the number stored as
     their commitment, so the two tables have to hold the same values — and
     nothing but this test connects them across the language boundary."""
     src = (
         Path(__file__).resolve().parents[2]
-        / "apps/web/src/app/[locale]/tracker/PlanToday.tsx"
+        / "apps/web/src/app/[locale]/tracker/capacity.tsx"
     ).read_text()
     block = re.search(r"EST_FALLBACK[^=]*=\s*\{(.*?)\}", src, re.S)
-    assert block, "EST_FALLBACK not found in PlanToday.tsx — did it move?"
+    assert block, "EST_FALLBACK not found in capacity.tsx — did it move?"
     frontend = {
         m.group(1): int(m.group(2))
         for m in re.finditer(r"(\w+)\s*:\s*(\d+)", block.group(1))

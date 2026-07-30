@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
-import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek } from "@/api/client";
-import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay } from "@/api/client";
+import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay } from "@/api/client";
+import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayLogRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
+import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
 import { parseQuickAdd, dueAtFor } from "@/lib/quickParse";
 
@@ -20,16 +22,12 @@ const GROUP_OF: Record<string, string> = {
 };
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 
-// Fallback estimate by type, for rows written before est_minutes existed and for
-// manual to-dos the user did not estimate. The engine now emits its own value
-// (packages/domain/planner/rules.py DEFAULT_EST_MINUTES) — prefer that.
-const EST_FALLBACK: Record<string, number> = {
-  follow_up: 15, thank_you: 15, prep: 30, apply: 60, networking: 20, custom: 20, global: 15,
-};
-
-function estOf(a: ActionRead): number {
-  return a.est_minutes ?? EST_FALLBACK[a.type] ?? 20;
-}
+// Which local day's ritual the user waved away. Module scope so it survives
+// leaving and re-entering the Plan tab — a prompt that returns every time you
+// come back is one you learn to dismiss without reading — and keyed by the day
+// so tomorrow morning still asks. Not persisted: skipping is a decision about
+// this sitting, not a setting.
+let skippedRitualDay: string | null = null;
 
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
@@ -44,13 +42,6 @@ function groupOf(a: ActionRead): string {
 function countsTowardToday(a: ActionRead): boolean {
   const info = dueInfo(a);
   return info === null || info.today;
-}
-
-function fmtMinutes(m: number): string {
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  if (!h) return `${mm}m`;
-  return mm ? `${h}h${String(mm).padStart(2, "0")}` : `${h}h`;
 }
 
 // The engine records the facts each auto to-do fired on (the payload contract in
@@ -131,6 +122,14 @@ export function PlanToday() {
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
+  // undefined = still loading, null = no row today (the ritual has not run)
+  const [dayLog, setDayLog] = useState<PlannerDayLogRead | null | undefined>(undefined);
+  const [ritualOpen, setRitualOpen] = useState(false);
+  const [ritualBusy, setRitualBusy] = useState(false);
+  // "Skip" is a decision about this sitting, not a preference. Module scope so
+  // it survives leaving and re-entering the Plan tab (see reviewBanner.ts for
+  // the same call), keyed by day so tomorrow still asks.
+  const [skipped, setSkipped] = useState<string | null>(skippedRitualDay);
   // Revocation is remembered by the TEXT that was rejected, not as a sticky flag.
   // A flag leaked: undo the date once and every later line silently stopped
   // parsing dates — the same silent failure this feature exists to avoid, just
@@ -163,16 +162,18 @@ export function PlanToday() {
       const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
       // The strip is context, not the list itself — it degrades to absent
       // rather than failing the view.
-      const [res, st, cfg, wk] = await Promise.all([
+      const [res, st, cfg, wk, day] = await Promise.all([
         listActions({ due_on_or_before: horizon, include_undated: true }, token),
         getPlannerStats(undefined, token).catch(() => null),
         getPlannerSettings(token).catch(() => null),
         getPlannerWeek(undefined, token).catch(() => null),
+        getPlannerDay(token).catch(() => null),
       ]);
       setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
       setStats(st);
       setSettings(cfg);
       setWeek(wk);
+      setDayLog(day);
       setError(false);
     } catch {
       setError(true);
@@ -281,6 +282,51 @@ export function PlanToday() {
     }
   }
 
+  async function applyRitual({ keptIds, deferIds, dropIds }: RitualResult) {
+    setRitualBusy(true);
+    // Order matters: file the commitment FIRST. If the moves fail we have still
+    // recorded what the user agreed to, which is the part that cannot be
+    // reconstructed later; the to-dos are all still there to move by hand.
+    try {
+      const token = await getToken();
+      const day = await commitPlannerDay(keptIds, token);
+      setDayLog(day);
+      // Absolute target, not snooze_days: a relative snooze is measured from
+      // due_at, so an overdue item moved "to tomorrow" would land on the day
+      // after its ORIGINAL due date — still in the past, and straight back into
+      // tomorrow's list. Same reason Rest-until-Monday sends a date.
+      const now = new Date();
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      await Promise.all([
+        ...deferIds.map((id) =>
+          updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: tomorrow }, token),
+        ),
+        ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
+      ]);
+      setRitualOpen(false);
+      await load();
+      await refreshWeek();
+    } catch {
+      // Leave the wizard open: the user can retry without redoing three steps.
+      setError(true);
+    } finally {
+      setRitualBusy(false);
+    }
+  }
+
+  // The day, as the SERVER labelled it in the week strip. Re-deriving it from
+  // the browser clock is how a user in a different timezone gets asked twice —
+  // or not at all — and it is the same off-by-one the strip already avoids.
+  function todayKey(): string {
+    return week?.days.find((d) => d.is_today)?.date ?? "";
+  }
+
+  function skipRitual() {
+    const day = todayKey();
+    skippedRitualDay = day;
+    setSkipped(day);
+  }
+
   const items = actions ?? [];
   const grouped: Record<string, ActionRead[]> = {};
   for (const g of GROUP_ORDER) grouped[g] = [];
@@ -299,6 +345,18 @@ export function PlanToday() {
   // is how the day-boundary bugs get back in. The old note only asked whether
   // sat/sun were in rest_days at all, so it read the same on a Tuesday.
   const isRestToday = !!week?.days.find((d) => d.is_today)?.is_rest;
+  // Yesterday's leftovers: due before today and still open. dueInfo folds
+  // everything past into today (that is what the capacity bar counts), so
+  // "overdue" is read off due_at directly.
+  const overdue = items.filter((a) => {
+    if (!a.due_at) return false;
+    const info = dueInfo(a);
+    return info !== null && info.today && new Date(a.due_at) < startOfToday();
+  });
+  // Ask only once the day is actually known and the list has loaded: a banner
+  // that flashes before the data arrives is a banner that gets clicked away.
+  const askRitual =
+    dayLog === null && actions !== null && week !== null && skipped !== todayKey();
   const zoneSub = [
     items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
     isRestToday ? t("restDayNote") : null,
@@ -307,6 +365,37 @@ export function PlanToday() {
   return (
     <section className="w-full">
       <ZoneHead eyebrow={t("zoneEyebrowToday")} title={t("todayTitle")} sub={zoneSub || undefined} />
+
+      {/* Morning ritual. Above the strip and the list because it is the thing
+          to do BEFORE looking at either — once you have read the list you have
+          already started planning in your head, informally, which is the habit
+          the ritual replaces. */}
+      {askRitual && (
+        <div
+          className="rounded-lg border px-4 py-3 mb-5 flex flex-wrap items-center gap-x-3 gap-y-2"
+          style={{ borderColor: "var(--border)", background: "var(--muted)" }}
+        >
+          <b className="text-sm" style={{ color: "var(--ink-primary)" }}>{t("ritualBannerTitle")}</b>
+          <span className="flex-1 min-w-0 text-xs" style={{ color: "var(--ink-secondary)" }}>
+            {t("ritualBannerSummary", { count: items.length, carry: overdue.length })}
+          </span>
+          <Button size="sm" variant="outline" onClick={() => setRitualOpen(true)}>
+            {t("ritualBannerStart")}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={skipRitual}>{t("ritualBannerSkip")}</Button>
+        </div>
+      )}
+
+      <RitualWizard
+        open={ritualOpen}
+        onOpenChange={setRitualOpen}
+        actions={todayItems}
+        overdue={overdue}
+        cap={cap}
+        onApply={applyRitual}
+        applying={ritualBusy}
+      />
+
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
@@ -565,58 +654,39 @@ function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
 }) {
   const t = useTranslations("tracker");
   const pct = Math.round((used / cap) * 100);
-  const state = pct > 100 ? "over" : pct > 85 ? "near" : "under";
-  const fill = state === "under" ? "var(--primary)" : "var(--match-partial-fg)";
   const excess = used - cap;
   // Only offer the escape hatch when it can actually move the needle.
-  const wouldMove = state === "over" ? pickToDefer(deferrable, excess).length : 0;
+  const wouldMove = pct > 100 ? pickToDefer(deferrable, excess).length : 0;
 
   return (
     <div>
-      <div className="flex items-center justify-between text-2xs mb-1" style={{ color: "var(--ink-muted)" }}>
-        <span>{t("capacityTitle")}</span>
-        <span className="tabular-nums">{fmtMinutes(used)} / {fmtMinutes(cap)}</span>
-      </div>
-      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "var(--muted)" }}>
-        {/* the "stop here" mark */}
-        <span
-          className="absolute top-0 bottom-0 w-px z-10"
-          style={{ left: "85%", background: "var(--ink-faint)" }}
-          aria-hidden
-        />
-        <div
-          className="h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${Math.min(pct, 100)}%`, background: fill }}
-        />
-      </div>
-      <div className="flex items-center gap-2 flex-wrap mt-1 text-2xs" style={{ color: "var(--ink-faint)" }}>
-        {state === "over" ? (
-          <span className="font-semibold" style={{ color: "var(--match-partial-fg)" }}>
-            {t("capacityOver", { pct: pct - 100 })}
-          </span>
-        ) : state === "near" ? (
-          <span style={{ color: "var(--match-partial-fg)" }}>{t("capacityNear", { pct })}</span>
-        ) : (
-          <span>{t("capacityUnder", { pct })}</span>
-        )}
-        <span>· {t("capacityHint")}</span>
-        {wouldMove > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            loading={deferring}
-            onClick={() => onDefer(deferrable, excess)}
-          >
-            {t("capacityDefer", { n: wouldMove })}
-          </Button>
-        )}
-      </div>
+      <CapacityMeter
+        used={used}
+        cap={cap}
+        trailing={
+          wouldMove > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              loading={deferring}
+              onClick={() => onDefer(deferrable, excess)}
+            >
+              {t("deferToFit", { n: wouldMove })}
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
 
 type DueInfo = { today: boolean; days: number; warn: boolean };
+
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
 
 // Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
 // (warn within a day). Undated actions get no pill (they read as "anytime").
