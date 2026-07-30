@@ -13,24 +13,23 @@ Three checks, each aimed at a failure this repo can really produce:
      two branches adding migrations in parallel, and any migration that only
      works against a database that already has data in it.
 
-  2. COVERAGE — every table and column the models declare exists in the migrated
-     database. This is the one that catches the common mistake: a column added to
-     models.py with no migration written for it. The test suite cannot catch it,
-     because create_all() builds the schema FROM the models — the two agree by
-     definition.
+  2. DRIFT — `alembic check`: the models and the migrated database must describe
+     the same schema, in BOTH directions. Catches the common mistake (a column
+     added to models.py with no migration for it), which the test suite cannot
+     catch because create_all() builds the schema FROM the models — the two
+     agree by definition. It also catches the opposite: a migration that adds an
+     index or constraint nobody declares, which then survives only as long as
+     nobody regenerates.
 
   3. ROUND TRIP — downgrade the newest revision and re-upgrade. Catches a
      downgrade() that was never run. Done by hand every wave until now, which
      means it was one forgotten step away from not being done.
 
-Deliberately NOT a full `alembic check` (metadata vs database in BOTH
-directions): the repo carries ~30 pre-existing drift items — an orphaned
-`candidate_story_bank` table from a deleted feature, indexes the models never
-declared, a JSONB/JSON and a VARCHAR(64)/String(128) mismatch. Gating on that
-today would mean a job that is red on arrival, and a red-on-arrival job teaches
-people to ignore it. Check 2 is the half that can be enforced now: it fails only
-on drift THIS change introduced, and tolerates the historical kind. Cleaning up
-the rest is its own piece of work.
+Check 2 was deliberately weaker when this script was written: the repo carried 26
+pre-existing drift items, so `alembic check` was red on arrival, and a
+red-on-arrival check is one people learn to scroll past. Those were fixed
+(models.py caught up to the deployed schema; the orphaned candidate_story_bank
+table was dropped), so the real gate is now affordable.
 
 Usage: DATABASE_URL=postgresql://... python scripts/check-migrations.py
 """
@@ -69,36 +68,29 @@ def main() -> int:
     # --- 1. the whole chain, from nothing -----------------------------------
     run("upgrade", "head")
 
-    # --- 2. models ⊆ migrated schema ----------------------------------------
-    from sqlalchemy import create_engine, inspect
-
-    from packages.infrastructure.db.models import Base
-
-    engine = create_engine(url)
-    inspector = inspect(engine)
-    db_tables = set(inspector.get_table_names())
-
-    missing: list[str] = []
-    for name, table in Base.metadata.tables.items():
-        if name not in db_tables:
-            missing.append(f"table {name}")
-            continue
-        present = {c["name"] for c in inspector.get_columns(name)}
-        missing.extend(
-            f"column {name}.{c.name}" for c in table.columns if c.name not in present
-        )
-
-    print(f"\ncoverage: {len(Base.metadata.tables)} model tables vs {len(db_tables)} in the migrated database")
-    if missing:
-        print("\nFAILED: declared in models.py, absent from the migrated schema:")
-        for item in missing:
-            print(f"  - {item}")
+    # --- 2. models and migrated schema agree, both directions ----------------
+    print("\n$ alembic check", flush=True)
+    check = subprocess.run(
+        [sys.executable, "-m", "alembic", "check"],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    print(check.stdout or check.stderr, end="")
+    if check.returncode != 0:
         print(
-            "\nA migration is missing. The test suite cannot see this: its fixtures\n"
-            "build the schema with create_all() straight from these same models."
+            "\nFAILED: models.py and the migration chain describe different schemas.\n"
+            "\n"
+            "If you added or changed a column: the migration for it is missing. No\n"
+            "test can tell you that — the fixtures build their schema with\n"
+            "create_all() straight from these same models, so the two always agree\n"
+            "there. Write the migration.\n"
+            "\n"
+            "If the difference is an index or constraint the database has and the\n"
+            "models do not: add the declaration rather than generating a drop. The\n"
+            "object is deployed; the declaration is what is missing."
         )
         return 1
-    print("  every model table and column exists in the migrated schema")
 
     # --- 3. the newest revision's downgrade actually runs --------------------
     run("downgrade", "-1")

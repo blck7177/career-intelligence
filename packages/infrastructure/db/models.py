@@ -25,13 +25,15 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -90,10 +92,19 @@ class UserIdentity(Base):
     """
 
     __tablename__ = "user_identities"
+    __table_args__ = (
+        # The lookup every sign-in performs (provider + external id).
+        Index(
+            "ix_user_identities_provider", "provider", "provider_user_id", unique=True
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False, index=True
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     provider_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -109,6 +120,7 @@ class WorkspaceMember(Base):
     """Membership record linking a user to a workspace with a role."""
 
     __tablename__ = "workspace_members"
+    __table_args__ = (Index("ix_workspace_members_workspace_id", "workspace_id"),)
 
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id"), primary_key=True
@@ -160,6 +172,17 @@ class Workspace(Base):
     members: Mapped[list["WorkspaceMember"]] = relationship(back_populates="workspace")
 
 
+# Agent-driven run types only — job_report / fit_report intentionally allow
+# multiple concurrent runs per workspace (batch analyze). Keep in lockstep with
+# migration x5y6z7a8b9c0, which created the index from the same list.
+_AGENT_RUN_TYPES = ("job_discovery", "job_research", "run_reflection", "candidate_story_build")
+_ACTIVE_AGENT_RUN_PREDICATE = (
+    "status IN ('queued', 'running') AND run_type IN ("
+    + ", ".join(f"'{rt}'" for rt in _AGENT_RUN_TYPES)
+    + ")"
+)
+
+
 class Run(Base):
     """
     Top-level unit of work initiated by the user.
@@ -168,6 +191,23 @@ class Run(Base):
     """
 
     __tablename__ = "runs"
+    __table_args__ = (
+        # One active agent run per (workspace, run_type). Partial on both axes:
+        # only queued/running rows conflict, and only the agent-driven types —
+        # job_report / fit_report deliberately allow concurrent runs (batch
+        # analyze). Mirrors migration x5y6z7a8b9c0's raw DDL exactly; declared
+        # for sqlite too because the test schema is built here, and a predicate
+        # that only applied to postgres would become a FULL unique index in the
+        # tests and reject the second run of any type.
+        Index(
+            "uq_active_agent_run_per_workspace_type",
+            "workspace_id",
+            "run_type",
+            unique=True,
+            postgresql_where=text(_ACTIVE_AGENT_RUN_PREDICATE),
+            sqlite_where=text(_ACTIVE_AGENT_RUN_PREDICATE),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(
@@ -282,6 +322,12 @@ class Artifact(Base):
     )
     artifact_type: Mapped[str] = mapped_column(String(100), nullable=False)
     storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    # "sha256:<64 hex>" — 71 chars, not 64. The initial schema declared
+    # VARCHAR(64) and nothing ever widened it, so a database built from the
+    # migration chain rejects every value this field is given. The only reason
+    # nothing broke is that the running database was created by create_all()
+    # from this 128 and later stamped. Migration i7j8k9l0m1n2 widens the column
+    # to match; do not narrow this without changing what the writer produces.
     content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -359,6 +405,21 @@ class AgentToolEvent(Base):
     """
 
     __tablename__ = "agent_tool_events"
+    __table_args__ = (
+        # Partial on purpose: the ledger's event_id is unique when present, but
+        # rows predating the signed ledger have none, and a plain unique index
+        # would collapse all of those NULLs-as-duplicates on some backends.
+        # Declared for BOTH dialects — the tests build the schema on sqlite, and
+        # a postgresql_where alone would silently become a FULL unique index
+        # there, breaking every fixture that writes more than one legacy row.
+        Index(
+            "ix_agent_tool_events_event_id",
+            "event_id",
+            unique=True,
+            postgresql_where=text("event_id IS NOT NULL"),
+            sqlite_where=text("event_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     invocation_id: Mapped[str] = mapped_column(
@@ -375,7 +436,12 @@ class AgentToolEvent(Base):
     prev_event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     event_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     signature: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    raw_event_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # JSONB in postgres (what the migration created), plain JSON everywhere
+    # else — the tests build this schema on sqlite, which cannot render JSONB
+    # at all. A bare JSONB here makes create_all() raise before any test runs.
+    raw_event_json: Mapped[Optional[dict]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -449,6 +515,11 @@ class Job(Base):
     """Canonical job record. Populated from discovery candidate_pool after validator gate."""
 
     __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_company", "company"),
+        Index("ix_jobs_jd_hash", "jd_hash"),
+        Index("ix_jobs_status", "status"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True)
@@ -498,9 +569,16 @@ class DeadUrl(Base):
     sweep; a 404 rarely comes back."""
 
     __tablename__ = "dead_urls"
+    __table_args__ = (
+        # A named UNIQUE CONSTRAINT, which is what the migration created.
+        # `unique=True` on the column would render as a unique INDEX instead —
+        # same effect in postgres, different object, and the difference is
+        # exactly what kept alembic reporting drift here.
+        UniqueConstraint("url_hash", name="uq_dead_urls_url_hash"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    url_hash: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    url_hash: Mapped[str] = mapped_column(String(32), nullable=False)
     canonical_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     domain: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     reason: Mapped[str] = mapped_column(String(32), nullable=False)  # http_404 | http_410 | closed_posting
@@ -519,6 +597,11 @@ class JobReport(Base):
     """Global (user-independent) Job Intelligence Report for a specific job."""
 
     __tablename__ = "job_reports"
+    __table_args__ = (
+        Index("ix_job_reports_jd_hash", "jd_hash"),
+        Index("ix_job_reports_job_id", "job_id"),
+        Index("ix_job_reports_status", "status"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     job_id: Mapped[str] = mapped_column(String(36), ForeignKey("jobs.id"), nullable=False)
@@ -550,6 +633,12 @@ class FitReport(Base):
     """Workspace-private Candidate Fit Report for a job/profile pair."""
 
     __tablename__ = "fit_reports"
+    __table_args__ = (
+        Index("ix_fit_reports_job_report_id", "job_report_id"),
+        Index("ix_fit_reports_status", "status"),
+        # The list query's lookup: latest fit per (workspace, job).
+        Index("ix_fit_reports_workspace_job", "workspace_id", "job_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(String(36), ForeignKey("workspaces.id"), nullable=False)
@@ -663,6 +752,7 @@ class CompanySource(Base):
     __tablename__ = "company_sources"
     __table_args__ = (
         UniqueConstraint("ats_provider", "board_token", name="uq_company_sources_provider_token"),
+        Index("ix_company_sources_status", "status"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -696,10 +786,17 @@ class SearchStrategyStateRow(Base):
     """Workspace-level cross-run search strategy (one row per workspace, MVP)."""
 
     __tablename__ = "search_strategy_states"
+    __table_args__ = (
+        # Both objects exist in the database: a named UNIQUE CONSTRAINT plus a
+        # plain (non-unique) index. `unique=True, index=True` on the column
+        # would have collapsed them into one unique index.
+        UniqueConstraint("workspace_id", name="search_strategy_states_workspace_id_key"),
+        Index("ix_search_strategy_states_workspace_id", "workspace_id"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("workspaces.id"), nullable=False, unique=True, index=True
+        String(36), ForeignKey("workspaces.id"), nullable=False
     )
     profile_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
     state_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
