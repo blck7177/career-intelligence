@@ -106,29 +106,42 @@ const WEEKDAYS: Record<string, number> = {
 
 /**
  * Metadata has to sit at the END of the line (a trailing duration is allowed
- * after it, since "friday =15m" is one natural phrase).
+ * after it, since "friday =15m" is one natural phrase). One rule for every date
+ * word, so the thing a user has to learn is simply "put the date last".
  *
- * Without this, weekday names eat real words: "ping Sunday Times" lost "Sunday"
- * from the title and got filed on Sunday, "check Monday.com" became "check
- * .com", "Friday Health Plans" lost its company. A wrong parse is worse than no
- * parse — it silently mangles the title and files the to-do on a day the user
- * never asked for — so the rule is: fail to notice rather than notice wrongly.
- * The cost is that a leading date ("friday review Stripe") is not picked up, and
- * that is the right trade.
+ * Two failures this prevents, both silent:
+ *
+ * - Words get eaten. "ping Sunday Times" lost "Sunday" and got filed on Sunday;
+ *   "check Monday.com" became "check .com"; "Friday Health Plans" lost its
+ *   company name.
+ * - Sentences get mangled mid-way. Removing a match from the middle left
+ *   "明天的面试准备" as "的面试准备" (ungrammatical), "tomorrow or friday" as
+ *   "or friday" (a dangling conjunction), and "ping tomorrow: bring notes" as
+ *   "ping : bring notes". Collapsing double spaces cannot repair a hole in a
+ *   sentence, and a language without spaces cannot even be repaired that way.
+ *
+ * A wrong parse is worse than no parse: it rewrites what the user typed and
+ * files the to-do on a day they never asked for, and they find out later. So the
+ * rule is fail-to-notice rather than notice-wrongly. The cost is that a leading
+ * or embedded date ("friday review Stripe", "明天面试") is not picked up — the
+ * right trade, because that failure is visible while typing.
  */
 const TRAILING = String.raw`(?=[\s,，、.。;；]*(?:=\s*\d+\s*[a-z]*)?[\s,，、.。;；]*$)`;
 
 const WEEKDAY_NAMES =
   "mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday";
 
-// Longest-first so "next tuesday" wins over "tue", and 下周三 over 周三.
+// Order matters: these are tried in sequence and the first hit wins, so any
+// pattern containing another must come first. "day after tomorrow" ahead of
+// "tomorrow" — the other way round, the shorter one matched inside it, dated the
+// to-do one day early and left "day after" stranded in the title.
 const DATE_PATTERNS: Array<{ re: RegExp; resolve: (m: RegExpMatchArray, today: string) => string }> = [
-  { re: /\b(today)\b/i, resolve: (_m, today) => today },
-  { re: /\b(tomorrow|tmr|tmrw)\b/i, resolve: (_m, today) => addDays(today, 1) },
-  { re: /\bday after tomorrow\b/i, resolve: (_m, today) => addDays(today, 2) },
-  { re: /(今天|今日)/, resolve: (_m, today) => today },
-  { re: /(明天|明日)/, resolve: (_m, today) => addDays(today, 1) },
-  { re: /(后天)/, resolve: (_m, today) => addDays(today, 2) },
+  { re: new RegExp(String.raw`\bday after tomorrow\b` + TRAILING, "i"), resolve: (_m, today) => addDays(today, 2) },
+  { re: new RegExp(String.raw`\b(today)\b` + TRAILING, "i"), resolve: (_m, today) => today },
+  { re: new RegExp(String.raw`\b(tomorrow|tmr|tmrw)\b` + TRAILING, "i"), resolve: (_m, today) => addDays(today, 1) },
+  { re: new RegExp(String.raw`(今天|今日)` + TRAILING), resolve: (_m, today) => today },
+  { re: new RegExp(String.raw`(明天|明日)` + TRAILING), resolve: (_m, today) => addDays(today, 1) },
+  { re: new RegExp(String.raw`(后天)` + TRAILING), resolve: (_m, today) => addDays(today, 2) },
   {
     re: new RegExp(String.raw`下(?:个)?周([一二三四五六日天])` + TRAILING),
     resolve: (m, today) => nextWeekday(today, WEEKDAYS[m[1]], true),

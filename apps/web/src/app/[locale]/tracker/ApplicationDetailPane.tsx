@@ -388,14 +388,19 @@ function ActionsSection({ app, onMutated, getToken, t }: { app: ApplicationDetai
       // Parsed rather than hardcoded "custom": typing "outreach to Jane" here is
       // the only way a networking to-do gets created, and until now this call
       // filed it as custom — so the outreach counter could never be fed from the
-      // UI at all. No workspace timezone is available in this pane, so dates are
-      // left in the title (tz=null) rather than resolved against a guess.
-      const parsed = parseQuickAdd(title_, null);
+      // UI at all.
+      //
+      // Only the type is honoured. This pane shows no parse preview and offers no
+      // way to undo one, and the type keyword stays in the title — so reading it
+      // changes nothing the user can see go wrong. Dates would need a workspace
+      // timezone (not available here) and durations would silently cut text out
+      // of the title with no chip to object to, which is the one thing this
+      // feature is built not to do.
+      const parsed = parseQuickAdd(title_, null, { accept: { duration: false } });
       await createAction(
         {
           type: parsed.type?.value ?? "custom",
-          title: parsed.title || title_,
-          est_minutes: parsed.duration?.minutes,
+          title: title_,
           application_id: app.id,
         },
         token,

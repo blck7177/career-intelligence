@@ -133,6 +133,35 @@ describe("does not eat real words", () => {
   });
 });
 
+describe("pattern ordering", () => {
+  it("'day after tomorrow' is reachable and means two days out", () => {
+    // It sat after the plain "tomorrow" rule, which matched inside it: the rule
+    // was unreachable, the date landed a day early, and "day after" was left
+    // stranded in the title.
+    expect(p("review day after tomorrow")).toMatchObject({
+      title: "review", date: "2026-07-17",
+    });
+  });
+});
+
+describe("does not mangle a sentence mid-way", () => {
+  // Cutting a match out of the middle leaves a hole that collapsing spaces
+  // cannot repair — and in a language without spaces, cannot repair at all.
+  it.each([
+    "明天的面试准备",
+    "今天下午的复盘",
+    "ping tomorrow: bring notes",
+    "friday review Stripe",
+  ])("leaves %s alone", (input) => {
+    expect(p(input)).toMatchObject({ title: input, date: undefined });
+  });
+
+  it("still reads a date placed at the end", () => {
+    expect(p("面试准备 明天")).toMatchObject({ title: "面试准备", date: "2026-07-16" });
+    expect(p("call recruiter today")).toMatchObject({ title: "call recruiter", date: "2026-07-15" });
+  });
+});
+
 describe("chip revocation", () => {
   it("drops a rejected match and returns the text to the title", () => {
     expect(p("ping tomorrow =15m", { accept: { date: false } })).toMatchObject({
@@ -140,6 +169,29 @@ describe("chip revocation", () => {
     });
     expect(p("follow up tomorrow =15m", { accept: { date: false, duration: false, type: false } }))
       .toMatchObject({ title: "follow up tomorrow =15m", date: undefined, min: undefined, type: undefined });
+  });
+
+  it("reports the matched text, so a caller can scope a rejection to that phrase", () => {
+    // PlanToday remembers WHICH text was rejected rather than a sticky boolean:
+    // a flag meant undoing the date once silently disabled date parsing for
+    // every later line — the same silent failure, pointing the other way.
+    const r = parseQuickAdd("ping stripe tomorrow =15m", NY, {}, NOW);
+    expect(r.date?.text).toBe("tomorrow");
+    expect(r.duration?.text.trim()).toBe("=15m");
+    // A different phrase yields different text, so the rejection stops applying.
+    expect(parseQuickAdd("ping stripe friday", NY, {}, NOW).date?.text).toBe("friday");
+  });
+});
+
+describe("type-only parsing", () => {
+  it("leaves the title byte-identical", () => {
+    // The application detail pane has no parse preview and no undo, so it honours
+    // only the type — reading it changes nothing the user could watch go wrong.
+    const input = "outreach to Jane 30分钟";
+    const r = parseQuickAdd(input, null, { accept: { duration: false } });
+    expect(r.title).toBe(input);
+    expect(r.duration).toBeUndefined();
+    expect(r.type?.value).toBe("networking");
   });
 });
 

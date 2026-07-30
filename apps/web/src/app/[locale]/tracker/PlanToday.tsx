@@ -131,7 +131,11 @@ export function PlanToday() {
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
-  const [rejected, setRejected] = useState<{ date?: boolean; duration?: boolean; type?: boolean }>({});
+  // Revocation is remembered by the TEXT that was rejected, not as a sticky flag.
+  // A flag leaked: undo the date once and every later line silently stopped
+  // parsing dates — the same silent failure this feature exists to avoid, just
+  // pointing the other way.
+  const [rejected, setRejected] = useState<{ date?: string; duration?: string; type?: string }>({});
   const removingRef = useRef<Set<string>>(new Set());
 
   // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
@@ -139,14 +143,19 @@ export function PlanToday() {
   // so nothing is parsed as a date rather than guessing one and filing the to-do
   // a day off.
   const tz = settings?.timezone ?? null;
-  const parsed = useMemo(
-    () => (tz
-      ? parseQuickAdd(title, tz, {
-          accept: { date: !rejected.date, duration: !rejected.duration, type: !rejected.type },
-        })
-      : { title: title.trim() }),
-    [title, tz, rejected],
-  );
+  const parsed = useMemo(() => {
+    // Parse once to see what is there, then again honouring only the matches
+    // whose text has not been rejected — so a rejection applies to that phrase
+    // and stops applying the moment the user types something else.
+    const probe = parseQuickAdd(title, tz);
+    return parseQuickAdd(title, tz, {
+      accept: {
+        date: probe.date?.text !== rejected.date,
+        duration: probe.duration?.text !== rejected.duration,
+        type: probe.type?.text !== rejected.type,
+      },
+    });
+  }, [title, tz, rejected]);
 
   const load = useCallback(async () => {
     try {
@@ -336,17 +345,17 @@ export function PlanToday() {
             {(parsed.date || parsed.duration || parsed.type) && (
               <div className="flex items-center gap-1.5 flex-wrap mt-1.5 text-2xs">
                 {parsed.date && (
-                  <ParseChip tone="date" onRevoke={() => setRejected((r) => ({ ...r, date: true }))} t={t}>
+                  <ParseChip tone="date" onRevoke={() => setRejected((r) => ({ ...r, date: parsed.date?.text }))} t={t}>
                     {parsed.date.date}
                   </ParseChip>
                 )}
                 {parsed.duration && (
-                  <ParseChip tone="duration" onRevoke={() => setRejected((r) => ({ ...r, duration: true }))} t={t}>
+                  <ParseChip tone="duration" onRevoke={() => setRejected((r) => ({ ...r, duration: parsed.duration?.text }))} t={t}>
                     {fmtMinutes(parsed.duration.minutes)}
                   </ParseChip>
                 )}
                 {parsed.type && (
-                  <ParseChip tone="type" onRevoke={() => setRejected((r) => ({ ...r, type: true }))} t={t}>
+                  <ParseChip tone="type" onRevoke={() => setRejected((r) => ({ ...r, type: parsed.type?.text }))} t={t}>
                     {t(`actionType.${parsed.type.value}`)}
                   </ParseChip>
                 )}
