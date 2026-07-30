@@ -104,6 +104,23 @@ const WEEKDAYS: Record<string, number> = {
   一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6,
 };
 
+/**
+ * Metadata has to sit at the END of the line (a trailing duration is allowed
+ * after it, since "friday =15m" is one natural phrase).
+ *
+ * Without this, weekday names eat real words: "ping Sunday Times" lost "Sunday"
+ * from the title and got filed on Sunday, "check Monday.com" became "check
+ * .com", "Friday Health Plans" lost its company. A wrong parse is worse than no
+ * parse — it silently mangles the title and files the to-do on a day the user
+ * never asked for — so the rule is: fail to notice rather than notice wrongly.
+ * The cost is that a leading date ("friday review Stripe") is not picked up, and
+ * that is the right trade.
+ */
+const TRAILING = String.raw`(?=[\s,，、.。;；]*(?:=\s*\d+\s*[a-z]*)?[\s,，、.。;；]*$)`;
+
+const WEEKDAY_NAMES =
+  "mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday";
+
 // Longest-first so "next tuesday" wins over "tue", and 下周三 over 周三.
 const DATE_PATTERNS: Array<{ re: RegExp; resolve: (m: RegExpMatchArray, today: string) => string }> = [
   { re: /\b(today)\b/i, resolve: (_m, today) => today },
@@ -113,19 +130,19 @@ const DATE_PATTERNS: Array<{ re: RegExp; resolve: (m: RegExpMatchArray, today: s
   { re: /(明天|明日)/, resolve: (_m, today) => addDays(today, 1) },
   { re: /(后天)/, resolve: (_m, today) => addDays(today, 2) },
   {
-    re: /下(?:个)?周([一二三四五六日天])/,
+    re: new RegExp(String.raw`下(?:个)?周([一二三四五六日天])` + TRAILING),
     resolve: (m, today) => nextWeekday(today, WEEKDAYS[m[1]], true),
   },
   {
-    re: /(?:这|本)?周([一二三四五六日天])/,
+    re: new RegExp(String.raw`(?:这|本)?周([一二三四五六日天])` + TRAILING),
     resolve: (m, today) => nextWeekday(today, WEEKDAYS[m[1]], false),
   },
   {
-    re: /\bnext\s+(mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)\b/i,
+    re: new RegExp(String.raw`\bnext\s+(${WEEKDAY_NAMES})\b` + TRAILING, "i"),
     resolve: (m, today) => nextWeekday(today, WEEKDAYS[m[1].toLowerCase()], true),
   },
   {
-    re: /\b(mon|monday|tue|tues|tuesday|wed|weds|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)\b/i,
+    re: new RegExp(String.raw`\b(${WEEKDAY_NAMES})\b` + TRAILING, "i"),
     resolve: (m, today) => nextWeekday(today, WEEKDAYS[m[1].toLowerCase()], false),
   },
 ];
@@ -154,11 +171,18 @@ function nextWeekday(today: string, target: number, explicitNext: boolean): stri
 }
 
 const DURATION_PATTERNS: Array<{ re: RegExp; minutes: (m: RegExpMatchArray) => number }> = [
-  { re: /=(\d+)\s*h(?:rs?|ours?)?\b/i, minutes: (m) => Number(m[1]) * 60 },
-  { re: /=(\d+)\s*m(?:in(?:s|utes?)?)?\b/i, minutes: (m) => Number(m[1]) },
-  { re: /=(\d+)\b/, minutes: (m) => Number(m[1]) },
-  { re: /(\d+)\s*小时/, minutes: (m) => Number(m[1]) * 60 },
-  { re: /(\d+)\s*分钟/, minutes: (m) => Number(m[1]) },
+  // `=` is an explicit "this is metadata" marker, so it may sit anywhere — but it
+  // needs whitespace in front, or `score=42` becomes a 42-minute estimate.
+  { re: /(?:^|\s)=(\d+)\s*h(?:rs?|ours?)?\b/i, minutes: (m) => Number(m[1]) * 60 },
+  { re: /(?:^|\s)=(\d+)\s*m(?:in(?:s|utes?)?)?\b/i, minutes: (m) => Number(m[1]) },
+  // Must not be followed by a letter either: after "=9h" is rejected as out of
+  // range, a bare-number rule that accepted "=9" would silently make it 9 minutes
+  // and leave an orphaned "h" in the title.
+  { re: /(?:^|\s)=(\d+)(?![\w.])/, minutes: (m) => Number(m[1]) },
+  // Bare Chinese durations have no marker, so they must trail: "45分钟内回复" is
+  // a deadline the user is describing, not how long the task takes.
+  { re: new RegExp(String.raw`(\d+)\s*小时` + TRAILING), minutes: (m) => Number(m[1]) * 60 },
+  { re: new RegExp(String.raw`(\d+)\s*分钟` + TRAILING), minutes: (m) => Number(m[1]) },
 ];
 
 const TYPE_PATTERNS: Array<{ re: RegExp; value: QuickAddType }> = [
