@@ -6,7 +6,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek } from "@/api/client";
 import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { ZoneHead } from "./ZoneHead";
+import { ZoneHead } from "@/components/ui/zone-head";
 import { parseQuickAdd, dueAtFor } from "@/lib/quickParse";
 
 const HORIZON_DAYS = 14;

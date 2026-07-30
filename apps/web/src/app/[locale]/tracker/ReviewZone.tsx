@@ -3,7 +3,7 @@
 import { useTranslations } from "next-intl";
 import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { ZoneHead } from "./ZoneHead";
+import { ZoneHead } from "@/components/ui/zone-head";
 import { fmtTs } from "@/lib/utils";
 
 /** Plan · Review zone. The latest LLM weekly review (Wave 5). Renders the

@@ -1,4 +1,3 @@
-import type { ElementType } from "react";
 import { getTranslations } from "next-intl/server";
 import type { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
@@ -13,18 +12,9 @@ import { Metric } from "@/components/ui/metric";
 import { rowClassName } from "@/components/ui/row";
 import { cn } from "@/lib/utils";
 import { MatchStatStrip, type TopPick } from "@/components/MatchStatStrip";
-
-// Sidebar section header: icon + label + bottom border, so the four rail
-// sections ("This search"/"Up next"/etc.) read as distinct blocks instead of
-// four same-weight gray lines stacked with no separation.
-function SidebarLabel({ icon: Icon, children }: { icon: ElementType; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-1.5 pb-2 mb-3" style={{ borderBottom: "1px solid var(--border)" }}>
-      <Icon size={15} style={{ color: "var(--ink-muted)" }} />
-      <span className="text-xs font-semibold" style={{ color: "var(--ink-primary)" }}>{children}</span>
-    </div>
-  );
-}
+// The rail's section headers used to be a page-local SidebarLabel; that density
+// is now ZoneHead variant="rail", so the app has one section-head component.
+import { ZoneHead } from "@/components/ui/zone-head";
 
 export const dynamic = "force-dynamic";
 
@@ -279,7 +269,7 @@ export default async function HomePage() {
         >
           {/* This search */}
           <div>
-            <SidebarLabel icon={Search}>{t("thisSearch")}</SidebarLabel>
+            <ZoneHead variant="rail" icon={Search} title={t("thisSearch")} />
             <div
               className="rounded-lg p-[var(--space-rail-card-y)_var(--space-rail-card-x)]"
               style={{ background: "var(--background)", border: "1px solid oklch(88% 0.018 285)" }}
@@ -309,7 +299,7 @@ export default async function HomePage() {
 
           {/* Recent searches */}
           <div>
-            <SidebarLabel icon={History}>{t("recentSearches")}</SidebarLabel>
+            <ZoneHead variant="rail" icon={History} title={t("recentSearches")} />
             {recentSearches.length > 0 ? (
               <>
                 <div className="flex flex-col">
@@ -351,7 +341,7 @@ export default async function HomePage() {
           {/* Top companies */}
           {topCompanies.length > 0 && (
             <div>
-              <SidebarLabel icon={Building2}>{t("topCompanies")}</SidebarLabel>
+              <ZoneHead variant="rail" icon={Building2} title={t("topCompanies")} />
               <div className="flex flex-col gap-2">
                 {topCompanies.map(([company, count]) => (
                   <div key={company} className="flex items-center gap-2.5 group" title={`${company}: ${count}`}>

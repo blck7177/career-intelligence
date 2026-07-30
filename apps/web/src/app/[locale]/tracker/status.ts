@@ -9,7 +9,7 @@ export const STATUS_STYLE: Record<string, { bg: string; fg: string }> = {
   in_review: { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" },
   interviewing: { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" },
   offer: { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" },
-  rejected: { bg: "#fee2e2", fg: "#991b1b" },
+  rejected: { bg: "var(--danger-bg)", fg: "var(--danger-fg)" },
   withdrawn: { bg: "var(--muted)", fg: "var(--ink-muted)" },
   ghosted: { bg: "var(--muted)", fg: "var(--ink-muted)" },
 };
@@ -29,11 +29,12 @@ export const FORWARD_NEXT: Record<string, string[]> = {
 export const CLOSE_STATUSES = ["rejected", "withdrawn", "ghosted"];
 export const LIVE_STATUSES = ["planned", "applied", "in_review", "interviewing", "offer"];
 
-// A/B/C effort-tier lane chip styling (var() fallbacks in case the amber token
-// isn't defined in globals.css).
+// A/B/C effort-tier lane chip styling. The b tier used to carry inline var()
+// fallbacks because --warn-* did not exist yet, so only the fallback ever
+// painted; the token is now defined in globals.css at those same values.
 export const LANE_STYLE: Record<string, { bg: string; fg: string }> = {
   a: { bg: "var(--match-good-bg)", fg: "var(--match-good-fg)" },
-  b: { bg: "var(--warn-bg, oklch(96.5% 0.03 85))", fg: "var(--warn-fg, oklch(45% 0.11 75))" },
+  b: { bg: "var(--warn-bg)", fg: "var(--warn-fg)" },
   c: { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" },
 };
 // Lane cycle order for the detail editor: none -> A -> B -> C -> none.

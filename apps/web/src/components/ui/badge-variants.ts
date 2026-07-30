@@ -5,6 +5,9 @@ export type BadgeVariant =
   | "secondary"
   | "outline"
   | "destructive"
+  | "warn"
+  | "danger"
+  | "info"
   | "match-strong"
   | "match-good"
   | "match-partial";
@@ -36,7 +39,12 @@ export function badgeVariants({ variant = "default", className }: BadgeVariantsO
     variant === "default" && "bg-[var(--ink-primary)] text-white",
     variant === "secondary" && "bg-[var(--muted)] text-[var(--muted-foreground)]",
     variant === "outline" && "border border-[var(--border)] text-[var(--ink-secondary)]",
-    variant === "destructive" && "bg-rose-100 text-rose-700",
+    // destructive now reads the --danger-* triple instead of raw Tailwind rose,
+    // so it lands in the same construction as warn/info and the match-* set.
+    variant === "destructive" && "bg-[var(--danger-bg)] text-[var(--danger-fg)]",
+    variant === "warn" && "bg-[var(--warn-bg)] text-[var(--warn-fg)]",
+    variant === "danger" && "bg-[var(--danger-bg)] text-[var(--danger-fg)]",
+    variant === "info" && "bg-[var(--info-bg)] text-[var(--info-fg)]",
     variant === "match-strong" && "bg-[var(--match-strong-bg)] text-[var(--match-strong-fg)]",
     variant === "match-good" && "bg-[var(--match-good-bg)] text-[var(--match-good-fg)]",
     variant === "match-partial" && "bg-[var(--match-partial-bg)] text-[var(--match-partial-fg)]",
