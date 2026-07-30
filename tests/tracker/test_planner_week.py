@@ -11,6 +11,8 @@ from packages.contracts.api.applications import PlannerSettings
 from packages.domain.planner.week import (
     InterviewSlot,
     build_week,
+    contains,
+    due_query_start_utc,
     week_bounds_utc,
     week_start_for,
 )
@@ -128,6 +130,32 @@ def test_carried_work_adds_to_todays_own_dues():
     week = _build(due_ats=[today_due], carried_into_today=2)
     counts = {d["date"]: d["due_count"] for d in week["days"]}
     assert counts["2026-07-15"] == 3
+
+
+def test_due_counting_starts_at_today_so_overdue_work_is_not_counted_twice():
+    """A to-do due Tuesday and still pending is owed TODAY (Wednesday). If the
+    per-day range still began on Monday it would show a dot on Tuesday *and* be
+    added to today's carried count — two dots for one task."""
+    monday, wednesday = date(2026, 7, 13), date(2026, 7, 15)
+    assert due_query_start_utc(monday, wednesday, NY) == datetime(
+        2026, 7, 15, 4, 0, tzinfo=timezone.utc
+    )  # today's local midnight, not Monday's
+
+
+def test_due_counting_starts_at_week_start_for_a_week_without_today():
+    """A historical or forward week is a plain report of what fell due then."""
+    past_monday, wednesday = date(2026, 7, 6), date(2026, 7, 15)
+    assert due_query_start_utc(past_monday, wednesday, NY) == datetime(
+        2026, 7, 6, 4, 0, tzinfo=timezone.utc
+    )
+
+
+def test_contains_is_a_half_open_week():
+    monday = date(2026, 7, 13)
+    assert contains(monday, monday)
+    assert contains(monday, date(2026, 7, 19))  # Sunday
+    assert not contains(monday, date(2026, 7, 20))  # next Monday
+    assert not contains(monday, date(2026, 7, 12))
 
 
 def test_carried_work_is_dropped_when_the_week_excludes_today():

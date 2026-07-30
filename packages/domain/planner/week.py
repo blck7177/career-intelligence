@@ -50,6 +50,25 @@ def week_bounds_utc(week_start: date, tz: str) -> tuple[datetime, datetime]:
     )
 
 
+def contains(week_start: date, day: date) -> bool:
+    return week_start <= day < week_start + timedelta(days=7)
+
+
+def due_query_start_utc(week_start: date, today: date, tz: str) -> datetime:
+    """Where per-day due counting should begin.
+
+    When the week contains today, overdue work is attributed to today (that is
+    where it is actually owed, and where the capacity bar counts it), so the
+    per-day range starts at today — otherwise a to-do due earlier this week and
+    still pending would appear both on the day it was due AND in today's carried
+    count, showing two dots for one task.
+
+    A week that does not contain today is a historical or forward view, where
+    every day should simply report what fell due then, so counting starts at the
+    week's own beginning."""
+    return local_day_start_utc(today if contains(week_start, today) else week_start, tz)
+
+
 def _local_date(dt: datetime, tz: str) -> date:
     from zoneinfo import ZoneInfo
 
