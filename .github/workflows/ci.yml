@@ -89,3 +89,7 @@ jobs:
       - name: TypeScript typecheck
         run: npm run typecheck
         working-directory: apps/web
+
+      - name: Frontend unit tests
+        run: npm test
+        working-directory: apps/web
