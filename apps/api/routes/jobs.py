@@ -118,6 +118,10 @@ def _job_read(
         "created_at": job.created_at,
         "updated_at": job.updated_at,
         "last_seen_at": job.last_seen_at,
+        # Employer posting date. Declared on JobRead with a None default, so
+        # leaving it out of this hand-built dict silently served null on every
+        # jobs endpoint and the detail pane fell back to showing created_at.
+        "posted_at": job.posted_at,
         "jd_source": (job.raw_payload_json or {}).get("jd_source"),
         "is_favorited": is_favorited,
         "is_not_interested": is_not_interested,
