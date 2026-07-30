@@ -525,7 +525,7 @@ def get_planner_week(
     An interview's time lives in the event's payload (`at`), not in a column, so
     the rounds are filtered in Python; only those landing inside the week get
     their company resolved, which keeps that to a handful of lookups."""
-    from packages.domain.planner.rules import local_today
+    from packages.domain.planner.rules import local_day_start_utc, local_today
     from packages.domain.planner.week import (
         InterviewSlot,
         build_week,
@@ -579,11 +579,15 @@ def get_planner_week(
             )
         )
 
+    action_repo = ApplicationActionRepository(db)
     due_ats = [
         a.due_at
-        for a in ApplicationActionRepository(db).list_due_between(workspace.id, start, end)
+        for a in action_repo.list_due_between(workspace.id, start, end)
         if a.due_at is not None
     ]
+    # Overdue and undated work counts against today, matching the capacity bar.
+    today_start = local_day_start_utc(local_today(now, tz), tz)
+    carried = action_repo.count_pending_carried_into_today(workspace.id, today_start)
     return PlannerWeek(
         **build_week(
             interviews=slots,
@@ -591,6 +595,7 @@ def get_planner_week(
             settings=settings,
             now_utc=now,
             week_start=start_date,
+            carried_into_today=carried,
         )
     )
 

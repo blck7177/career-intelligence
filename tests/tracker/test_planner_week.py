@@ -113,6 +113,29 @@ def test_due_counts_bucket_by_local_day():
     assert counts["2026-07-13"] == 0
 
 
+def test_carried_work_lands_on_today_so_the_strip_matches_the_capacity_bar():
+    """Overdue and undated to-dos are today's load — the capacity bar below the
+    strip counts them, and a strip showing zero against a bar showing three
+    contradicts itself on one screen."""
+    week = _build(carried_into_today=3)
+    counts = {d["date"]: d["due_count"] for d in week["days"]}
+    assert counts["2026-07-15"] == 3  # today
+    assert sum(v for k, v in counts.items() if k != "2026-07-15") == 0
+
+
+def test_carried_work_adds_to_todays_own_dues():
+    today_due = datetime(2026, 7, 15, 4, 0, tzinfo=timezone.utc)
+    week = _build(due_ats=[today_due], carried_into_today=2)
+    counts = {d["date"]: d["due_count"] for d in week["days"]}
+    assert counts["2026-07-15"] == 3
+
+
+def test_carried_work_is_dropped_when_the_week_excludes_today():
+    # Browsing a past week: there is no cell for a backlog to land on.
+    week = _build(week_start=date(2026, 7, 6), carried_into_today=5)
+    assert sum(d["due_count"] for d in week["days"]) == 0
+
+
 def test_naive_datetimes_are_read_as_utc():
     # SQLite round-trips drop tzinfo; treating those as local would shift days.
     naive = datetime(2026, 7, 16, 23, 30)

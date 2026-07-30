@@ -65,11 +65,20 @@ def build_week(
     settings: PlannerSettings,
     now_utc: datetime,
     week_start: Optional[date] = None,
+    carried_into_today: int = 0,
 ) -> dict:
     """Seven days, Monday first. `due_ats` are the due instants of pending
     to-dos; only their count per day matters here — the Today list is where the
     to-dos themselves live. Anything outside the week is ignored rather than
-    clamped into an edge day, which would overstate that day's load."""
+    clamped into an edge day, which would overstate that day's load.
+
+    `carried_into_today` is work that weighs on today without being due today:
+    overdue and undated to-dos. It is added to today's count so the strip agrees
+    with the capacity bar beneath it, which counts the same work. That makes
+    today's number "what today owes" while other days read "what falls due
+    then" — asymmetric, but honest: today is the only day that inherits a
+    backlog. When the requested week doesn't contain today it is ignored, since
+    there is no day for it to land on."""
     tz = settings.timezone
     today = local_today(now_utc, tz)
     start = week_start or week_start_for(today)
@@ -91,6 +100,8 @@ def build_week(
         d = _local_date(due, tz)
         if d in in_week:
             counts[d] += 1
+    if today in in_week:
+        counts[today] += carried_into_today
 
     return {
         "week_start": start.isoformat(),

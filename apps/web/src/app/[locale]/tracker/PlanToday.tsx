@@ -253,9 +253,12 @@ export function PlanToday() {
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
+          {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
+              you most need to see that Thursday has an onsite. The strip is the
+              week's shape, not a decoration on today's list. */}
+          {week && <WeekStrip week={week} />}
           {!isEmpty && actions !== null && (
             <div className="space-y-2">
-              {week && <WeekStrip week={week} />}
               <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
                 <span>{t("todaySummary", { count: items.length, minutes: estTotal })}</span>
                 <Button size="sm" variant="ghost" onClick={restUntilMonday} loading={resting}>{t("restUntilMon")}</Button>
