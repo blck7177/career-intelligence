@@ -69,7 +69,6 @@
     "matchStrong": "高匹配",
     "matchGood": "中等匹配",
     "matchPartial": "部分匹配",
-    "matchDistribution": "匹配分布",
     "matchUnanalyzedLabel": "未分析"
   },
   "jobs": {
