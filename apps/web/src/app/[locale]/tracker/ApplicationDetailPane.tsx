@@ -17,6 +17,7 @@ import type { ApplicationDetail, ApplicationUpdate, StatusTransition, Applicatio
 import { Button } from "@/components/ui/button";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
+import { parseQuickAdd } from "@/lib/quickParse";
 import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE } from "./status";
 
 interface Props {
@@ -384,7 +385,26 @@ function ActionsSection({ app, onMutated, getToken, t }: { app: ApplicationDetai
     setAdding(true);
     try {
       const token = await getToken();
-      await createAction({ type: "custom", title: title_, application_id: app.id }, token);
+      // Parsed rather than hardcoded "custom": typing "outreach to Jane" here is
+      // the only way a networking to-do gets created, and until now this call
+      // filed it as custom — so the outreach counter could never be fed from the
+      // UI at all.
+      //
+      // Only the type is honoured. This pane shows no parse preview and offers no
+      // way to undo one, and the type keyword stays in the title — so reading it
+      // changes nothing the user can see go wrong. Dates would need a workspace
+      // timezone (not available here) and durations would silently cut text out
+      // of the title with no chip to object to, which is the one thing this
+      // feature is built not to do.
+      const parsed = parseQuickAdd(title_, null, { accept: { duration: false } });
+      await createAction(
+        {
+          type: parsed.type?.value ?? "custom",
+          title: title_,
+          application_id: app.id,
+        },
+        token,
+      );
       setTitle("");
       onMutated();
     } finally {
