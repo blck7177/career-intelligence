@@ -66,6 +66,29 @@
   --match-partial-fg: oklch(54% 0.01 275);
   --match-partial-border: oklch(88% 0.008 275);
 
+  /* Semantic status triples — warning / danger / info. Built with the same
+     construction as the --match-* triples above (bg L 95.5% C 0.034, fg L 44%,
+     border L 85% C 0.04), one hue each, so the whole set reads as one system.
+     Before these existed every status surface hand-rolled its own color:
+     raw Tailwind amber/rose/blue on the run pages and profile, half-hardcoded
+     oklch in runs' status badges, and tracker/status.ts reaching for a
+     var(--warn-bg) that was never defined (only its inline fallback painted).
+     --warn-*'s bg/fg ARE that fallback's values, so the lane-B chip doesn't
+     shift now that the token resolves. Green is deliberately NOT duplicated
+     here: --match-strong-* is already this construction at hue 155 and serves
+     as the "success" tone. */
+  --warn-bg: oklch(95.5% 0.034 80);
+  --warn-fg: oklch(44% 0.11 80);
+  --warn-border: oklch(85% 0.04 80);
+  --danger-bg: oklch(95.5% 0.034 25);
+  --danger-fg: oklch(44% 0.16 25);
+  --danger-border: oklch(85% 0.04 25);
+  /* hue 240 (sky), not Tailwind blue's ~264: that sits only 21deg from
+     --primary (285) and reads as a washed-out brand purple at low chroma. */
+  --info-bg: oklch(95.5% 0.034 240);
+  --info-fg: oklch(44% 0.15 240);
+  --info-border: oklch(85% 0.04 240);
+
   /* Button depth — 3-tier shadow used by ui/button.tsx's buttonVariants() */
   --shadow-btn-rest: 0 1px 2px oklch(0% 0 0 / 0.08), 0 1px 1px oklch(0% 0 0 / 0.04);
   --shadow-btn-hover: 0 4px 10px oklch(52% 0.2 285 / 0.22), 0 2px 4px oklch(0% 0 0 / 0.06);
