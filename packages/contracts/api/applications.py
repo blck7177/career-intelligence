@@ -16,7 +16,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
-_WEEKDAYS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
+# The weekday vocabulary `rest_days` / `review_day` accept — and, because the
+# ORDER matches date.weekday() (Monday == 0), also the index the planner uses to
+# turn a local date into one of those keys. Ordered on purpose: the domain
+# modules index into it, so this tuple must never be reordered or turned back
+# into a set. One definition, imported by rules.py and week.py, so a workspace's
+# rest days can't mean one thing to the validator and another to the engine.
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 # Keep in lockstep with packages/domain/applications/transitions.STATUSES
 # (a test asserts equality).
@@ -343,7 +349,7 @@ class PlannerSettings(BaseModel):
     @field_validator("rest_days")
     @classmethod
     def _valid_rest_days(cls, v: list[str]) -> list[str]:
-        bad = [d for d in v if d not in _WEEKDAYS]
+        bad = [d for d in v if d not in WEEKDAYS]
         if bad:
             raise ValueError(f"invalid weekday(s): {bad}; expected mon..sun")
         return v
@@ -351,7 +357,7 @@ class PlannerSettings(BaseModel):
     @field_validator("review_day")
     @classmethod
     def _valid_review_day(cls, v: str) -> str:
-        if v not in _WEEKDAYS:
+        if v not in WEEKDAYS:
             raise ValueError(f"invalid weekday: {v!r}; expected mon..sun")
         return v
 
@@ -429,3 +435,27 @@ class WeeklyReviewRead(BaseModel):
     narrative_md: Optional[str] = None
     degraded: bool = False
     generated_at: datetime
+    # When the user first opened it; None = never. The Plan view's banner exists
+    # because of this field: a review nobody reads is a weekly job run for
+    # nothing. Regenerating a review with CHANGED content clears it back to None
+    # (see PlannerReviewRepository.upsert) — different numbers are a different
+    # review, and the user should get the chance to see them.
+    read_at: Optional[datetime] = None
+
+
+class WeeklyReviewMarkRead(BaseModel):
+    """Body of POST /planner-review/read. The client names the week it actually
+    read rather than the server assuming "the latest": a tab left open across the
+    Sunday-night beat would otherwise mark the NEW review read without anyone
+    having seen it, and its banner would never appear."""
+
+    week_start: str  # ISO date (Monday, settings.timezone)
+
+    @field_validator("week_start")
+    @classmethod
+    def _valid_week_start(cls, v: str) -> str:
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("week_start must be an ISO date (YYYY-MM-DD)") from exc
+        return v

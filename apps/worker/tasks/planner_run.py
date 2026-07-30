@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from apps.worker.celery_app import celery_app
-from packages.domain.planner.rules import ApplicationView, generate_actions
+from packages.domain.planner.rules import ApplicationView, generate_actions, is_rest_day
 from packages.domain.planner.settings import load_planner_settings
 from packages.infrastructure.db.repositories import (
     ApplicationActionRepository,
@@ -72,12 +72,24 @@ def run_for_workspace(session: Any, workspace_id: str, now_utc: datetime) -> int
 def run_daily_rules_once(session: Any, now_utc: datetime) -> dict:
     """One full sweep across every workspace with applications. Rows are flushed
     (visible in-session); the caller's transaction boundary commits them —
-    get_session() in the task, the test's fixture in tests."""
+    get_session() in the task, the test's fixture in tests.
+
+    Resting workspaces are COUNTED but not skipped. Counted, because otherwise a
+    quiet Saturday and a broken beat produce the same log line. Not skipped,
+    because the engine still emits the one perishable rule on a rest day
+    (thank_you — see generate_actions); short-circuiting here would silently
+    reintroduce exactly the loss that exemption exists to prevent. The engine
+    owns what a rest day means; this loop only reports it."""
+    ws_repo = WorkspaceRepository(session)
     ws_ids = JobApplicationRepository(session).list_workspace_ids_with_applications()
     created = 0
+    resting = 0
     for ws_id in ws_ids:
+        workspace = ws_repo.get(ws_id)
+        if workspace is not None and is_rest_day(load_planner_settings(workspace), now_utc):
+            resting += 1
         created += run_for_workspace(session, ws_id, now_utc)
-    return {"workspaces": len(ws_ids), "actions_created": created}
+    return {"workspaces": len(ws_ids), "resting": resting, "actions_created": created}
 
 
 @celery_app.task(name="apps.worker.tasks.planner_run.run_daily_rules", max_retries=0)

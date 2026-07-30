@@ -1,9 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useApiToken } from "@/hooks/useApiToken";
-import { getWeeklyReview } from "@/api/client";
 import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { ZoneHead } from "./ZoneHead";
@@ -12,24 +9,20 @@ import { fmtTs } from "@/lib/utils";
 /** Plan · Review zone. The latest LLM weekly review (Wave 5). Renders the
  *  narrative when present; when generation degraded (narrative_md null) the card
  *  shows the number-only template with a small "summary unavailable" note.
- *  `undefined` = loading, `null` = no review generated yet (keep placeholder). */
-export function ReviewZone() {
+ *  `undefined` = loading, `null` = no review generated yet (keep placeholder).
+ *
+ *  The review is owned by PlanView (V5-C2): the unread banner up top and this
+ *  zone must agree about read state, which two separate fetches cannot. */
+export function ReviewZone({
+  review,
+  error,
+  onRetry,
+}: {
+  review: WeeklyReviewRead | null | undefined;
+  error: boolean;
+  onRetry: () => void;
+}) {
   const t = useTranslations("tracker");
-  const getToken = useApiToken();
-  const [review, setReview] = useState<WeeklyReviewRead | null | undefined>(undefined);
-  const [error, setError] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const token = await getToken();
-      setReview(await getWeeklyReview(token));
-      setError(false);
-    } catch {
-      setError(true);
-    }
-  }, [getToken]);
-
-  useEffect(() => { load(); }, [load]);
 
   const zoneSub = review
     ? `${review.week_start} · ${t("reviewGeneratedAt", { date: fmtTs(review.generated_at) })}`
@@ -42,7 +35,7 @@ export function ReviewZone() {
         error ? (
           <div className="rounded-lg border border-dashed p-4 text-center" style={{ borderColor: "var(--border)" }}>
             <p className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>{t("loadFailed")}</p>
-            <Button size="sm" variant="outline" onClick={load}>{t("retry")}</Button>
+            <Button size="sm" variant="outline" onClick={onRetry}>{t("retry")}</Button>
           </div>
         ) : (
           <div className="animate-pulse h-24 rounded-lg border" style={{ borderColor: "var(--border)" }} aria-hidden />

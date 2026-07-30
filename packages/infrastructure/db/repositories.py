@@ -2155,7 +2155,19 @@ class PlannerReviewRepository:
         narrative_md: str | None,
     ) -> PlannerReview:
         """Insert or replace the review for (workspace, week). Idempotent so the
-        weekly beat can re-run (or a regeneration) without duplicating rows."""
+        weekly beat can re-run (or a regeneration) without duplicating rows.
+
+        Re-announcing is driven by the STATS, not the prose. The narrative comes
+        from a model with no temperature or seed pinned, so its text differs on
+        every regeneration — comparing it would clear read_at on literally every
+        re-run and train the user to swat the banner. The stats are the review;
+        the narrative is prose about them.
+
+        The one narrative change that IS new information: a degraded review
+        gaining prose on a retry. The user read a numbers-only card and the
+        summary arrived afterwards, so keeping it "read" would bury exactly what
+        the retry produced. Prose going the other way (a re-run that degrades)
+        does not re-nag — nothing new was said."""
         row = self.get_for_week(workspace_id, week_start)
         if row is None:
             row = PlannerReview(
@@ -2166,7 +2178,28 @@ class PlannerReviewRepository:
             )
             self._s.add(row)
         else:
+            narrative_arrived = row.narrative_md is None and narrative_md is not None
+            if row.stats_json != stats_json or narrative_arrived:
+                row.read_at = None
             row.stats_json = stats_json
             row.narrative_md = narrative_md
         self._s.flush()
+        return row
+
+    def mark_read(
+        self, workspace_id: str, week_start: date, *, now_utc: datetime
+    ) -> Optional[PlannerReview]:
+        """Stamp when the user first opened this week's review; None if there is
+        no such review for this workspace (the route turns that into a 404, which
+        is also the IDOR answer for another workspace's week).
+
+        A second call keeps the original timestamp — "when did you first see it"
+        is the fact worth having, and it makes the endpoint idempotent under the
+        double-click the banner's button invites."""
+        row = self.get_for_week(workspace_id, week_start)
+        if row is None:
+            return None
+        if row.read_at is None:
+            row.read_at = now_utc
+            self._s.flush()
         return row
