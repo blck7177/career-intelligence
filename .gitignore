@@ -47,3 +47,10 @@ backups/
 
 # Stray personal working files (not part of the codebase)
 /revised_resume_jpmorgan.md
+
+# Local prototype scratch inside the repo. test_notes/people_discovery_proto_0724
+# holds real people's names, employers and LinkedIn profile URLs that the
+# prototype scraped — git history is the wrong place for that, and it is not
+# removable once pushed. The files stay on disk; topics/people-discovery.md
+# points at the path.
+test_notes/
