@@ -47,6 +47,8 @@ export type ApplicationSummary = components["schemas"]["ApplicationSummary"];
 export type ApplicationEventRead = components["schemas"]["ApplicationEventRead"];
 export type FunnelResponse = components["schemas"]["FunnelResponse"];
 export type PlannerStats = components["schemas"]["PlannerStats"];
+export type PlannerWeek = components["schemas"]["PlannerWeek"];
+export type PlannerWeekDay = components["schemas"]["PlannerWeekDay"];
 export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
 export type WeeklyReviewStats = components["schemas"]["WeeklyReviewStats"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
@@ -424,6 +426,12 @@ export async function updatePlannerSettings(
 export async function getPlannerStats(week?: string, token?: string | null): Promise<PlannerStats> {
   const qs = week ? `?week=${encodeURIComponent(week)}` : "";
   return req<PlannerStats>(`/api/app/planner-stats${qs}`, undefined, token);
+}
+
+// The week's shape for the Today strip: interviews, due counts, rest days.
+export async function getPlannerWeek(week?: string, token?: string | null): Promise<PlannerWeek> {
+  const qs = week ? `?week=${encodeURIComponent(week)}` : "";
+  return req<PlannerWeek>(`/api/app/planner-week${qs}`, undefined, token);
 }
 
 // Latest weekly review, or null when none has been generated yet (200 null body).

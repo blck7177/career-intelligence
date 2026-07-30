@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
-import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings } from "@/api/client";
-import type { ActionRead, PlannerStats, PlannerSettings } from "@/api/client";
+import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek } from "@/api/client";
+import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { ZoneHead } from "./ZoneHead";
 
@@ -124,6 +124,7 @@ export function PlanToday() {
   const [actions, setActions] = useState<ActionRead[] | null>(null);
   const [stats, setStats] = useState<PlannerStats | null>(null);
   const [settings, setSettings] = useState<PlannerSettings | null>(null);
+  const [week, setWeek] = useState<PlannerWeek | null>(null);
   const [error, setError] = useState(false);
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
@@ -135,14 +136,18 @@ export function PlanToday() {
     try {
       const token = await getToken();
       const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
-      const [res, st, cfg] = await Promise.all([
+      // The strip is context, not the list itself — it degrades to absent
+      // rather than failing the view.
+      const [res, st, cfg, wk] = await Promise.all([
         listActions({ due_on_or_before: horizon, include_undated: true }, token),
         getPlannerStats(undefined, token).catch(() => null),
         getPlannerSettings(token).catch(() => null),
+        getPlannerWeek(undefined, token).catch(() => null),
       ]);
       setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
       setStats(st);
       setSettings(cfg);
+      setWeek(wk);
       setError(false);
     } catch {
       setError(true);
@@ -248,6 +253,10 @@ export function PlanToday() {
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
+          {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
+              you most need to see that Thursday has an onsite. The strip is the
+              week's shape, not a decoration on today's list. */}
+          {week && <WeekStrip week={week} />}
           {!isEmpty && actions !== null && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -333,6 +342,94 @@ export function PlanToday() {
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * The week at a glance, above today's list. Interviews are the skeleton of a
+ * day — you plan around them, not over them — so they have to be visible before
+ * the day is planned, not discovered inside an application's timeline.
+ *
+ * Each cell shows its scheduled rounds (company, abbreviated) and a dot per
+ * to-do due that day, capped so a heavy day reads as "heavy" rather than
+ * becoming a wall of dots. Rest days are hatched and today is filled: the two
+ * facts you need before deciding what to commit to.
+ *
+ * Dates come from the server already bucketed into the workspace's timezone, so
+ * nothing here re-derives a day — parsing the ISO date locally would reintroduce
+ * exactly the off-by-one the server-side contract exists to prevent.
+ */
+const MAX_DUE_DOTS = 4;
+
+function WeekStrip({ week }: { week: PlannerWeek }) {
+  const t = useTranslations("tracker");
+  return (
+    <div className="grid grid-cols-7 gap-1" role="list" aria-label={t("weekStripLabel")}>
+      {week.days.map((d, i) => (
+        <WeekCell key={d.date} day={d} index={i} t={t} />
+      ))}
+    </div>
+  );
+}
+
+const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
+function WeekCell({ day, index, t }: {
+  day: PlannerWeekDay;
+  index: number;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  // Days arrive Monday-first, so position IS the weekday — deriving it from the
+  // date string would mean parsing a date the server already resolved for us.
+  const label = t(`weekdayShort.${WEEKDAY_KEYS[index]}`);
+  const dd = Number(day.date.slice(8, 10));
+  const dots = Math.min(day.due_count, MAX_DUE_DOTS);
+  // interviews is optional in the generated type (server default), never absent in practice.
+  const interviews = day.interviews ?? [];
+  const title = [
+    day.date,
+    day.due_count > 0 ? t("weekStripDue", { n: day.due_count }) : null,
+    ...interviews.map((i) => `${i.company}${i.round_type ? ` · ${i.round_type}` : ""}`),
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div
+      role="listitem"
+      title={title}
+      className="rounded-md border px-1.5 py-1 min-h-[46px] text-2xs"
+      style={{
+        borderColor: day.is_today ? "var(--primary)" : "var(--border)",
+        background: day.is_today
+          ? "var(--match-strong-bg)"
+          : day.is_rest
+            ? "repeating-linear-gradient(135deg, transparent 0 5px, var(--muted) 5px 7px)"
+            : undefined,
+        color: day.is_rest ? "var(--ink-faint)" : "var(--ink-muted)",
+      }}
+    >
+      <div className="font-semibold" style={{ color: day.is_today ? "var(--ink-primary)" : undefined }}>
+        {label} <span className="tabular-nums font-normal">{dd}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-0.5 mt-0.5">
+        {interviews.slice(0, 2).map((iv, i) => (
+          <span
+            key={i}
+            className="px-1 rounded-sm font-semibold truncate max-w-full"
+            style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }}
+          >
+            {iv.company.split(/\s+/)[0].slice(0, 8)}
+          </span>
+        ))}
+        {Array.from({ length: dots }).map((_, i) => (
+          <span
+            key={`d${i}`}
+            className="inline-block w-1 h-1 rounded-full"
+            style={{ background: "var(--primary)", opacity: 0.7 }}
+            aria-hidden
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

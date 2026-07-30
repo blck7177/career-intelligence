@@ -1824,6 +1824,37 @@ class ApplicationEventRepository:
         )
         return list(self._s.execute(stmt).scalars().all())
 
+    def list_by_type_for_workspace(
+        self, workspace_id: str, event_type: str, limit: int = 20_000
+    ) -> list[ApplicationEvent]:
+        """All events of one kind across the workspace.
+
+        Callers filter by time in Python because the timestamp that matters for
+        an interview lives in payload_json (`at` — when the round happens), not
+        in created_at (when it was logged), and JSON predicates are not portable
+        between Postgres and the SQLite used by tests.
+
+        The caller therefore needs the COMPLETE set, which is why the limit is
+        set far above any real workspace rather than at a page size: `at` and
+        `created_at` are uncorrelated — an interview booked months ahead is an
+        old row pointing at a future date — so truncating by insertion recency
+        would silently drop exactly the rows a date filter is looking for. One
+        person's interview history does not approach 20k; a workspace that does
+        has outgrown reading events this way, and should get a real index on the
+        scheduled time."""
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationEvent)
+            .where(
+                ApplicationEvent.workspace_id == workspace_id,
+                ApplicationEvent.event_type == event_type,
+            )
+            .order_by(ApplicationEvent.created_at.desc())
+            .limit(limit)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
 
 class ApplicationActionRepository:
     """The planner's to-do table. `list_due` powers the Today view; the P1
@@ -1909,6 +1940,45 @@ class ApplicationActionRepository:
             .order_by(ApplicationAction.due_at)
         )
         return list(self._s.execute(stmt).scalars().all())
+
+    def list_due_between(
+        self, workspace_id: str, start: datetime, end: datetime
+    ) -> list[ApplicationAction]:
+        """Pending to-dos whose due date falls in [start, end). Undated ones are
+        excluded — they belong to no particular day, so they cannot weigh on one
+        in the week strip."""
+        from sqlalchemy import select
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.status == "pending",
+            ApplicationAction.due_at.is_not(None),
+            ApplicationAction.due_at >= start,
+            ApplicationAction.due_at < end,
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def count_pending_carried_into_today(self, workspace_id: str, today_start: datetime) -> int:
+        """Pending to-dos that weigh on today without being due today: those
+        whose due date has already passed, plus undated ones.
+
+        The week strip needs this so today's cell agrees with the capacity bar
+        directly beneath it — that bar counts overdue and undated work as today's
+        load (they are what you actually owe today), and a strip showing zero
+        against a bar showing three is a self-contradiction on one screen.
+        `today_start` is exclusive, so work due today is not double-counted with
+        the week-range query."""
+        from sqlalchemy import func, or_, select
+
+        stmt = select(func.count()).select_from(ApplicationAction).where(
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.status == "pending",
+            or_(
+                ApplicationAction.due_at < today_start,
+                ApplicationAction.due_at.is_(None),
+            ),
+        )
+        return int(self._s.execute(stmt).scalar() or 0)
 
     def list_global_for_workspace(self, workspace_id: str) -> list[ApplicationAction]:
         """Workspace-global actions (application_id IS NULL) in any status — the

@@ -119,6 +119,28 @@ def test_snooze_does_not_count_when_it_pulls_earlier(db_session: Session):
     assert far.snooze_count == 0  # ...but earlier is not a deferral
 
 
+def test_count_pending_carried_into_today(db_session: Session):
+    """What weighs on today without being due today: overdue and undated work.
+    Today's own dues must NOT be included — the week-range query already has
+    them, and counting both would double them on the strip."""
+    repo = ApplicationActionRepository(db_session)
+    today_start = datetime(2026, 7, 15, 4, 0, tzinfo=timezone.utc)  # 00:00 EDT
+    repo.create(workspace_id=WS, type="apply", title="overdue",
+                due_at=today_start - timedelta(days=5))
+    repo.create(workspace_id=WS, type="custom", title="undated")
+    repo.create(workspace_id=WS, type="apply", title="due today", due_at=today_start)
+    repo.create(workspace_id=WS, type="apply", title="later",
+                due_at=today_start + timedelta(days=3))
+    done = repo.create(workspace_id=WS, type="apply", title="already done",
+                       due_at=today_start - timedelta(days=2))
+    repo.complete(done.id, WS)
+    # Another workspace's backlog must not leak in.
+    repo.create(workspace_id=OTHER_WS, type="apply", title="theirs",
+                due_at=today_start - timedelta(days=1))
+
+    assert repo.count_pending_carried_into_today(WS, today_start) == 2
+
+
 def test_snooze_counts_undated_work(db_session: Session):
     # Giving "anytime" work tomorrow's date postpones something available today.
     repo = ApplicationActionRepository(db_session)

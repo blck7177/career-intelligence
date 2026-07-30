@@ -371,6 +371,71 @@ def test_planner_stats_invalid_week_422(make_client):
     assert resp.status_code == 422
 
 
+def _interview_event(at: str, application_id: str = "app-1", round_type: str = "onsite"):
+    return SimpleNamespace(
+        id="ev-1", application_id=application_id, event_type="interview_scheduled",
+        message=None, payload_json={"at": at, "round_type": round_type}, created_at=_NOW,
+    )
+
+
+def test_planner_week_returns_seven_days_with_interviews_and_due_counts(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
+         patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.applications.JobRepository") as MockJob, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockEv.return_value.list_by_type_for_workspace.return_value = [
+            _interview_event("2026-07-16T18:00:00+00:00")
+        ]
+        MockApp.return_value.get.return_value = _app()
+        MockJob.return_value.get.return_value = SimpleNamespace(
+            id="job-1", title="Quant", company="Jane Street",
+            canonical_url="https://x/y", status="reportable", posted_at=None,
+        )
+        MockAct.return_value.list_due_between.return_value = [
+            SimpleNamespace(due_at=datetime(2026, 7, 16, 4, 0, tzinfo=timezone.utc)),
+        ]
+        resp = client.get("/api/app/planner-week?week=2026-07-15")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["week_start"] == "2026-07-13"
+    assert len(body["days"]) == 7
+    thu = {d["date"]: d for d in body["days"]}["2026-07-16"]
+    assert thu["interviews"][0]["company"] == "Jane Street"
+    assert thu["interviews"][0]["round_type"] == "onsite"
+    assert thu["due_count"] == 1
+
+
+def test_planner_week_skips_events_without_a_usable_time(make_client):
+    """An interview with no time (or a malformed one) can't sit on a day — it is
+    dropped rather than defaulted onto one, which would invent a commitment."""
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
+         patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+         patch("apps.api.routes.applications.JobRepository") as MockJob, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockEv.return_value.list_by_type_for_workspace.return_value = [
+            SimpleNamespace(id="e1", application_id="app-1", event_type="interview_scheduled",
+                            message=None, payload_json=None, created_at=_NOW),
+            SimpleNamespace(id="e2", application_id="app-1", event_type="interview_scheduled",
+                            message=None, payload_json={"at": "not-a-date"}, created_at=_NOW),
+            SimpleNamespace(id="e3", application_id="app-1", event_type="interview_scheduled",
+                            message=None, payload_json={"at": 12345}, created_at=_NOW),
+        ]
+        MockApp.return_value.get.return_value = _app()
+        MockJob.return_value.get.return_value = None
+        MockAct.return_value.list_due_between.return_value = []
+        resp = client.get("/api/app/planner-week?week=2026-07-15")
+    assert resp.status_code == 200, resp.text
+    assert sum(len(d["interviews"]) for d in resp.json()["days"]) == 0
+
+
+def test_planner_week_invalid_week_422(make_client):
+    client = make_client()
+    resp = client.get("/api/app/planner-week?week=notadate")
+    assert resp.status_code == 422
+
+
 def test_planner_settings_returns_defaults(make_client):
     client = make_client()
     resp = client.get("/api/app/planner-settings")

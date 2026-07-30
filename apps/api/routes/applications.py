@@ -55,6 +55,7 @@ from packages.contracts.api.applications import (
     PlannerSettings,
     PlannerSettingsUpdate,
     PlannerStats,
+    PlannerWeek,
     StatusTransition,
     WeeklyReviewRead,
     WeeklyReviewStats,
@@ -510,6 +511,102 @@ def update_planner_settings(
     WorkspaceRepository(db).set_planner_settings(workspace.id, validated.model_dump())
     db.commit()
     return validated
+
+
+@router.get("/planner-week", response_model=PlannerWeek)
+def get_planner_week(
+    week: Optional[str] = Query(None, description="ISO date in the target week; default = this week"),
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> PlannerWeek:
+    """The week's shape for the Today card's strip: scheduled interviews and how
+    much is due each day. Read-only.
+
+    An interview's time lives in the event's payload (`at`), not in a column, so
+    the rounds are filtered in Python; only those landing inside the week get
+    their company resolved, which keeps that to a handful of lookups."""
+    from packages.domain.planner.rules import local_today
+    from packages.domain.planner.week import (
+        InterviewSlot,
+        build_week,
+        contains,
+        due_query_start_utc,
+        week_bounds_utc,
+        week_start_for,
+    )
+
+    settings = load_planner_settings(workspace)
+    tz = settings.timezone
+    now = datetime.now(timezone.utc)
+    if week:
+        try:
+            ref = date.fromisoformat(week)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="week must be an ISO date (YYYY-MM-DD).")
+    else:
+        ref = local_today(now, tz)
+    start_date = week_start_for(ref)
+    start, end = week_bounds_utc(start_date, tz)
+
+    event_repo = ApplicationEventRepository(db)
+    app_repo = JobApplicationRepository(db)
+    job_repo = JobRepository(db)
+
+    slots: list[InterviewSlot] = []
+    job_cache: dict[str, Optional[Job]] = {}
+    for e in event_repo.list_by_type_for_workspace(workspace.id, "interview_scheduled"):
+        raw = (e.payload_json or {}).get("at")
+        if not isinstance(raw, str):
+            continue  # an interview with no time can't sit on a day
+        try:
+            at = datetime.fromisoformat(raw)
+        except ValueError:
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        if not (start <= at < end):
+            continue
+        app = app_repo.get(e.application_id, workspace.id)
+        if app is None:
+            continue
+        if app.job_id not in job_cache:
+            job_cache[app.job_id] = job_repo.get(app.job_id)
+        job = job_cache[app.job_id]
+        slots.append(
+            InterviewSlot(
+                application_id=e.application_id,
+                company=job.company if job else "",
+                at=at,
+                round_type=(e.payload_json or {}).get("round_type"),
+            )
+        )
+
+    action_repo = ApplicationActionRepository(db)
+    # Overdue and undated work is attributed to today (matching the capacity
+    # bar), so per-day counting starts at today for the current week — counting
+    # it on its original day too would show two dots for one to-do.
+    today = local_today(now, tz)
+    due_from = due_query_start_utc(start_date, today, tz)
+    due_ats = [
+        a.due_at
+        for a in action_repo.list_due_between(workspace.id, due_from, end)
+        if a.due_at is not None
+    ]
+    carried = (
+        action_repo.count_pending_carried_into_today(workspace.id, due_from)
+        if contains(start_date, today)
+        else 0
+    )
+    return PlannerWeek(
+        **build_week(
+            interviews=slots,
+            due_ats=due_ats,
+            settings=settings,
+            now_utc=now,
+            week_start=start_date,
+            carried_into_today=carried,
+        )
+    )
 
 
 @router.get("/planner-stats", response_model=PlannerStats)

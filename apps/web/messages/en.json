@@ -556,6 +556,8 @@
     "capacityHint": "stopping near 85% leaves slack for the unexpected",
     "capacityDefer": "Move {n} to tomorrow",
     "restUntilMon": "Rest until Mon",
+    "weekStripLabel": "This week at a glance",
+    "weekStripDue": "{n} due",
     "todayCleared": "Today's cleared ✓",
     "zoneToday": "Today",
     "zonePipeline": "Pipeline",

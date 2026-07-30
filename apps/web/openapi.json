@@ -2595,6 +2595,74 @@
         }
       }
     },
+    "/api/app/planner-week": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Week",
+        "description": "The week's shape for the Today card's strip: scheduled interviews and how\nmuch is due each day. Read-only.\n\nAn interview's time lives in the event's payload (`at`), not in a column, so\nthe rounds are filtered in Python; only those landing inside the week get\ntheir company resolved, which keeps that to a handful of lookups.",
+        "operationId": "get_planner_week_api_app_planner_week_get",
+        "parameters": [
+          {
+            "name": "week",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date in the target week; default = this week",
+              "title": "Week"
+            },
+            "description": "ISO date in the target week; default = this week"
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerWeek"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/app/planner-stats": {
       "get": {
         "tags": [
@@ -6086,6 +6154,99 @@
         ],
         "title": "PlannerStats",
         "description": "This-week triplet for the Plan view: done-vs-target on the three weekly\ncadence dimensions (Job Search Quality Scale 2022)."
+      },
+      "PlannerWeek": {
+        "properties": {
+          "week_start": {
+            "type": "string",
+            "title": "Week Start"
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerWeekDay"
+            },
+            "type": "array",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "week_start",
+          "days"
+        ],
+        "title": "PlannerWeek",
+        "description": "The week's shape for the Today card's strip: where the hard commitments\nalready are, so the day gets planned around them rather than over them."
+      },
+      "PlannerWeekDay": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "due_count": {
+            "type": "integer",
+            "title": "Due Count"
+          },
+          "interviews": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerWeekInterview"
+            },
+            "type": "array",
+            "title": "Interviews"
+          },
+          "is_rest": {
+            "type": "boolean",
+            "title": "Is Rest"
+          },
+          "is_today": {
+            "type": "boolean",
+            "title": "Is Today"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "due_count",
+          "is_rest",
+          "is_today"
+        ],
+        "title": "PlannerWeekDay"
+      },
+      "PlannerWeekInterview": {
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "title": "Application Id"
+          },
+          "company": {
+            "type": "string",
+            "title": "Company"
+          },
+          "round_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Round Type"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "application_id",
+          "company",
+          "at"
+        ],
+        "title": "PlannerWeekInterview",
+        "description": "A scheduled round on the week strip, resolved to its company."
       },
       "ProfileImportInput": {
         "properties": {

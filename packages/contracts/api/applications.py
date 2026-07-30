@@ -261,6 +261,31 @@ class FunnelResponse(BaseModel):
     alerts: list[FunnelAlert]
 
 
+class PlannerWeekInterview(BaseModel):
+    """A scheduled round on the week strip, resolved to its company."""
+
+    application_id: str
+    company: str
+    round_type: Optional[str] = None
+    at: datetime
+
+
+class PlannerWeekDay(BaseModel):
+    date: str  # ISO local date (settings.timezone)
+    due_count: int
+    interviews: list[PlannerWeekInterview] = Field(default_factory=list)
+    is_rest: bool
+    is_today: bool
+
+
+class PlannerWeek(BaseModel):
+    """The week's shape for the Today card's strip: where the hard commitments
+    already are, so the day gets planned around them rather than over them."""
+
+    week_start: str  # ISO date (Monday, settings.timezone)
+    days: list[PlannerWeekDay]
+
+
 class PlannerStats(BaseModel):
     """This-week triplet for the Plan view: done-vs-target on the three weekly
     cadence dimensions (Job Search Quality Scale 2022)."""
