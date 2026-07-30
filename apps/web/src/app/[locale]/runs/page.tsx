@@ -1,13 +1,15 @@
 import { getTranslations } from "next-intl/server";
 import { ListChecks } from "lucide-react";
-import { Link } from "@/i18n/navigation";
 import { listRuns } from "@/api/client";
 import type { RunRead } from "@/api/client";
 import { getServerToken } from "@/lib/server-auth";
 import { fmtTs } from "@/lib/utils";
-import { RunStatusStepper, type RunStatus } from "@/components/RunStatusStepper";
+import { RunRow } from "@/components/RunRow";
 import { EmptyState } from "@/components/EmptyState";
 import { PageContainer } from "@/components/ui/page-container";
+import { PageHeader } from "@/components/ui/page-header";
+import { ZoneHead } from "@/components/ui/zone-head";
+import { Banner } from "@/components/ui/banner";
 
 export const dynamic = "force-dynamic";
 
@@ -26,41 +28,6 @@ const STATUS_KEYS: Record<string, string> = {
   cancelled: "statusCancelled",
 };
 
-function statusBadgeStyle(status: string): { bg: string; fg: string } {
-  if (status === "succeeded") return { bg: "var(--match-strong-bg)", fg: "var(--match-strong-fg)" };
-  if (status === "running") return { bg: "var(--secondary)", fg: "var(--secondary-foreground)" };
-  if (status === "failed") return { bg: "oklch(95% 0.02 25)", fg: "oklch(45% 0.15 25)" };
-  if (status === "needs_review") return { bg: "oklch(95% 0.03 80)", fg: "oklch(45% 0.12 80)" };
-  return { bg: "var(--muted)", fg: "var(--muted-foreground)" };
-}
-
-function RunRow({ run, t }: { run: RunRead; t: (key: string) => string }) {
-  const badge = statusBadgeStyle(run.status);
-  return (
-    <Link
-      href={`/runs/${run.id}`}
-      className="flex items-center justify-between gap-4 bg-white rounded-[10px] p-[var(--space-row-card-y)_var(--space-row-card-x)] transition-shadow hover:shadow-md"
-      style={{ border: "1px solid var(--border)", boxShadow: "0 1px 3px oklch(0% 0 0 / 0.04)" }}
-    >
-      <div className="flex items-center gap-3 min-w-0">
-        <RunStatusStepper status={run.status as RunStatus} size="sm" />
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate" style={{ color: "var(--ink-primary)" }}>
-            {t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery")}
-          </p>
-          <p className="text-xs mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-faint)" }}>{fmtTs(run.created_at)}</p>
-        </div>
-      </div>
-      <span
-        className="text-xs font-medium px-2.5 py-1 rounded-full shrink-0"
-        style={{ background: badge.bg, color: badge.fg }}
-      >
-        {t(STATUS_KEYS[run.status] ?? "statusQueued")}
-      </span>
-    </Link>
-  );
-}
-
 export default async function RunsPage() {
   const t = await getTranslations("runs");
   let runs: RunRead[] = [];
@@ -77,26 +44,36 @@ export default async function RunsPage() {
   const discoveryRuns = runs.filter((r) => r.run_type === "job_discovery");
   const reportRuns = runs.filter((r) => r.run_type !== "job_discovery");
 
+  const renderRun = (run: RunRead) => (
+    <RunRow
+      key={run.id}
+      status={run.status}
+      href={`/runs/${run.id}`}
+      typeLabel={t(RUN_TYPE_KEYS[run.run_type] ?? "runDiscovery")}
+      statusLabel={t(STATUS_KEYS[run.status] ?? "statusQueued")}
+      timeLabel={fmtTs(run.created_at)}
+    />
+  );
+
   return (
     <>
       <div className="flex-1 overflow-y-auto">
         <PageContainer variant="narrow">
 
         {/* Page identity — no page-owned header bar; the shared top bar
-            already carries "New Run" for this section. */}
-        <div className="mb-[var(--space-stack-md)]">
-          <h1 className="text-2xl font-semibold" style={{ color: "var(--ink-primary)" }}>
-            {t("title")}
-          </h1>
-          <p className="text-sm mt-[var(--space-stack-xs)]" style={{ color: "var(--ink-muted)" }}>
-            {t("runCount", { count: runs.length })}
-          </p>
-        </div>
+            already carries "New Run" for this section. gutter="none" so the
+            title shares PageContainer's 28px gutter with the rows below. */}
+        <PageHeader
+          title={t("title")}
+          meta={t("runCount", { count: runs.length })}
+          gutter="none"
+          className="mb-[var(--space-stack-md)]"
+        />
 
         {fetchError && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-[var(--space-surface-compact)] text-sm text-rose-700 mb-5">
+          <Banner variant="danger" className="mb-[var(--space-stack-md)]">
             {fetchError}
-          </div>
+          </Banner>
         )}
 
         {runs.length === 0 && !fetchError && (
@@ -104,24 +81,20 @@ export default async function RunsPage() {
         )}
 
         {discoveryRuns.length > 0 && (
-          <div className="space-y-[var(--space-stack-xs)] mb-[var(--space-stack-lg)]">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-[var(--space-stack-sm)]" style={{ color: "var(--ink-muted)" }}>
-              {t("discoverySection")}
-            </h2>
-            {discoveryRuns.map((run) => (
-              <RunRow key={run.id} run={run} t={t} />
-            ))}
+          <div className="mb-[var(--space-stack-lg)]">
+            <ZoneHead title={t("discoverySection")} sub={t("runCount", { count: discoveryRuns.length })} />
+            <div className="space-y-[var(--space-stack-xs)]">
+              {discoveryRuns.map(renderRun)}
+            </div>
           </div>
         )}
 
         {reportRuns.length > 0 && (
-          <div className="space-y-[var(--space-stack-xs)]">
-            <h2 className="text-xs font-semibold uppercase tracking-wider mb-[var(--space-stack-sm)]" style={{ color: "var(--ink-muted)" }}>
-              {t("reportsSection")}
-            </h2>
-            {reportRuns.map((run) => (
-              <RunRow key={run.id} run={run} t={t} />
-            ))}
+          <div>
+            <ZoneHead title={t("reportsSection")} sub={t("runCount", { count: reportRuns.length })} />
+            <div className="space-y-[var(--space-stack-xs)]">
+              {reportRuns.map(renderRun)}
+            </div>
           </div>
         )}
         </PageContainer>
