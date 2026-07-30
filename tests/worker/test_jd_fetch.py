@@ -14,6 +14,7 @@ import pytest
 from packages.contracts.agents.manifests import DiscoveryManifest
 from packages.infrastructure.jd_fetch.service import (
     MIN_JD_TEXT_LEN,
+    _MAX_RAW_BYTES,
     compute_jd_hash,
     compute_url_hash,
     fetch_jd_from_url,
@@ -156,6 +157,151 @@ class TestFetchViaAtsApi:
         assert result.source == "worker_fetch"
         # Exactly one httpx call (the scrape) — no ATS API attempt for a non-ATS URL.
         assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+
+_EMBED_PAGE = """
+<html><head><title>Career Opportunities | Acme</title></head><body>
+<div id="grnhse_app"></div>
+<script src="https://boards.greenhouse.io/embed/job_board/js?for=acmeboard"></script>
+</body></html>
+"""
+
+# Greenhouse ships `content` HTML-escaped; the board parser unescapes it.
+_EMBED_JOB = {
+    "id": 6107228004,
+    "absolute_url": "https://www.acme.com/careers/post?gh_jid=6107228004",
+    "title": "Quantitative Investment Risk Professional ",  # trailing space is real
+    "company_name": "Careers at Acme",
+    "location": {"name": "New York, New York, United States"},
+    "first_published": "2026-07-02T16:00:48-04:00",
+    "content": "&lt;p&gt;" + ("Own the enterprise risk framework. " * 20) + "&lt;/p&gt;",
+}
+
+_EMBED_URL = "https://www.acme.com/careers/post?gh_jid=6107228004"
+
+# Same page, but the weight of a real CMS build: the embed <script> lands well
+# past _MAX_RAW_BYTES. Measured on the page that exposed this — 236,830 chars
+# with the token at 236,743.
+_HEAVY_EMBED_PAGE = (
+    "<html><head><title>Career Opportunities | Acme</title></head><body>"
+    "<div>Skip to main content Partners Careers Contact Log in</div>"
+    + "<p>Filler copy in the page shell. </p>" * 6000
+    + '<div id="grnhse_app"></div>'
+    '<script src="https://boards.greenhouse.io/embed/job_board/js?for=acmeboard"></script>'
+    "</body></html>"
+)
+
+
+class TestGreenhouseEmbed:
+    """A company careers page that mounts a Greenhouse board client-side: the
+    JD is absent from the HTML and the board token is only in the embed script,
+    so extract_board_info() sees nothing — see _fetch_via_greenhouse_embed."""
+
+    @staticmethod
+    def _api_response(payload=None, status=200):
+        return httpx.Response(
+            status,
+            json=payload if payload is not None else _EMBED_JOB,
+            request=httpx.Request("GET", "https://boards-api.greenhouse.io/v1/boards/acmeboard/jobs/1"),
+        )
+
+    def _page_response(self, html=_EMBED_PAGE):
+        return httpx.Response(200, text=html, request=httpx.Request("GET", _EMBED_URL))
+
+    def test_resolves_jd_and_identity_from_embedded_board(self):
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                self._page_response(),
+                self._api_response(),
+            ]
+            result = fetch_jd_from_url(_EMBED_URL)
+
+        assert result.ok is True
+        assert result.source == "ats_api"
+        assert "Own the enterprise risk framework" in (result.jd_text or "")
+        # Identity the page itself could never have supplied.
+        assert result.title == "Quantitative Investment Risk Professional"
+        assert result.company == "Careers at Acme"
+        assert result.location == "New York, New York, United States"
+        assert result.posted_at is not None and result.posted_at.year == 2026
+
+    def test_token_found_in_html_escaped_embed_snippet(self):
+        # CMS payloads carry the snippet escaped: src=\&#34;https://boards…&#34;
+        escaped = _EMBED_PAGE.replace('"', "&#34;")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                self._page_response(escaped),
+                self._api_response(),
+            ]
+            result = fetch_jd_from_url(_EMBED_URL)
+
+        assert result.ok is True
+        assert result.source == "ats_api"
+
+    def test_url_without_gh_jid_never_calls_board_api(self):
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page_response(
+                SAMPLE_HTML
+            )
+            result = fetch_jd_from_url("https://www.acme.com/careers/post")
+
+        assert result.source == "worker_fetch"
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+    def test_token_survives_a_page_bigger_than_the_raw_cap(self):
+        # CMS careers pages put the embed <script> last, past _MAX_RAW_BYTES on a
+        # heavy page. The filler ahead of it scrapes into long clean prose that
+        # passes validation, so a token scan bounded by _MAX_RAW_BYTES doesn't
+        # just miss — it hands back the page shell as though it were the JD.
+        assert len(_HEAVY_EMBED_PAGE) > _MAX_RAW_BYTES
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                self._page_response(_HEAVY_EMBED_PAGE),
+                self._api_response(),
+            ]
+            result = fetch_jd_from_url(_EMBED_URL)
+
+        assert result.ok is True
+        assert result.source == "ats_api"
+        assert "Own the enterprise risk framework" in (result.jd_text or "")
+        assert "Filler copy in the page shell" not in (result.jd_text or "")
+
+    def test_gh_jid_page_without_embed_script_is_refused_not_scraped(self):
+        # SAMPLE_HTML is a perfectly valid JD-looking page — that is the point.
+        # A gh_jid says the posting renders from a client-side board, so the HTML
+        # that came back is the careers-page chrome no matter how well it reads.
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page_response(
+                SAMPLE_HTML
+            )
+            result = fetch_jd_from_url(_EMBED_URL)
+
+        assert result.ok is False
+        assert result.fetch_status == "shell"
+        assert result.jd_text is None
+        assert result.title is None
+        # No token in the page → no board API call, and no Jina retry either.
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+    def test_job_pulled_from_board_is_refused_not_scraped(self):
+        request = httpx.Request("GET", "https://boards-api.greenhouse.io/v1/boards/acmeboard/jobs/1")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                self._page_response(),
+                httpx.HTTPStatusError("404", request=request, response=httpx.Response(404, request=request)),
+            ]
+            result = fetch_jd_from_url(_EMBED_URL)
+
+        # Board 404s a job id that isn't on it — the unrendered page is all we
+        # have, and it must not be passed off as a JD.
+        assert result.ok is False
+        assert result.source != "ats_api"
+        assert result.title is None
+        # Not "doa": a 404 also covers a mis-read token, and calling a live
+        # posting dead is the more expensive mistake.
+        assert result.fetch_status == "shell"
+        # Refused outright — the page + board API, no third call to Jina.
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 2
 
 
 class TestArtifactCache:

@@ -24,6 +24,12 @@ import httpx
 MIN_JD_TEXT_LEN = 200
 _MAX_RAW_BYTES = 200_000
 _MAX_JD_TEXT_CHARS = 50_000
+# CMS-rendered careers pages put the Greenhouse embed <script> at the very
+# bottom of the document, which on a heavy page lands past _MAX_RAW_BYTES (a
+# real one: 236,830 chars total, token at 236,743). _MAX_RAW_BYTES bounds the
+# HTML→text normalization, so it can't be raised for that; the token scan is a
+# regex over the response and affords a far wider window at negligible cost.
+_MAX_EMBED_SCAN_CHARS = 2_000_000
 
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; career-intelligence/0.1; +research-bot)",
@@ -45,6 +51,13 @@ class JdFetchResult:
     # Employer posting date — only the ATS-API tier can supply it; the scrape /
     # Jina tiers leave it None. UTC-aware.
     posted_at: datetime | None = None
+    # Posting identity as the ATS itself reports it. Only the ATS-API tiers fill
+    # these; a scrape leaves them None. Callers use them to avoid guessing a
+    # title/company out of the URL — see job_ingest_service.ingest_from_url,
+    # which refuses the import outright rather than write a URL-guessed row.
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
 
 
 def compute_url_hash(url: str) -> str:
@@ -342,6 +355,101 @@ def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | No
         source="ats_api",
         fetch_status="success",
         posted_at=match.posted_at,
+        title=(match.title or "").strip() or None,
+        company=match.company or None,
+        location=match.location,
+    )
+
+
+# A company careers page that mounts a Greenhouse board client-side ships this
+# script tag; `for=` is the board token, which appears nowhere in the job URL.
+_GREENHOUSE_EMBED_TOKEN_RE = re.compile(
+    r"greenhouse\.io/embed/job_board/js\?for=([A-Za-z0-9_-]+)", re.I
+)
+
+
+def _greenhouse_embed_job_id(url: str) -> str | None:
+    """The Greenhouse job id a careers URL carries in `?gh_jid=`, if any.
+
+    Its presence is the marker that the page renders its posting from a
+    client-side board — the JD is not in the HTML that comes back.
+    """
+    from urllib.parse import parse_qs, urlsplit
+
+    job_ids = parse_qs(urlsplit(url).query).get("gh_jid") or []
+    job_id = job_ids[0].strip() if job_ids else ""
+    return job_id if job_id.isdigit() else None
+
+
+def _fetch_via_greenhouse_embed(
+    url: str, page_html: str, *, timeout: float = 10.0
+) -> JdFetchResult | None:
+    """
+    Resolve a Greenhouse posting embedded in a company's own careers page.
+
+    These URLs carry the job id in `?gh_jid=` on the employer's domain
+    (www.kkr.com/careers/…?gh_jid=6107228004) and render the JD client-side, so
+    extract_board_info() can't see a board and scraping the page yields only
+    chrome. The board token lives in the page's embed <script>; with it, the
+    posting resolves through Greenhouse's own single-job endpoint.
+
+    Unlike _fetch_via_ats_api this doesn't re-check that the returned job's URL
+    matches: the (token, job id) pair is the identity proof — Greenhouse 404s a
+    job id that isn't on that board. Returns None whenever the shortcut isn't
+    available (no gh_jid, no token in the page, API error, posting pulled from
+    the board, unusable content) and the caller falls back to the scrape.
+    Never raises.
+    """
+    from packages.domain.agent_jobs.ats_providers import parse_board_response
+
+    job_id = _greenhouse_embed_job_id(url)
+    if job_id is None:
+        return None
+
+    token_match = _GREENHOUSE_EMBED_TOKEN_RE.search(page_html)
+    if not token_match:
+        # The embed snippet is often HTML-escaped inside a CMS payload
+        # (src=\&#34;https://boards.greenhouse.io/embed/…&#34;).
+        import html as _html
+
+        token_match = _GREENHOUSE_EMBED_TOKEN_RE.search(_html.unescape(page_html))
+    if not token_match:
+        return None
+    token = token_match.group(1).lower()
+
+    api_url = (
+        f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{job_id}?content=true"
+    )
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(api_url)
+            response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    # The single-job payload is one element of the board listing's "jobs" array,
+    # so the board parser (HTML → text, posted_at, location) applies unchanged.
+    board_jobs = parse_board_response("greenhouse", {"jobs": [payload]})
+    if not board_jobs or not board_jobs[0].jd_plain:
+        return None
+    match = board_jobs[0]
+
+    validated = _validate_jd_text(match.jd_plain)
+    if not validated.ok:
+        return None
+
+    return JdFetchResult(
+        ok=True,
+        jd_text=validated.jd_text,
+        jd_hash=validated.jd_hash,
+        error=None,
+        source="ats_api",
+        fetch_status="success",
+        posted_at=match.posted_at,
+        title=(match.title or "").strip() or None,
+        company=match.company or None,
+        location=match.location,
     )
 
 
@@ -369,7 +477,9 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         ) as client:
             response = client.get(url)
             response.raise_for_status()
-        raw = response.text[:_MAX_RAW_BYTES]
+        page_text = response.text
+        raw = page_text[:_MAX_RAW_BYTES]
+        embed_scan = page_text[:_MAX_EMBED_SCAN_CHARS]
         content_type = response.headers.get("content-type", "")
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
@@ -414,6 +524,41 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
             error="Posting appears closed (page loaded but says no longer available)",
             source="worker_fetch",
             fetch_status="doa",
+            http_status=200,
+        )
+
+    # Preferred over the scrape even when the scrape passed validation: on a
+    # page that mounts the board client-side, what we just scraped is the
+    # careers-page chrome, and the board API is the only source of the real JD
+    # and title. Costs one JSON GET, and only on pages carrying a gh_jid.
+    # Scanned over the wide window, not `raw` — see _MAX_EMBED_SCAN_CHARS.
+    embedded = _fetch_via_greenhouse_embed(url, embed_scan, timeout=min(timeout, 10.0))
+    if embedded is not None:
+        return embedded
+
+    # The board tier was the only way to read this posting and it didn't land
+    # (no token in the page, API error, job pulled from the board). Whatever the
+    # scrape holds, it is not this job's JD — it's the careers-page chrome. Some
+    # of those pages carry a sidebar listing of other openings, which reads
+    # enough like prose to pass is_shell_text(): a heavy one produced 7.5K chars
+    # of navigation that validated clean, and the caller wrote it to a
+    # `reportable` row with a page-title guess for a title. Refuse instead. A
+    # false refusal costs the user a paste; a false accept is a silently wrong
+    # row with nothing to flag it.
+    if _greenhouse_embed_job_id(url) is not None:
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error=(
+                "Posting is rendered from an embedded job board that could not "
+                "be resolved; the fetched page is not the job description"
+            ),
+            source="worker_fetch",
+            # Deliberately not "doa" — a board 404 usually means the posting was
+            # pulled, but it also covers a mis-read token, and calling a live job
+            # dead is the more expensive mistake.
+            fetch_status="shell",
             http_status=200,
         )
 
