@@ -439,6 +439,19 @@ export async function getWeeklyReview(token?: string | null): Promise<WeeklyRevi
   return req<WeeklyReviewRead | null>("/api/app/planner-review", undefined, token);
 }
 
+// Mark one week's review as seen. The week is named explicitly so a tab left open
+// across the Sunday beat can't mark a newer review the user never saw.
+export async function markWeeklyReviewRead(
+  weekStart: string,
+  token?: string | null,
+): Promise<WeeklyReviewRead> {
+  return req<WeeklyReviewRead>(
+    "/api/app/planner-review/read",
+    { method: "POST", body: JSON.stringify({ week_start: weekStart }) },
+    token,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Profile  (/api/app/profile)
 // ---------------------------------------------------------------------------

@@ -293,10 +293,15 @@ export function PlanToday() {
   const estToday = todayItems.reduce((sum, a) => sum + estOf(a), 0);
   const cap = settings?.daily_cap_minutes ?? 0;
   const isEmpty = actions !== null && actions.length === 0;
-  const restsWeekend = !!settings?.rest_days?.some((d) => d === "sat" || d === "sun");
+  // Whether TODAY is a rest day, taken from the strip the server already built
+  // rather than re-derived from settings here: the strip knows which cell is
+  // today in the workspace's timezone, and recomputing a weekday in the browser
+  // is how the day-boundary bugs get back in. The old note only asked whether
+  // sat/sun were in rest_days at all, so it read the same on a Tuesday.
+  const isRestToday = !!week?.days.find((d) => d.is_today)?.is_rest;
   const zoneSub = [
     items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
-    restsWeekend ? t("restWeekendNote") : null,
+    isRestToday ? t("restDayNote") : null,
   ].filter(Boolean).join(" · ");
 
   return (
