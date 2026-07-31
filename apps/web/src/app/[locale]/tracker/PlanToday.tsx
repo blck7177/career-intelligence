@@ -10,7 +10,9 @@ import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
+import { toast } from "@/components/ui/toaster";
 import { usePlannerData } from "./usePlannerData";
+import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
@@ -51,7 +53,7 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function reasonOf(a: ActionRead, t: (k: string, v?: Record<string, string | number>) => string): string | null {
+export function reasonOf(a: ActionRead, t: (k: string, v?: Record<string, string | number>) => string): string | null {
   const p = a.payload;
   if (!p) return null;
   switch (p.rule) {
@@ -134,6 +136,10 @@ export function PlanToday() {
   // parsing dates — the same silent failure this feature exists to avoid, just
   // pointing the other way.
   const [rejected, setRejected] = useState<{ date?: string; duration?: string; type?: string }>({});
+  // The to-do whose application is showing in the side panel. Holding the whole
+  // action (not just an id) keeps the panel's header and reason line rendering
+  // from the same row the user clicked, even after the list refetches.
+  const [peek, setPeek] = useState<ActionRead | null>(null);
 
   // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
   // the encoding the rules engine writes. Until settings arrive we know no zone,
@@ -161,8 +167,18 @@ export function PlanToday() {
   // The done bar and the shutdown summary are server-measured, so any mutation
   // that could change what is complete has to re-read them. Without this the
   // bar sits at its page-load value all day — the one thing it exists to avoid.
-  async function mutate(id: string, op: "complete" | "snooze") {
-    await mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), ["week", "day"]);
+  async function mutate(id: string, op: "complete" | "snooze" | "dismiss"): Promise<boolean> {
+    return mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), ["week", "day"]);
+  }
+
+  /** "Not needed" is the one row action with a consequence worth stating: the
+   *  suppression set remembers it, so the rule will not raise it again. Said
+   *  only after the call lands — announcing it optimistically would promise
+   *  something that a failed request did not do. */
+  async function dismissFromPeek(a: ActionRead): Promise<boolean> {
+    const ok = await mutate(a.id, "dismiss");
+    if (ok) toast(t("peekDismissToast"));
+    return ok;
   }
 
   async function add() {
@@ -475,6 +491,17 @@ export function PlanToday() {
         applying={ritualBusy}
       />
 
+      {/* The application behind whichever to-do you clicked. Ticking a row is a
+          decision; this is the context for it, without leaving the day. */}
+      <ApplicationPeek
+        action={peek}
+        onClose={() => setPeek(null)}
+        onComplete={(a) => mutate(a.id, "complete")}
+        onSnooze={(a) => mutate(a.id, "snooze")}
+        onDismiss={dismissFromPeek}
+        reason={(a) => reasonOf(a, t)}
+      />
+
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
@@ -601,7 +628,13 @@ export function PlanToday() {
                   </h3>
                   <ul>
                     {grouped[g].map((a) => (
-                      <ActionItem key={a.id} a={a} onComplete={() => mutate(a.id, "complete")} onSnooze={() => mutate(a.id, "snooze")} />
+                      <ActionItem
+                        key={a.id}
+                        a={a}
+                        onComplete={() => mutate(a.id, "complete")}
+                        onSnooze={() => mutate(a.id, "snooze")}
+                        onOpen={() => setPeek(a)}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -815,7 +848,12 @@ function dueInfo(a: ActionRead): DueInfo | null {
   return { today: false, days, warn: days <= 1 };
 }
 
-function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: () => void; onSnooze: () => void }) {
+function ActionItem({ a, onComplete, onSnooze, onOpen }: {
+  a: ActionRead;
+  onComplete: () => void;
+  onSnooze: () => void;
+  onOpen: () => void;
+}) {
   const t = useTranslations("tracker");
   const info = dueInfo(a);
   const est = estOf(a);
@@ -824,9 +862,18 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
   // pushed, which is a decision to surface rather than a number to hide.
   const deferred = a.snooze_count >= 2;
   return (
-    <li className="group flex items-center gap-2.5 py-2 border-b" style={{ borderColor: "var(--border)" }}>
+    // Clicking the row opens the peek; the two buttons that DO something stop
+    // the event so a tick never also opens a panel. The title is itself a
+    // button with no handler of its own — its click bubbles to this one, which
+    // is what makes the row reachable by keyboard (Tab, Enter) without a second
+    // code path or a nested-interactive double fire.
+    <li
+      onClick={onOpen}
+      className="group flex items-center gap-2.5 py-2 border-b cursor-pointer"
+      style={{ borderColor: "var(--border)" }}
+    >
       <button
-        onClick={onComplete}
+        onClick={(e) => { e.stopPropagation(); onComplete(); }}
         aria-label={t("complete")}
         title={t("complete")}
         className="shrink-0 w-[18px] h-[18px] rounded-[5px] border grid place-items-center text-[11px] leading-none hover:bg-[var(--match-good-bg)]"
@@ -834,7 +881,7 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
       >
         <span className="opacity-0 group-hover:opacity-80 transition-opacity">✓</span>
       </button>
-      <span className="flex-1 min-w-0">
+      <button type="button" className="flex-1 min-w-0 text-left" title={t("peekOpenHint")}>
         <span className="block truncate text-sm" style={{ color: "var(--ink-secondary)" }}>
           {a.auto_generated && (
             <span
@@ -855,7 +902,7 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
           )}
           {t("estMinutes", { minutes: est })}
         </span>
-      </span>
+      </button>
       <span className="shrink-0 w-[62px] flex justify-end">
         {info && (
           <span
@@ -869,7 +916,7 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
         )}
       </span>
       <button
-        onClick={onSnooze}
+        onClick={(e) => { e.stopPropagation(); onSnooze(); }}
         className="shrink-0 text-2xs px-2 py-1 rounded-md opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         style={{ color: "var(--ink-muted)" }}
       >

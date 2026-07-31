@@ -731,6 +731,17 @@
       "rejected": "已拒绝",
       "withdrawn": "已撤回",
       "ghosted": "已失联"
-    }
+    },
+    "peekOpenHint": "查看详情",
+    "peekCurrentAction": "当前待办",
+    "peekOverview": "概览",
+    "peekChannel": "渠道",
+    "peekDismiss": "不需要",
+    "peekDismissToast": "已忽略 —— 规则引擎不会再生成这一条。",
+    "peekAllEvents": "全部 {n} 条 →",
+    "peekOpenFull": "打开全页 ↗",
+    "peekManualAction": "手动待办 · 无关联申请",
+    "statusLabel": "状态",
+    "untitledRole": "（未命名职位）"
   }
 }

@@ -41,11 +41,14 @@ export interface PlannerData {
   error: boolean;
   reload: () => Promise<void>;
   refresh: (...sources: PlannerSource[]) => Promise<void>;
+  /** Resolves true when the mutation landed. Callers that tell the user what
+   *  happened ("dismissed — it won't come back") need to know, and an
+   *  optimistic list alone cannot tell them. */
   mutateActions: (
     ids: string[],
     run: (token: string | null) => Promise<unknown>,
     invalidates: PlannerSource[],
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   patchDayLog: (log: PlannerDayLogRead) => void;
 }
 
@@ -148,6 +151,7 @@ export function usePlannerData(): PlannerData {
         const token = await getToken();
         await run(token);
         await refresh(...invalidates);
+        return true;
       } catch {
         // The rows have to come back — the mutation did not happen. Drop the
         // guard BEFORE reloading: reload() filters out every id still marked as
@@ -161,6 +165,7 @@ export function usePlannerData(): PlannerData {
         // moving the clear is what turns that accident into a silent bug.
         ids.forEach((id) => removingRef.current.delete(id));
         await reload();
+        return false;
       } finally {
         ids.forEach((id) => removingRef.current.delete(id));
       }

@@ -206,7 +206,10 @@ function currentStep(app: ApplicationDetail): number {
 
 /** Visual status progression (mockup dhead stepper): Planned → … → Offer.
  *  Closed applications grey the chain and show a closed badge. */
-function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
+/** Shared with ApplicationPeek — the same chain has to read identically in the
+ *  side panel and the full pane, or the two disagree about where an
+ *  application stands. */
+export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   const cur = currentStep(app);
   const closed = cur === -1;
   return (
@@ -523,8 +526,9 @@ function TimelineSection({ app, onMutated, getToken, t }: { app: ApplicationDeta
 }
 
 /** Friendly timeline label. Interview events carry {round_type, at} in payload;
- *  everything else shows its note (or a humanized event_type fallback). */
-function eventLabel(e: ApplicationEventRead, t: T): string {
+ *  everything else shows its note (or a humanized event_type fallback).
+ *  Shared with ApplicationPeek, which shows the most recent few. */
+export function eventLabel(e: ApplicationEventRead, t: T): string {
   if (e.event_type === "interview_scheduled") {
     const p = (e.payload_json ?? {}) as { round_type?: string; at?: string };
     const round = p.round_type ? t(`round.${p.round_type}`) : t("interviewGeneric");
