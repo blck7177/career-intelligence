@@ -187,7 +187,18 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
   async function mutate(id: string, op: "complete" | "snooze" | "dismiss"): Promise<boolean> {
     const dirties: PlannerSource[] =
       op === "complete" ? ["week", "day", "stats", "funnel"] : ["week", "day"];
-    return mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), dirties);
+    // Snooze sends an ABSOLUTE target. The repository measures a relative
+    // snooze from due_at, so an overdue to-do "moved to tomorrow" lands the day
+    // after its ORIGINAL due date — still in the past, and the button reads as
+    // doing nothing. V6-C5 fixed this for the three wizard defers and V7-C2 for
+    // the Applications row; the Today row's own snooze and the peek's
+    // "Tomorrow" button were the two that still went out relative.
+    const tomorrow = op === "snooze" ? dayShift(1) : undefined;
+    return mutateActions(
+      [id],
+      (token) => updateAction(id, { op, snooze_days: 1, ...(tomorrow ? { snooze_until: tomorrow } : {}) }, token),
+      dirties,
+    );
   }
 
   /** "Not needed" is the one row action with a consequence worth stating: the
@@ -681,7 +692,11 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
                   </div>
                 </div>
               )}
-              <Digest due={todayItems.length} overdue={overdue.length} week={week} tz={tz} t={t} />
+              {/* `due` excludes the overdue ones: countsTowardToday is
+                  (undated ∪ due today ∪ overdue), so passing its size beside an
+                  overdue count printed the late work twice, in a line that
+                  reads as two disjoint sets. */}
+              <Digest due={todayItems.length - overdue.length} overdue={overdue.length} week={week} tz={tz} t={t} />
               <PipelineSnapshot funnel={funnel} onShowPipeline={onShowPipeline} t={t} />
             </div>
           </aside>
@@ -980,13 +995,23 @@ function Digest({ due, overdue, week, tz, t }: {
   t: (k: string, v?: Record<string, string | number>) => string;
 }) {
   const upcoming: string[] = [];
-  for (let i = 0; i < (week?.days.length ?? 0); i++) {
+  // Start at the day the SERVER labelled today, not at Monday. Scanning the
+  // whole week printed Monday's finished screen as a "next commitment" and let
+  // it consume one of the two slots, so on Friday the onsite six hours away did
+  // not appear at all — in the card whose whole job is to lead with what cannot
+  // move. Past days are dropped by index (no clock involved); today's own
+  // earlier rounds are dropped by comparing instants, which is zone-independent.
+  const todayIdx = week?.days.findIndex((d) => d.is_today) ?? -1;
+  const from = todayIdx >= 0 ? todayIdx : 0;
+  const now = Date.now();
+  for (let i = from; i < (week?.days.length ?? 0) && upcoming.length < DIGEST_INTERVIEWS; i++) {
     const d = week!.days[i];
     // Days arrive Monday-first, so the index IS the weekday — no date parsing.
     const label = t(`weekdayShort.${WEEKDAY_KEYS[i]}`);
     for (const iv of d.interviews ?? []) {
       if (upcoming.length >= DIGEST_INTERVIEWS) break;
       const at = new Date(iv.at);
+      if (!isNaN(at.getTime()) && at.getTime() < now) continue;
       const clock = tz && !isNaN(at.getTime())
         ? at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: tz })
         : null;

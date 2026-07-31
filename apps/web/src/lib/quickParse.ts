@@ -54,6 +54,24 @@ export function localToday(tz: string, now: Date = new Date()): string {
   }).format(now);
 }
 
+/**
+ * The workspace-timezone calendar date (YYYY-MM-DD) an instant falls on.
+ *
+ * The inverse of localMidnightUtc, and needed for the same reason: a due date is
+ * stored as a local midnight in UTC, so "the day after this to-do's due date"
+ * has to go back through the zone rather than adding 24h to the instant (which
+ * lands an hour early or late across a DST boundary).
+ */
+export function localDateOf(iso: string, tz: string): string {
+  // en-CA formats as YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(iso));
+}
+
 export function addDays(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   // UTC arithmetic on a bare calendar date: no zone involved, so no DST skew.

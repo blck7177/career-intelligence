@@ -10,7 +10,7 @@ import {
   addApplicationEvent, getApplication, getPlannerSettings, getPlannerWeek, updateAction,
 } from "@/api/client";
 import { fmtTs } from "@/lib/utils";
-import { localMidnightUtc, addDays } from "@/lib/quickParse";
+import { localMidnightUtc, addDays, localDateOf } from "@/lib/quickParse";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toaster";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
@@ -90,36 +90,6 @@ export function ApplicationsMasterDetail({
   const searchParams = useSearchParams();
   const isDesktop = useMediaQuery(LG);
   const getToken = useApiToken();
-
-  // The instant "tomorrow" means, encoded the way every due date in this system
-  // is: local midnight in the WORKSPACE's timezone, anchored on the day the
-  // SERVER calls today. The row's reschedule action needs an absolute target —
-  // a relative snooze is measured from due_at, so an overdue to-do "moved to
-  // tomorrow" lands the day after its ORIGINAL due date and is still overdue,
-  // which reads as the button doing nothing. Null until both facts are known,
-  // and the action stays hidden until then rather than guessing from the
-  // browser clock (the bug V6-C5 went back and fixed in three places).
-  const [tomorrow, setTomorrow] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const token = await getToken();
-        const [wk, cfg] = await Promise.all([
-          getPlannerWeek(undefined, token),
-          getPlannerSettings(token),
-        ]);
-        const today = wk.days.find((d) => d.is_today)?.date;
-        if (active && today && cfg.timezone) {
-          setTomorrow(localMidnightUtc(addDays(today, 1), cfg.timezone));
-        }
-      } catch {
-        // Leave it null — no reschedule button beats one that moves a to-do to
-        // a day the user did not mean.
-      }
-    })();
-    return () => { active = false; };
-  }, [getToken]);
 
   // Bumped when a row action mutates the application the pane is showing.
   const [paneKey, setPaneKey] = useState(0);
@@ -257,7 +227,6 @@ export function ApplicationsMasterDetail({
                 statusLabel={t(`status.${app.status}`)}
                 subline={sublineFor(app, t)}
                 onOpen={() => openRow(app.id)}
-                deferTo={tomorrow}
                 onMutated={() => {
                   router.refresh();
                   // The pane fetches its own copy of this application; the
@@ -339,7 +308,6 @@ interface RowProps {
   onOpen: () => void;
   /** Absolute target for "reschedule", or null while it is unknown — see the
    *  comment where it is computed. */
-  deferTo: string | null;
   onMutated: () => void;
 }
 
@@ -349,7 +317,7 @@ interface RowProps {
  * to-do out a day. Both appear on hover (and on keyboard focus) and both stop
  * the click from also selecting the row.
  */
-function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMutated }: RowProps) {
+function AppListRow({ app, isViewed, statusLabel, subline, onOpen, onMutated }: RowProps) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const style = STATUS_STYLE[app.status] ?? STATUS_STYLE.planned;
@@ -377,24 +345,60 @@ function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMu
     }
   }
 
-  /** Push this application's next to-do out to tomorrow. "Next" uses the same
-   *  predicate the row's own subline does — pending, dated, soonest first
-   *  (earliest_pending_action_map) — so the thing that moves is the thing the
-   *  row is showing. */
+  /**
+   * Push this application's next to-do out by a day.
+   *
+   * "Next" uses the same predicate the row's own subline does — pending, dated,
+   * soonest first (`earliest_pending_action_map`), with the id as the tie-break
+   * the query now also declares — so the thing that moves is the thing the row
+   * is showing, even when two to-dos fall due on the same day.
+   *
+   * The target is absolute, because the repository measures a relative snooze
+   * from due_at and an overdue item would stay overdue. It is anchored on the
+   * LATER of today and the to-do's own due date, so this only ever pushes out:
+   * the first version always sent tomorrow, which quietly pulled a to-do due
+   * next week FORWARD — and the snooze counter, which only counts real
+   * postponement, stayed silent about it.
+   *
+   * Today and the timezone are read at click time, not at mount. Caching them
+   * froze "tomorrow" at page load, and this is a day planner whose own shutdown
+   * ritual has a branch for sessions that cross midnight.
+   */
   async function reschedule() {
-    if (busy || !deferTo) return;
+    if (busy) return;
     setBusy("defer");
     try {
       const token = await getToken();
-      const detail = await getApplication(app.id, token);
+      const [wk, cfg, detail] = await Promise.all([
+        getPlannerWeek(undefined, token),
+        getPlannerSettings(token),
+        getApplication(app.id, token),
+      ]);
+      const today = wk.days.find((d) => d.is_today)?.date;
+      if (!today || !cfg.timezone) {
+        // Never guess the day from the browser clock — that is the bug V6-C5
+        // went back and fixed in three places.
+        toast.error(t("rowActionFailed"));
+        return;
+      }
       const next = (detail.actions ?? [])
         .filter((a) => a.status === "pending" && a.due_at)
-        .sort((x, y) => new Date(x.due_at!).getTime() - new Date(y.due_at!).getTime())[0];
+        .sort(
+          (x, y) =>
+            new Date(x.due_at!).getTime() - new Date(y.due_at!).getTime() ||
+            x.id.localeCompare(y.id),
+        )[0];
       if (!next) {
         toast(t("rowNoAction"));
         return;
       }
-      await updateAction(next.id, { op: "snooze", snooze_days: 1, snooze_until: deferTo }, token);
+      const dueDate = localDateOf(next.due_at!, cfg.timezone);
+      const anchor = dueDate > today ? dueDate : today;
+      await updateAction(
+        next.id,
+        { op: "snooze", snooze_days: 1, snooze_until: localMidnightUtc(addDays(anchor, 1), cfg.timezone) },
+        token,
+      );
       toast(t("rowRescheduled"));
       onMutated();
     } catch {
@@ -447,7 +451,7 @@ function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMu
           <Button size="sm" variant="ghost" onClick={() => setNoting((v) => !v)} disabled={!!busy}>
             {t("rowNote")}
           </Button>
-          {deferTo && app.next_action_due_at && (
+          {app.next_action_due_at && (
             <Button size="sm" variant="ghost" onClick={reschedule} loading={busy === "defer"}>
               {t("rowReschedule")}
             </Button>
