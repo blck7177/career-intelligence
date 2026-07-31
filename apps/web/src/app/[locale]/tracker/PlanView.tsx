@@ -76,7 +76,7 @@ export function PlanView() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-[var(--space-row-edge)] py-6 space-y-10">
+      <div className="max-w-[1160px] mx-auto px-[var(--space-row-edge)] py-6 space-y-10">
         {unread && review && (
           <ReviewBanner review={review} onOpen={openReview} onLater={later} />
         )}

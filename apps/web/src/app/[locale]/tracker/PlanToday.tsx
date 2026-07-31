@@ -537,9 +537,9 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
         onApplicationChanged={() => refresh("funnel")}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
+      <div className="grid gap-5 min-[900px]:grid-cols-[minmax(0,1fr)_300px] min-[900px]:gap-5">
         {/* MAIN — action list */}
-        <div ref={listRef} tabIndex={-1} className="min-w-0 space-y-5 order-2 lg:order-1 outline-none">
+        <div ref={listRef} tabIndex={-1} className="min-w-0 space-y-5 order-2 min-[900px]:order-1 outline-none">
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}
@@ -680,12 +680,12 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
 
         {/* RAIL — This week + today's digest + pipeline snapshot */}
         {(stats || funnel) && (
-          <aside className="order-1 lg:order-2 space-y-4">
-            <div className="lg:sticky lg:top-2 space-y-4">
+          <aside className="order-1 min-[900px]:order-2 space-y-4">
+            <div className="min-[900px]:sticky min-[900px]:top-2 space-y-4">
               {stats && (
                 <div>
                   <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
-                  <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5">
+                  <div className="grid grid-cols-3 min-[900px]:grid-cols-1 gap-2.5">
                     <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
                     <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
                     <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
