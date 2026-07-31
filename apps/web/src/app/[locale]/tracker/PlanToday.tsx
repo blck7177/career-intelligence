@@ -279,10 +279,23 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
     if (deferring || !candidates.length) return;
     setDeferring(true);
     const ids = pickToDefer(candidates, excess).map((a) => a.id);
+    // Absolute target, like every other defer. "Anytime" is a grouping by TYPE,
+    // not by date (groupOf), so this pool routinely holds dated — including
+    // OVERDUE — work: a custom or networking to-do keeps its due date and still
+    // lands here. A relative snooze on one of those moves it to the day after
+    // its ORIGINAL due date, leaving it overdue, still counted against today,
+    // and the capacity bar unmoved — which is the one thing this button exists
+    // to do. Missed when V7-C5 fixed the other three call sites.
+    const tomorrow = dayShift(1);
     try {
       await mutateActions(
         ids,
-        (token) => Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token))),
+        (token) =>
+          Promise.all(
+            ids.map((id) =>
+              updateAction(id, { op: "snooze", snooze_days: 1, ...(tomorrow ? { snooze_until: tomorrow } : {}) }, token),
+            ),
+          ),
         ["week", "day"],
       );
     } finally {
