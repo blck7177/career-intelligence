@@ -2018,7 +2018,9 @@ class ApplicationActionRepository:
         Ids that don't exist, or belong to someone else, contribute nothing and
         raise nothing: the caller is snapshotting what the user kept, and a
         stale id from a list that moved under them should not fail the ritual.
-        The route reports how many were counted so a silent mismatch is visible.
+        Nothing reports how many were counted — the wizard closes on submit, so
+        there is nowhere to show it. That makes this the wrong call to learn
+        from whether an id exists.
         """
         if not action_ids:
             return 0

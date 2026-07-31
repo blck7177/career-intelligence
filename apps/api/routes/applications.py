@@ -738,23 +738,40 @@ def close_planner_day(
     """Close the day: measure what was actually completed during it and stamp
     the moment.
 
-    done_est is measured server-side over this local day's completed_at window,
+    done_est is measured server-side over the closed day's completed_at window,
     never taken from the client. Closing a day whose morning ritual never ran is
     allowed and leaves committed_est NULL — that is a true record of what
-    happened, and inventing a commitment to compare against would be worse."""
+    happened, and inventing a commitment to compare against would be worse.
+
+    The day is today unless the body echoes back yesterday, which is what a
+    session running past midnight sends: at 00:30 the server's "today" is a day
+    that has not started, and closing it would stamp the new day finished before
+    it began. 422 for anything further out — the client is confirming a date it
+    was shown, not choosing one."""
     from packages.domain.planner.rules import local_day_start_utc
 
     today, settings = _local_today_for(workspace)
     tz = settings.timezone
-    start = local_day_start_utc(today, tz)
-    end = local_day_start_utc(today + timedelta(days=1), tz)
+
+    closing = today
+    if body.local_date is not None:
+        asked = date.fromisoformat(body.local_date)
+        if asked not in (today, today - timedelta(days=1)):
+            raise HTTPException(
+                status_code=422,
+                detail="local_date must be today or yesterday in the workspace timezone.",
+            )
+        closing = asked
+
+    start = local_day_start_utc(closing, tz)
+    end = local_day_start_utc(closing + timedelta(days=1), tz)
 
     done = ApplicationActionRepository(db).sum_est_completed_in_range(
         workspace.id, start, end
     )
     row = PlannerDayLogRepository(db).close_day(
         workspace.id,
-        today,
+        closing,
         done_est=done,
         reflection=(body.reflection or "").strip() or None,
         now_utc=datetime.now(timezone.utc),

@@ -35,6 +35,10 @@ export function ShutdownWizard({
   leftovers,
   doneCount,
   doneEst,
+  today,
+  yesterday,
+  closingDate,
+  onClosingDateChange,
   onApply,
   applying,
 }: {
@@ -44,6 +48,12 @@ export function ShutdownWizard({
   leftovers: ActionRead[];
   doneCount: number;
   doneEst: number;
+  /** The day the server labelled today, and the one before it. */
+  today: string | null;
+  yesterday: string | null;
+  /** Which day this close will file against; null means today. */
+  closingDate: string | null;
+  onClosingDateChange: (date: string | null) => void;
   onApply: (result: ShutdownResult) => void;
   applying: boolean;
 }) {
@@ -79,6 +89,28 @@ export function ShutdownWizard({
         <DialogDescription className="text-xs" style={{ color: "var(--ink-muted)" }}>
           {t("shutdownSub")}
         </DialogDescription>
+
+        {/* Which day is being ended. Named rather than assumed, because a job
+            search runs past midnight and at 00:30 the server's "today" is a day
+            that has not started — closing it would stamp the new day finished
+            before it began. The choice is offered, never inferred: guessing
+            from the clock would move someone's records without asking. */}
+        {today && (
+          <div className="flex flex-wrap items-center gap-2 mt-2 text-2xs">
+            <span style={{ color: "var(--ink-faint)" }}>
+              {t("shutdownClosingDay", { date: closingDate ?? today })}
+            </span>
+            {yesterday && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onClosingDateChange(closingDate === yesterday ? null : yesterday)}
+              >
+                {t(closingDate === yesterday ? "shutdownCloseToday" : "shutdownCloseYesterday")}
+              </Button>
+            )}
+          </div>
+        )}
 
         <div className="max-h-[46vh] overflow-y-auto -mx-1 px-1 mt-3 space-y-2">
           <div className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>

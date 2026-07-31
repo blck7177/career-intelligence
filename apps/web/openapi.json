@@ -2847,7 +2847,7 @@
           "applications"
         ],
         "summary": "Close Planner Day",
-        "description": "Close the day: measure what was actually completed during it and stamp\nthe moment.\n\ndone_est is measured server-side over this local day's completed_at window,\nnever taken from the client. Closing a day whose morning ritual never ran is\nallowed and leaves committed_est NULL \u2014 that is a true record of what\nhappened, and inventing a commitment to compare against would be worse.",
+        "description": "Close the day: measure what was actually completed during it and stamp\nthe moment.\n\ndone_est is measured server-side over the closed day's completed_at window,\nnever taken from the client. Closing a day whose morning ritual never ran is\nallowed and leaves committed_est NULL \u2014 that is a true record of what\nhappened, and inventing a commitment to compare against would be worse.\n\nThe day is today unless the body echoes back yesterday, which is what a\nsession running past midnight sends: at 00:30 the server's \"today\" is a day\nthat has not started, and closing it would stamp the new day finished before\nit began. 422 for anything further out \u2014 the client is confirming a date it\nwas shown, not choosing one.",
         "operationId": "close_planner_day_api_app_planner_day_close_post",
         "parameters": [
           {
@@ -6119,11 +6119,22 @@
               }
             ],
             "title": "Reflection"
+          },
+          "local_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Date"
           }
         },
         "type": "object",
         "title": "PlannerDayClose",
-        "description": "Body of POST /planner-day/close \u2014 the evening ritual.\n\ndone_est is deliberately absent for the same reason: it is measured from\ncompleted_at server-side. All the client contributes is the reflection."
+        "description": "Body of POST /planner-day/close \u2014 the evening ritual.\n\ndone_est is deliberately absent for the same reason as commit's total: it is\nmeasured from completed_at server-side.\n\n`local_date` is the one place a day ritual takes a date, and it is an ECHO,\nnot a calculation: the client sends back the day the server itself labelled,\nand the server accepts only today or yesterday. It exists because a job\nsearch runs past midnight \u2014 closing at 00:30 otherwise files the log against\na day that has not started, stamping the new day closed before it began.\nBounded to two days because \"which day am I ending\" has exactly two sensible\nanswers at 00:30 and none at all a week later."
       },
       "PlannerDayCommit": {
         "properties": {

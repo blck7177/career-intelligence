@@ -458,11 +458,15 @@ export async function commitPlannerDay(
 // Close the day. done_est is measured server-side; all we send is the reflection.
 export async function closePlannerDay(
   reflection: string | null,
+  localDate: string | null,
   token?: string | null,
 ): Promise<PlannerDayLogRead> {
+  // localDate echoes a day the server labelled; it accepts only today or
+  // yesterday. Null means "today", which is what any session not running past
+  // midnight sends.
   return req<PlannerDayLogRead>(
     "/api/app/planner-day/close",
-    { method: "POST", body: JSON.stringify({ reflection }) },
+    { method: "POST", body: JSON.stringify({ reflection, local_date: localDate }) },
     token,
   );
 }

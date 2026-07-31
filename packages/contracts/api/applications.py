@@ -441,10 +441,30 @@ class PlannerDayCommit(BaseModel):
 class PlannerDayClose(BaseModel):
     """Body of POST /planner-day/close — the evening ritual.
 
-    done_est is deliberately absent for the same reason: it is measured from
-    completed_at server-side. All the client contributes is the reflection."""
+    done_est is deliberately absent for the same reason as commit's total: it is
+    measured from completed_at server-side.
+
+    `local_date` is the one place a day ritual takes a date, and it is an ECHO,
+    not a calculation: the client sends back the day the server itself labelled,
+    and the server accepts only today or yesterday. It exists because a job
+    search runs past midnight — closing at 00:30 otherwise files the log against
+    a day that has not started, stamping the new day closed before it began.
+    Bounded to two days because "which day am I ending" has exactly two sensible
+    answers at 00:30 and none at all a week later."""
 
     reflection: Optional[str] = Field(None, max_length=4000)
+    local_date: Optional[str] = None
+
+    @field_validator("local_date")
+    @classmethod
+    def _valid_local_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("local_date must be an ISO date (YYYY-MM-DD)") from exc
+        return v
 
 
 class PlannerDayStat(BaseModel):

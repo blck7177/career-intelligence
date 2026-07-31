@@ -10,7 +10,7 @@ import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
-import { parseQuickAdd, dueAtFor } from "@/lib/quickParse";
+import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 
 const HORIZON_DAYS = 14;
 
@@ -136,6 +136,9 @@ export function PlanToday() {
   const [shutdownBusy, setShutdownBusy] = useState(false);
   const [ritualError, setRitualError] = useState(false);
   const [shutdownError, setShutdownError] = useState(false);
+  // Which day the evening ritual is ending. Defaults to the server-labelled
+  // today; a session running past midnight switches it to yesterday.
+  const [closingDate, setClosingDate] = useState<string | null>(null);
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualBusy, setRitualBusy] = useState(false);
   // "Skip" is a decision about this sitting, not a preference. Module scope so
@@ -264,12 +267,19 @@ export function PlanToday() {
   // Rest until Monday: snooze every current action to the next Monday.
   async function restUntilMonday() {
     if (resting || !actions || actions.length === 0) return;
+    // Days to the NEXT Monday, counted from the day the SERVER labelled today —
+    // the strip is Monday-first, so the index IS the weekday and no browser
+    // clock is involved. Absolute local-midnight target so overdue actions land
+    // ON Monday rather than +N days from a past due, which could stay past.
+    //
+    // Resolved BEFORE the button enters its loading state: both of these bail
+    // out, and setting it first would leave the spinner running forever on a
+    // page whose strip or settings had not arrived.
+    const todayIdx = week?.days.findIndex((d) => d.is_today) ?? -1;
+    if (todayIdx < 0) return;
+    const until = dayShift(7 - todayIdx);
+    if (!until) return;
     setResting(true);
-    const now = new Date();
-    const daysToMon = ((8 - now.getDay()) % 7) || 7; // 1..7 days to the NEXT Monday
-    // Absolute local-midnight of next Monday, so overdue actions land ON Monday
-    // (not merely +N days from a past due, which could stay in the past).
-    const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysToMon).toISOString();
     const ids = actions.map((a) => a.id);
     ids.forEach((id) => removingRef.current.add(id));
     setActions([]);
@@ -320,8 +330,14 @@ export function PlanToday() {
       // due_at, so an overdue item moved "to tomorrow" would land on the day
       // after its ORIGINAL due date — still in the past, and straight back into
       // tomorrow's list. Same reason Rest-until-Monday sends a date.
-      const now = new Date();
-      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      //
+      // Anchored on the day the SERVER labelled today and encoded at local
+      // midnight in the WORKSPACE timezone, which is the encoding due_at means
+      // everywhere else. Building it from the browser clock instead put the
+      // to-do on the wrong day of the strip for anyone not sitting in their
+      // workspace's zone.
+      const tomorrow = dayShift(1);
+      if (!tomorrow) throw new Error("day or timezone unknown — refusing to guess a due date");
       await Promise.all([
         ...deferIds.map((id) =>
           updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: tomorrow }, token),
@@ -346,24 +362,25 @@ export function PlanToday() {
     setShutdownError(false);
     try {
       const token = await getToken();
-      // Same absolute-date reasoning as the morning ritual: a relative snooze
-      // on an overdue item lands in the past.
-      const now = new Date();
-      const at = (days: number) =>
-        new Date(now.getFullYear(), now.getMonth(), now.getDate() + days).toISOString();
+      // Same absolute-date reasoning as the morning ritual — and anchored on the
+      // day being CLOSED, not on "now". Closing yesterday at 00:30, "tomorrow"
+      // means the day you wake up into, which is already today; anchoring on now
+      // would push it a day further than the user meant.
+      const at = (days: number) => dayShift(days, closingDate ?? undefined);
+      if (!at(1)) throw new Error("day or timezone unknown — refusing to guess a due date");
       await Promise.all([
         ...tomorrowIds.map((id) =>
-          updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: at(1) }, token),
+          updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: at(1)! }, token),
         ),
         ...nextWeekIds.map((id) =>
-          updateAction(id, { op: "snooze", snooze_days: 7, snooze_until: at(7) }, token),
+          updateAction(id, { op: "snooze", snooze_days: 7, snooze_until: at(7)! }, token),
         ),
         ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
       ]);
       // Close LAST here, the opposite order from the morning: done_est is
       // measured at close, and moving the leftovers first means the number is
       // taken against the day's final state rather than a half-tidied one.
-      const log = await closePlannerDay(reflection, token);
+      const log = await closePlannerDay(reflection, closingDate, token);
       setDay((prev) => (prev ? { ...prev, log } : prev));
       setShutdownOpen(false);
       await load();
@@ -373,6 +390,18 @@ export function PlanToday() {
     } finally {
       setShutdownBusy(false);
     }
+  }
+
+  /** `base` (default: the server-labelled today) shifted by N days, encoded as
+   *  local midnight in the workspace timezone — the same instant the backend
+   *  writes for a due date. Returns undefined while the day or the timezone is
+   *  still unknown, and every caller treats that as "do not move anything"
+   *  rather than guessing from the browser clock. */
+  function dayShift(days: number, base?: string): string | undefined {
+    const tz = settings?.timezone;
+    const from = base ?? week?.days.find((d) => d.is_today)?.date;
+    if (!tz || !from) return undefined;
+    return localMidnightUtc(addDays(from, days), tz);
   }
 
   // The day, as the SERVER labelled it in the week strip. Re-deriving it from
@@ -420,8 +449,17 @@ export function PlanToday() {
   });
   // Ask only once the day is actually known and the list has loaded: a banner
   // that flashes before the data arrives is a banner that gets clicked away.
+  // The question is "has the morning ritual run today", and committed_est is
+  // the direct answer. `log === null` was a proxy for it, and a proxy that
+  // breaks in exactly the case that matters: closing a session past midnight
+  // creates a row for the new day, which silently made the proxy false and shut
+  // the banner off for a day nobody had planned.
   const askRitual =
-    day?.log === null && actions !== null && week !== null && skipped !== todayKey();
+    day !== undefined &&
+    day.log?.committed_est == null &&
+    actions !== null &&
+    week !== null &&
+    skipped !== todayKey();
   // (todayKey() is "" until the strip loads, which never equals a stored key —
   // so the banner asks rather than hides while the day is unknown.)
   const closed = !!day?.log?.closed_at;
@@ -470,6 +508,13 @@ export function PlanToday() {
         leftovers={todayItems}
         doneCount={day?.done_count ?? 0}
         doneEst={day?.done_est ?? 0}
+        today={week?.days.find((d) => d.is_today)?.date ?? null}
+        yesterday={(() => {
+          const td = week?.days.find((d) => d.is_today)?.date;
+          return td ? addDays(td, -1) : null;
+        })()}
+        closingDate={closingDate}
+        onClosingDateChange={setClosingDate}
         onApply={applyShutdown}
         applying={shutdownBusy}
       />

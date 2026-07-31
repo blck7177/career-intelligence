@@ -1052,3 +1052,38 @@ def test_commit_rejects_an_unbounded_id_list(make_client):
         "/api/app/planner-day/commit", json={"kept_action_ids": [f"a{i}" for i in range(501)]}
     )
     assert resp.status_code == 422
+
+
+def test_close_accepts_yesterday_and_measures_that_day(make_client):
+    """A job search runs past midnight. At 00:30 the server's "today" is a day
+    that has not started; closing it stamps the new day finished before it
+    began, and locks it out of both rituals. The client echoes back the day it
+    was shown, and the done window follows it."""
+    client = make_client()
+    yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    with patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions, \
+         patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays:
+        MockActions.return_value.sum_est_completed_in_range.return_value = 60
+        MockDays.return_value.close_day.return_value = _day_row(done_est=60)
+        resp = client.post(
+            "/api/app/planner-day/close", json={"reflection": None, "local_date": yesterday}
+        )
+        assert resp.status_code == 200, resp.text
+        # The row is filed against yesterday...
+        assert MockDays.return_value.close_day.call_args[0][1].isoformat() == yesterday
+        # ...and done_est is measured over YESTERDAY's window, not today's.
+        _, start, end = MockActions.return_value.sum_est_completed_in_range.call_args[0]
+        assert end - start == timedelta(days=1)
+        assert start.date().isoformat() in (yesterday, (datetime.fromisoformat(yesterday).date() - timedelta(days=1)).isoformat())
+
+
+def test_close_refuses_a_day_further_back_than_yesterday(make_client):
+    """The client is confirming a date it was shown, not choosing one. Two days
+    is not a past-midnight session, it is a mistake or a forged body."""
+    client = make_client()
+    old = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+    resp = client.post("/api/app/planner-day/close", json={"local_date": old})
+    assert resp.status_code == 422
+    future = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    assert client.post("/api/app/planner-day/close", json={"local_date": future}).status_code == 422
+    assert client.post("/api/app/planner-day/close", json={"local_date": "nope"}).status_code == 422

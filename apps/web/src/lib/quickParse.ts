@@ -54,7 +54,7 @@ export function localToday(tz: string, now: Date = new Date()): string {
   }).format(now);
 }
 
-function addDays(isoDate: string, days: number): string {
+export function addDays(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   // UTC arithmetic on a bare calendar date: no zone involved, so no DST skew.
   const t = new Date(Date.UTC(y, m - 1, d));
