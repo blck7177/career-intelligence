@@ -742,6 +742,17 @@
     "peekOpenFull": "Open full page ↗",
     "peekManualAction": "Manual to-do · not linked to an application",
     "statusLabel": "Status",
-    "untitledRole": "(untitled role)"
+    "untitledRole": "(untitled role)",
+    "digestTitle": "Today",
+    "digestCounts": "{due} due · {overdue} overdue",
+    "pipelineSnapshot": "Pipeline",
+    "pipelineSnapshotMore": "Details →",
+    "pipelineSnapshotMoreAlerts": "+{n} more",
+    "rowNote": "Note",
+    "rowReschedule": "Reschedule",
+    "rowNoteSaved": "Added to the timeline.",
+    "rowRescheduled": "Moved to tomorrow.",
+    "rowNoAction": "Nothing scheduled to move.",
+    "rowActionFailed": "That didn't go through — try again."
   }
 }

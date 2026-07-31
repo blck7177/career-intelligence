@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createAction, updateAction, commitPlannerDay, closePlannerDay } from "@/api/client";
-import type { ActionRead, PlannerWeek, PlannerWeekDay } from "@/api/client";
+import type { ActionRead, PlannerWeek, PlannerWeekDay, FunnelResponse } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 import { RitualWizard, type RitualResult } from "./RitualWizard";
@@ -107,13 +107,13 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday() {
+export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   // Every server-side source the view reads, plus the two ways to write to the
   // list. Which sources a mutation dirties is declared at each call site rather
   // than remembered — see usePlannerData for why.
-  const { actions, stats, settings, week, day, error, reload, refresh, mutateActions, patchDayLog } =
+  const { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog } =
     usePlannerData();
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
@@ -643,16 +643,22 @@ export function PlanToday() {
           )}
         </div>
 
-        {/* RAIL — This week */}
-        {stats && (
-          <aside className="order-1 lg:order-2">
-            <div className="lg:sticky lg:top-2">
-              <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
-              <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5">
-                <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
-                <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
-                <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
-              </div>
+        {/* RAIL — This week + today's digest + pipeline snapshot */}
+        {(stats || funnel) && (
+          <aside className="order-1 lg:order-2 space-y-4">
+            <div className="lg:sticky lg:top-2 space-y-4">
+              {stats && (
+                <div>
+                  <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
+                  <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5">
+                    <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
+                    <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
+                    <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
+                  </div>
+                </div>
+              )}
+              <Digest due={todayItems.length} overdue={overdue.length} week={week} tz={tz} t={t} />
+              <PipelineSnapshot funnel={funnel} onShowPipeline={onShowPipeline} t={t} />
             </div>
           </aside>
         )}
@@ -923,6 +929,112 @@ function ActionItem({ a, onComplete, onSnooze, onOpen }: {
         {t("snoozeShort")}
       </button>
     </li>
+  );
+}
+
+const DIGEST_INTERVIEWS = 2;
+const SNAPSHOT_ALERTS = 2;
+
+/**
+ * Today in one line: what is due, what is late, and the next hard commitments.
+ *
+ * The digest principle — lead with what cannot move. Counts come from the same
+ * two sets the capacity bar uses, so the rail and the bar can never disagree
+ * about how much today holds.
+ *
+ * Times are formatted in the WORKSPACE's timezone, not the browser's. Without a
+ * timezone we print the day and company but no clock time: a 10:00 that is
+ * really 13:00 is worse than no time at all, and this is the one place a
+ * traveller would be misled.
+ */
+function Digest({ due, overdue, week, tz, t }: {
+  due: number;
+  overdue: number;
+  week: PlannerWeek | null;
+  /** The workspace timezone, from settings — PlannerWeek does not carry one. */
+  tz: string | null;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  const upcoming: string[] = [];
+  for (let i = 0; i < (week?.days.length ?? 0); i++) {
+    const d = week!.days[i];
+    // Days arrive Monday-first, so the index IS the weekday — no date parsing.
+    const label = t(`weekdayShort.${WEEKDAY_KEYS[i]}`);
+    for (const iv of d.interviews ?? []) {
+      if (upcoming.length >= DIGEST_INTERVIEWS) break;
+      const at = new Date(iv.at);
+      const clock = tz && !isNaN(at.getTime())
+        ? at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: tz })
+        : null;
+      upcoming.push(clock ? `${label} ${clock} ${iv.company}` : `${label} ${iv.company}`);
+    }
+  }
+
+  if (due === 0 && overdue === 0 && upcoming.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border px-3 py-2.5 text-2xs leading-relaxed" style={{ borderColor: "var(--border)" }}>
+      <b style={{ color: "var(--ink-primary)" }}>{t("digestTitle")}</b>
+      <span style={{ color: "var(--ink-muted)" }}>
+        {" · "}
+        {t("digestCounts", { due, overdue })}
+        {upcoming.map((s) => (
+          <span key={s}>{" · "}{s}</span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Pipeline health beside today's work, so a day of ticking to-dos cannot hide
+ * an empty funnel. Read-only — acting on an alert (confirming a ghosting) stays
+ * in the Pipeline zone, one click away, where the consequence is spelled out.
+ */
+function PipelineSnapshot({ funnel, onShowPipeline, t }: {
+  funnel: FunnelResponse | null;
+  onShowPipeline?: () => void;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  if (!funnel) return null;
+  const alerts = funnel.alerts ?? [];
+  return (
+    <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <span className="text-2xs font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
+          {t("pipelineSnapshot")}
+        </span>
+        {onShowPipeline && (
+          <button type="button" onClick={onShowPipeline} className="ml-auto text-2xs hover:underline" style={{ color: "var(--primary)" }}>
+            {t("pipelineSnapshotMore")}
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-2xs" style={{ color: "var(--ink-muted)" }}>
+        {(funnel.stages ?? []).map((s, i) => (
+          <span key={s.key} className="whitespace-nowrap">
+            {i > 0 && <span style={{ color: "var(--border)" }}>› </span>}
+            {t(`funnelStage.${s.key}`)}{" "}
+            <b className="tabular-nums" style={{ color: "var(--ink-primary)" }}>{s.count}</b>
+          </span>
+        ))}
+      </div>
+      {alerts.length > 0 && (
+        <ul className="mt-2 pt-2 space-y-1 text-2xs" style={{ borderTop: "1px dashed var(--border)", color: "var(--ink-muted)" }}>
+          {alerts.slice(0, SNAPSHOT_ALERTS).map((al, i) => (
+            <li key={i}>
+              <span style={{ color: al.severity === "warn" ? "var(--match-partial-fg)" : "var(--ink-faint)" }}>
+                {al.severity === "warn" ? "⚠ " : "◦ "}
+              </span>
+              {t(al.message_key, al.context as Record<string, string | number>)}
+            </li>
+          ))}
+          {alerts.length > SNAPSHOT_ALERTS && (
+            <li style={{ color: "var(--ink-faint)" }}>{t("pipelineSnapshotMoreAlerts", { n: alerts.length - SNAPSHOT_ALERTS })}</li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
 

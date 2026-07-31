@@ -5,7 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useApiToken } from "@/hooks/useApiToken";
+import {
+  addApplicationEvent, getApplication, getPlannerSettings, getPlannerWeek, updateAction,
+} from "@/api/client";
 import { fmtTs } from "@/lib/utils";
+import { localMidnightUtc, addDays } from "@/lib/quickParse";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toaster";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { EmptyState } from "@/components/EmptyState";
 import { ClipboardList } from "lucide-react";
@@ -82,6 +89,37 @@ export function ApplicationsMasterDetail({
   const router = useRouter();
   const searchParams = useSearchParams();
   const isDesktop = useMediaQuery(LG);
+  const getToken = useApiToken();
+
+  // The instant "tomorrow" means, encoded the way every due date in this system
+  // is: local midnight in the WORKSPACE's timezone, anchored on the day the
+  // SERVER calls today. The row's reschedule action needs an absolute target —
+  // a relative snooze is measured from due_at, so an overdue to-do "moved to
+  // tomorrow" lands the day after its ORIGINAL due date and is still overdue,
+  // which reads as the button doing nothing. Null until both facts are known,
+  // and the action stays hidden until then rather than guessing from the
+  // browser clock (the bug V6-C5 went back and fixed in three places).
+  const [tomorrow, setTomorrow] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const token = await getToken();
+        const [wk, cfg] = await Promise.all([
+          getPlannerWeek(undefined, token),
+          getPlannerSettings(token),
+        ]);
+        const today = wk.days.find((d) => d.is_today)?.date;
+        if (active && today && cfg.timezone) {
+          setTomorrow(localMidnightUtc(addDays(today, 1), cfg.timezone));
+        }
+      } catch {
+        // Leave it null — no reschedule button beats one that moves a to-do to
+        // a day the user did not mean.
+      }
+    })();
+    return () => { active = false; };
+  }, [getToken]);
 
   // Selection: local state is source of truth, ?selected= synced via History API.
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("selected"));
@@ -216,6 +254,8 @@ export function ApplicationsMasterDetail({
                 statusLabel={t(`status.${app.status}`)}
                 subline={sublineFor(app, t)}
                 onOpen={() => openRow(app.id)}
+                deferTo={tomorrow}
+                onMutated={() => router.refresh()}
               />
             ))}
           </div>
@@ -285,10 +325,75 @@ interface RowProps {
   statusLabel: string;
   subline: string;
   onOpen: () => void;
+  /** Absolute target for "reschedule", or null while it is unknown — see the
+   *  comment where it is computed. */
+  deferTo: string | null;
+  onMutated: () => void;
 }
 
-function AppListRow({ app, isViewed, statusLabel, subline, onOpen }: RowProps) {
+/**
+ * A row, plus the two things people do to a list of applications without
+ * wanting to open anything: jot down what just happened, and push the next
+ * to-do out a day. Both appear on hover (and on keyboard focus) and both stop
+ * the click from also selecting the row.
+ */
+function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMutated }: RowProps) {
+  const t = useTranslations("tracker");
+  const getToken = useApiToken();
   const style = STATUS_STYLE[app.status] ?? STATUS_STYLE.planned;
+  const [noting, setNoting] = useState(false);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState<"note" | "defer" | null>(null);
+
+  async function saveNote() {
+    const msg = note.trim();
+    if (!msg || busy) return;
+    setBusy("note");
+    try {
+      const token = await getToken();
+      await addApplicationEvent(app.id, { message: msg }, token);
+      setNote("");
+      setNoting(false);
+      toast(t("rowNoteSaved"));
+      onMutated();
+    } catch {
+      // Keep the text and the box open so it can be retried; say so, because a
+      // silent no-op here loses what the user typed.
+      toast.error(t("rowActionFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Push this application's next to-do out to tomorrow. "Next" uses the same
+   *  predicate the row's own subline does — pending, dated, soonest first
+   *  (earliest_pending_action_map) — so the thing that moves is the thing the
+   *  row is showing. */
+  async function reschedule() {
+    if (busy || !deferTo) return;
+    setBusy("defer");
+    try {
+      const token = await getToken();
+      const detail = await getApplication(app.id, token);
+      const next = (detail.actions ?? [])
+        .filter((a) => a.status === "pending" && a.due_at)
+        .sort((x, y) => new Date(x.due_at!).getTime() - new Date(y.due_at!).getTime())[0];
+      if (!next) {
+        toast(t("rowNoAction"));
+        return;
+      }
+      await updateAction(next.id, { op: "snooze", snooze_days: 1, snooze_until: deferTo }, token);
+      toast(t("rowRescheduled"));
+      onMutated();
+    } catch {
+      toast.error(t("rowActionFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
   return (
     <div
       role="button"
@@ -300,29 +405,68 @@ function AppListRow({ app, isViewed, statusLabel, subline, onOpen }: RowProps) {
           onOpen();
         }
       }}
-      className="group flex items-center gap-2.5 px-[var(--space-row-edge)] py-2.5 cursor-pointer transition-colors border-l-2 border-b"
+      className="group px-[var(--space-row-edge)] py-2.5 cursor-pointer transition-colors border-l-2 border-b"
       style={{
         borderLeftColor: isViewed ? "var(--primary)" : "transparent",
         borderBottomColor: "var(--border)",
         background: isViewed ? "var(--secondary)" : "transparent",
       }}
     >
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate group-hover:underline" style={{ color: "var(--ink-primary)" }}>
-          {app.jobTitle}
+      <div className="flex items-center gap-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate group-hover:underline" style={{ color: "var(--ink-primary)" }}>
+            {app.jobTitle}
+          </div>
+          <div className="text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
+            {app.company}
+            <span className="mx-1">·</span>
+            {subline}
+          </div>
         </div>
-        <div className="text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
-          {app.company}
-          <span className="mx-1">·</span>
-          {subline}
+
+        {/* Hover actions. focus-within keeps them reachable by keyboard, which
+            display:none on hover alone would not. */}
+        <div
+          onClick={stop}
+          className="shrink-0 hidden group-hover:flex group-focus-within:flex items-center gap-1"
+        >
+          <Button size="sm" variant="ghost" onClick={() => setNoting((v) => !v)} disabled={!!busy}>
+            {t("rowNote")}
+          </Button>
+          {deferTo && app.next_action_due_at && (
+            <Button size="sm" variant="ghost" onClick={reschedule} loading={busy === "defer"}>
+              {t("rowReschedule")}
+            </Button>
+          )}
         </div>
+
+        <span
+          className="shrink-0 px-1.5 py-0.5 rounded text-2xs font-semibold"
+          style={{ background: style.bg, color: style.fg }}
+        >
+          {statusLabel}
+        </span>
       </div>
-      <span
-        className="shrink-0 px-1.5 py-0.5 rounded text-2xs font-semibold"
-        style={{ background: style.bg, color: style.fg }}
-      >
-        {statusLabel}
-      </span>
+
+      {noting && (
+        <div onClick={stop} className="flex items-center gap-2 mt-2">
+          <input
+            autoFocus
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveNote();
+              if (e.key === "Escape") { setNoting(false); setNote(""); }
+            }}
+            placeholder={t("logNotePlaceholder")}
+            className="flex-1 min-w-0 h-8 px-2.5 rounded-md border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+            style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+          />
+          <Button size="sm" variant="outline" onClick={saveNote} disabled={!note.trim()} loading={busy === "note"}>
+            {t("logNote")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

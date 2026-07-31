@@ -742,6 +742,17 @@
     "peekOpenFull": "打开全页 ↗",
     "peekManualAction": "手动待办 · 无关联申请",
     "statusLabel": "状态",
-    "untitledRole": "（未命名职位）"
+    "untitledRole": "（未命名职位）",
+    "digestTitle": "今日",
+    "digestCounts": "{due} 件到期 · {overdue} 件超期",
+    "pipelineSnapshot": "管线",
+    "pipelineSnapshotMore": "详情 →",
+    "pipelineSnapshotMoreAlerts": "另有 {n} 条",
+    "rowNote": "记一笔",
+    "rowReschedule": "改期",
+    "rowNoteSaved": "已记入时间线。",
+    "rowRescheduled": "已改到明天。",
+    "rowNoAction": "没有可改期的待办。",
+    "rowActionFailed": "没成功 —— 请重试。"
   }
 }

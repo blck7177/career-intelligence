@@ -8,6 +8,7 @@ import {
   getPlannerSettings,
   getPlannerWeek,
   getPlannerDay,
+  getFunnel,
 } from "@/api/client";
 import type {
   ActionRead,
@@ -16,6 +17,7 @@ import type {
   PlannerWeek,
   PlannerDayRead,
   PlannerDayLogRead,
+  FunnelResponse,
 } from "@/api/client";
 
 // The list spans two weeks so upcoming deadlines stay visible; the daily cap is
@@ -35,6 +37,10 @@ export interface PlannerData {
   stats: PlannerStats | null;
   settings: PlannerSettings | null;
   week: PlannerWeek | null;
+  /** Pipeline health, read once for Today's snapshot card. Not a PlannerSource:
+   *  nothing you can do to a to-do moves an application between stages, so
+   *  there is no mutation here that could dirty it. */
+  funnel: FunnelResponse | null;
   /** undefined = still loading. `day.log` null = no row today. */
   day: PlannerDayRead | undefined;
   /** The action list failed to load. Context failures do not set this. */
@@ -73,6 +79,7 @@ export function usePlannerData(): PlannerData {
   const [settings, setSettings] = useState<PlannerSettings | null>(null);
   const [week, setWeek] = useState<PlannerWeek | null>(null);
   const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
+  const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
   const [error, setError] = useState(false);
   // Ids whose removal is in flight. A reload that overlaps a mutation would
   // otherwise put a row the user just ticked back on the list.
@@ -85,18 +92,20 @@ export function usePlannerData(): PlannerData {
       // Only the list is allowed to fail the view. The rest is context: a strip
       // or a done bar that could not be fetched degrades to absent rather than
       // replacing today's work with an error page.
-      const [res, st, cfg, wk, dayState] = await Promise.all([
+      const [res, st, cfg, wk, dayState, fn] = await Promise.all([
         listActions({ due_on_or_before: horizon, include_undated: true }, token),
         getPlannerStats(undefined, token).catch(() => null),
         getPlannerSettings(token).catch(() => null),
         getPlannerWeek(undefined, token).catch(() => null),
         getPlannerDay(token).catch(() => undefined),
+        getFunnel(token).catch(() => null),
       ]);
       setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
       setStats(st);
       setSettings(cfg);
       setWeek(wk);
       setDay(dayState);
+      setFunnel(fn);
       setError(false);
     } catch {
       setError(true);
@@ -181,5 +190,5 @@ export function usePlannerData(): PlannerData {
     setDay((prev) => (prev ? { ...prev, log } : prev));
   }, []);
 
-  return { actions, stats, settings, week, day, error, reload, refresh, mutateActions, patchDayLog };
+  return { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog };
 }
