@@ -24,9 +24,14 @@ interface Props {
   applicationId: string | null;
   /** Nudge the server-rendered list to re-fetch after a mutation here. */
   onListChanged?: () => void;
+  /** Bumped by the LIST when something outside this pane mutated the same
+   *  application. The pane's own data is client-fetched, so `router.refresh()`
+   *  — which is all a row action can do to the server-rendered list — leaves it
+   *  showing pre-mutation state right next to a toast saying it happened. */
+  refreshKey?: number;
 }
 
-export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
+export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey = 0 }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [data, setData] = useState<ApplicationDetail | null>(null);
@@ -62,7 +67,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
     return () => {
       active = false;
     };
-  }, [applicationId, getToken, refetchNonce]);
+  }, [applicationId, getToken, refetchNonce, refreshKey]);
 
   const mutated = () => {
     setRefetchNonce((n) => n + 1);

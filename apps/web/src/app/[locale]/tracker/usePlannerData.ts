@@ -27,8 +27,14 @@ const HORIZON_DAYS = 14;
 /** The context sources a mutation can invalidate. The action list is not one of
  *  them on purpose: it has exactly two paths — a full `reload()`, or the
  *  optimistic removal in `mutateActions` — and adding a third way to refetch it
- *  is how the two get out of step. */
-export type PlannerSource = "week" | "day";
+ *  is how the two get out of step.
+ *
+ *  Everything else the rail renders IS here. The first version of this type had
+ *  only week and day, which left the This-week triplet and the pipeline snapshot
+ *  reading their page-load values for the rest of the sitting — the same freeze
+ *  this hook was extracted to end, reintroduced by an incomplete list. If a
+ *  server-measured number is on screen, it needs a name here. */
+export type PlannerSource = "week" | "day" | "stats" | "funnel";
 
 export interface PlannerData {
   /** null until the first load finishes (or it failed — see `error`). */
@@ -37,9 +43,12 @@ export interface PlannerData {
   stats: PlannerStats | null;
   settings: PlannerSettings | null;
   week: PlannerWeek | null;
-  /** Pipeline health, read once for Today's snapshot card. Not a PlannerSource:
-   *  nothing you can do to a to-do moves an application between stages, so
-   *  there is no mutation here that could dirty it. */
+  /** Pipeline health for Today's snapshot card. Its stage counts really are
+   *  untouchable from here — no to-do moves an application between statuses —
+   *  but its `alerts` half is derived from application EVENTS, and completing a
+   *  to-do writes an `action_completed` event (as does logging a note from the
+   *  peek). A check-in alert therefore goes stale the moment the user acts on
+   *  the very to-do it raised, which is why this is a named source. */
   funnel: FunnelResponse | null;
   /** undefined = still loading. `day.log` null = no row today. */
   day: PlannerDayRead | undefined;
@@ -126,6 +135,8 @@ export function usePlannerData(): PlannerData {
           try {
             const token = await getToken();
             if (source === "week") setWeek(await getPlannerWeek(undefined, token));
+            else if (source === "stats") setStats(await getPlannerStats(undefined, token));
+            else if (source === "funnel") setFunnel(await getFunnel(token));
             else setDay(await getPlannerDay(token));
           } catch {
             // Keep the last good reading rather than blanking it: these are

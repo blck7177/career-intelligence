@@ -121,6 +121,9 @@ export function ApplicationsMasterDetail({
     return () => { active = false; };
   }, [getToken]);
 
+  // Bumped when a row action mutates the application the pane is showing.
+  const [paneKey, setPaneKey] = useState(0);
+
   // Selection: local state is source of truth, ?selected= synced via History API.
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("selected"));
   const selectedValid =
@@ -255,7 +258,12 @@ export function ApplicationsMasterDetail({
                 subline={sublineFor(app, t)}
                 onOpen={() => openRow(app.id)}
                 deferTo={tomorrow}
-                onMutated={() => router.refresh()}
+                onMutated={() => {
+                  router.refresh();
+                  // The pane fetches its own copy of this application; the
+                  // server-list refresh above does not reach it.
+                  if (app.id === selectedForPane) setPaneKey((n) => n + 1);
+                }}
               />
             ))}
           </div>
@@ -299,7 +307,11 @@ export function ApplicationsMasterDetail({
 
       {/* ── Right: detail pane (desktop only) ── */}
       <div className="hidden lg:flex flex-1 min-w-0 min-h-0">
-        <ApplicationDetailPane applicationId={selectedForPane} onListChanged={() => router.refresh()} />
+        <ApplicationDetailPane
+          applicationId={selectedForPane}
+          onListChanged={() => router.refresh()}
+          refreshKey={paneKey}
+        />
       </div>
     </div>
   );

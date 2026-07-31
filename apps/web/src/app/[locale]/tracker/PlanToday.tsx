@@ -11,7 +11,7 @@ import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
 import { toast } from "@/components/ui/toaster";
-import { usePlannerData } from "./usePlannerData";
+import { usePlannerData, type PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 
@@ -167,8 +167,20 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
   // The done bar and the shutdown summary are server-measured, so any mutation
   // that could change what is complete has to re-read them. Without this the
   // bar sits at its page-load value all day — the one thing it exists to avoid.
+  //
+  // What each op dirties, and why it is not just "everything":
+  //   week  — every op changes what is open on some day.
+  //   day   — the done bar counts completions; snooze/dismiss change what is
+  //           still owed against the day's commitment.
+  //   stats — ONLY completing: the triplet counts *completed* networking and
+  //           follow-up actions (count_completed_by_type_in_range).
+  //   funnel— ONLY completing: repo.complete() writes an `action_completed`
+  //           event, which is what the check-in alert measures staleness from.
+  //           snooze() and dismiss() write no event, so the funnel is untouched.
   async function mutate(id: string, op: "complete" | "snooze" | "dismiss"): Promise<boolean> {
-    return mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), ["week", "day"]);
+    const dirties: PlannerSource[] =
+      op === "complete" ? ["week", "day", "stats", "funnel"] : ["week", "day"];
+    return mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), dirties);
   }
 
   /** "Not needed" is the one row action with a consequence worth stating: the
@@ -500,6 +512,7 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
         onSnooze={(a) => mutate(a.id, "snooze")}
         onDismiss={dismissFromPeek}
         reason={(a) => reasonOf(a, t)}
+        onApplicationChanged={() => refresh("funnel")}
       />
 
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">

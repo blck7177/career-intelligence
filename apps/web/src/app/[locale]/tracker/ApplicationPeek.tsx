@@ -34,6 +34,10 @@ interface Props {
   /** The rule's reason line, rendered by the same function as the Today row so
    *  the two can never explain the same to-do differently. */
   reason: (a: ActionRead) => string | null;
+  /** A note logged here writes an ApplicationEvent, which is what the funnel's
+   *  check-in alert measures staleness from — so the panel has to tell the day
+   *  view that its pipeline snapshot is now out of date. */
+  onApplicationChanged: () => void;
 }
 
 /**
@@ -47,7 +51,7 @@ interface Props {
  * excitement or status stays in the full pane: a panel you opened to answer a
  * question should not also be a place where a stray click changes your data.
  */
-export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismiss, reason }: Props) {
+export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismiss, reason, onApplicationChanged }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const appId = action?.application_id ?? null;
@@ -147,7 +151,15 @@ export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismi
                       survive into another. Same reason the full pane keys its
                       stateful sections — that one shipped as a high-severity
                       finding in P0 (switching rows overwrote someone's notes). */}
-                  <NoteBox key={app.id} app={app} onLogged={() => setNonce((n) => n + 1)} t={t} />
+                  <NoteBox
+                    key={app.id}
+                    app={app}
+                    onLogged={() => {
+                      setNonce((n) => n + 1);
+                      onApplicationChanged();
+                    }}
+                    t={t}
+                  />
                 </>
               )}
 
