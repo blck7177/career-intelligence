@@ -1,18 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
-import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay, closePlannerDay } from "@/api/client";
-import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayRead } from "@/api/client";
+import { createAction, updateAction, commitPlannerDay, closePlannerDay } from "@/api/client";
+import type { ActionRead, PlannerWeek, PlannerWeekDay } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
+import { usePlannerData } from "./usePlannerData";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
-
-const HORIZON_DAYS = 14;
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
 const GROUP_OF: Record<string, string> = {
@@ -102,23 +101,22 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * the action list (left) + the This-week triplet rail (right). Rows carry a
  * ✓ checkbox, a per-item estimate, one semantic due pill, and a recede-on-hover
  * snooze; a "Rest until Monday" batch-snooze and a done bar close it out.
- * Optimistic mutations are guarded exactly as in P0 (removingRef + add guard).
+ *
+ * All server state lives in usePlannerData; this component owns only what is
+ * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
 export function PlanToday() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const [actions, setActions] = useState<ActionRead[] | null>(null);
-  const [stats, setStats] = useState<PlannerStats | null>(null);
-  const [settings, setSettings] = useState<PlannerSettings | null>(null);
-  const [week, setWeek] = useState<PlannerWeek | null>(null);
-  const [error, setError] = useState(false);
+  // Every server-side source the view reads, plus the two ways to write to the
+  // list. Which sources a mutation dirties is declared at each call site rather
+  // than remembered — see usePlannerData for why.
+  const { actions, stats, settings, week, day, error, reload, refresh, mutateActions, patchDayLog } =
+    usePlannerData();
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
-  // undefined = still loading. `day.log` null = no row today (ritual not run);
-  // day.done_* are measured live and arrive either way.
-  const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [shutdownBusy, setShutdownBusy] = useState(false);
   const [ritualError, setRitualError] = useState(false);
@@ -136,7 +134,6 @@ export function PlanToday() {
   // parsing dates — the same silent failure this feature exists to avoid, just
   // pointing the other way.
   const [rejected, setRejected] = useState<{ date?: string; duration?: string; type?: string }>({});
-  const removingRef = useRef<Set<string>>(new Set());
 
   // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
   // the encoding the rules engine writes. Until settings arrive we know no zone,
@@ -157,32 +154,6 @@ export function PlanToday() {
     });
   }, [title, tz, rejected]);
 
-  const load = useCallback(async () => {
-    try {
-      const token = await getToken();
-      const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
-      // The strip is context, not the list itself — it degrades to absent
-      // rather than failing the view.
-      const [res, st, cfg, wk, dayState] = await Promise.all([
-        listActions({ due_on_or_before: horizon, include_undated: true }, token),
-        getPlannerStats(undefined, token).catch(() => null),
-        getPlannerSettings(token).catch(() => null),
-        getPlannerWeek(undefined, token).catch(() => null),
-        getPlannerDay(token).catch(() => undefined),
-      ]);
-      setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
-      setStats(st);
-      setSettings(cfg);
-      setWeek(wk);
-      setDay(dayState);
-      setError(false);
-    } catch {
-      setError(true);
-    }
-  }, [getToken]);
-
-  useEffect(() => { load(); }, [load]);
-
   // The list updates optimistically, but the strip's per-day counts come from
   // the server (they fold in overdue and undated work, and that arithmetic
   // belongs in one place). Without this, clearing the last to-do left "today's
@@ -190,36 +161,8 @@ export function PlanToday() {
   // The done bar and the shutdown summary are server-measured, so any mutation
   // that could change what is complete has to re-read them. Without this the
   // bar sits at its page-load value all day — the one thing it exists to avoid.
-  const refreshDay = useCallback(async () => {
-    try {
-      const token = await getToken();
-      setDay(await getPlannerDay(token));
-    } catch {
-      // Keep the last good reading rather than blanking the bar.
-    }
-  }, [getToken]);
-
-  const refreshWeek = useCallback(async () => {
-    try {
-      const token = await getToken();
-      setWeek(await getPlannerWeek(undefined, token));
-    } catch {
-      // Context, not content: keep the last good strip rather than blanking it.
-    }
-  }, [getToken]);
-
   async function mutate(id: string, op: "complete" | "snooze") {
-    removingRef.current.add(id);
-    setActions((prev) => prev?.filter((a) => a.id !== id) ?? null);
-    try {
-      const token = await getToken();
-      await updateAction(id, { op, snooze_days: 1 }, token);
-      await Promise.all([refreshWeek(), refreshDay()]);
-    } catch {
-      load();
-    } finally {
-      removingRef.current.delete(id);
-    }
+    await mutateActions([id], (token) => updateAction(id, { op, snooze_days: 1 }, token), ["week", "day"]);
   }
 
   async function add() {
@@ -242,7 +185,7 @@ export function PlanToday() {
       );
       setTitle("");
       setRejected({});
-      await load();
+      await reload();
     } catch {
       // keep the typed title for retry
     } finally {
@@ -267,16 +210,18 @@ export function PlanToday() {
     if (!until) return;
     setResting(true);
     const ids = actions.map((a) => a.id);
-    ids.forEach((id) => removingRef.current.add(id));
-    setActions([]);
     try {
-      const token = await getToken();
-      await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: until }, token)));
-      await refreshWeek();
-    } catch {
-      load();
+      // Nothing is completed here, only moved, so the done bar cannot change:
+      // the strip is the only source this dirties.
+      await mutateActions(
+        ids,
+        (token) =>
+          Promise.all(
+            ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: until }, token)),
+          ),
+        ["week"],
+      );
     } finally {
-      ids.forEach((id) => removingRef.current.delete(id));
       setResting(false);
     }
   }
@@ -288,16 +233,13 @@ export function PlanToday() {
     if (deferring || !candidates.length) return;
     setDeferring(true);
     const ids = pickToDefer(candidates, excess).map((a) => a.id);
-    ids.forEach((id) => removingRef.current.add(id));
-    setActions((prev) => prev?.filter((a) => !ids.includes(a.id)) ?? null);
     try {
-      const token = await getToken();
-      await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
-      await Promise.all([refreshWeek(), refreshDay()]);
-    } catch {
-      load();
+      await mutateActions(
+        ids,
+        (token) => Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token))),
+        ["week", "day"],
+      );
     } finally {
-      ids.forEach((id) => removingRef.current.delete(id));
       setDeferring(false);
     }
   }
@@ -311,7 +253,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       const log = await commitPlannerDay(keptIds, token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
       // Absolute target, not snooze_days: a relative snooze is measured from
       // due_at, so an overdue item moved "to tomorrow" would land on the day
       // after its ORIGINAL due date — still in the past, and straight back into
@@ -331,8 +273,10 @@ export function PlanToday() {
         ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
       ]);
       setRitualOpen(false);
-      await load();
-      await refreshWeek();
+      // reload() already re-reads the strip; the extra refresh is carried over
+      // verbatim from before this hook existed so the refactor stays a refactor.
+      await reload();
+      await refresh("week");
     } catch {
       // Leave the wizard open so the user can retry without redoing three steps,
       // and say so — setError only renders while the list is still loading, so
@@ -367,10 +311,11 @@ export function PlanToday() {
       // measured at close, and moving the leftovers first means the number is
       // taken against the day's final state rather than a half-tidied one.
       const log = await closePlannerDay(reflection, closingDate, token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
       setShutdownOpen(false);
-      await load();
-      await refreshWeek();
+      // Same carried-over double read of the strip as the morning ritual.
+      await reload();
+      await refresh("week");
     } catch {
       setShutdownError(true);
     } finally {
@@ -404,7 +349,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       const log = await commitPlannerDay(todayItems.map((a) => a.id), token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
     } catch {
       setRitualError(true);
     } finally {
@@ -629,7 +574,7 @@ export function PlanToday() {
             error ? (
               <div className="text-center py-8">
                 <p className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>{t("loadFailed")}</p>
-                <Button size="sm" variant="outline" onClick={load}>{t("retry")}</Button>
+                <Button size="sm" variant="outline" onClick={reload}>{t("retry")}</Button>
               </div>
             ) : (
               <div className="animate-pulse h-24" aria-hidden />
