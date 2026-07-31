@@ -93,9 +93,11 @@ class _FakeLLM:
         self._text = text
         self._error = error
         self.calls = 0
+        self.last_user_prompt = ""
 
     def complete_simple(self, system_prompt, user_prompt, **kwargs):
         self.calls += 1
+        self.last_user_prompt = user_prompt
         if self._error:
             raise LLMCallError("boom")
         return self._text
@@ -384,3 +386,39 @@ def test_day_logs_actually_reach_the_generated_review(db_session, monkeypatch):
     days = row.stats_json["days"]
     assert len(days) == 1, "day logs never reached the review"
     assert (days[0]["committed_est"], days[0]["done_est"]) == (90, 60)
+
+
+def test_reflections_reach_the_narrative_material(db_session, monkeypatch):
+    """The shutdown wizard tells the user their reflection "goes into the weekly
+    review". Until this, nothing read it back — the copy was a promise the data
+    never kept. The prompt is handed the whole stats block, so being in days[]
+    IS being in the material; this asserts it arrives."""
+    fake = _FakeLLM()
+    monkeypatch.setattr(weekly_review_service, "get_llm_client", lambda: fake)
+    WorkspaceRepository(db_session).create(name="t", workspace_id="ws-refl")
+    PlannerDayLogRepository(db_session).close_day(
+        "ws-refl", WEEK_START, done_est=45, reflection="kept getting pulled into email",
+        now_utc=NOW,
+    )
+    db_session.flush()
+
+    row = weekly_review_service.generate_weekly_review(
+        db_session, "ws-refl", now_utc=NOW, week_start=WEEK_START
+    )
+
+    assert row.stats_json["days"][0]["reflection"] == "kept getting pulled into email"
+    # ...and it is actually in the text the model was given.
+    assert "kept getting pulled into email" in fake.last_user_prompt
+
+
+def test_the_prompt_forbids_paraphrasing_a_reflection(db_session):
+    """A reflection is the user's own words about their own week. A coach model
+    restating them as its reading of your state is the failure mode this whole
+    review is written to avoid, so the instruction is explicit and pinned."""
+    from packages.domain.planner.weekly import weekly_review_prompt
+
+    system, _ = weekly_review_prompt(
+        build_weekly_stats([], PlannerSettings(), WEEK_START, NOW, global_actions=[])
+    )
+    assert "VERBATIM" in system
+    assert "never paraphrase" in system

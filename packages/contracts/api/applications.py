@@ -468,11 +468,18 @@ class PlannerDayClose(BaseModel):
 
 
 class PlannerDayStat(BaseModel):
-    """One day's plan versus actual, for the weekly review's per-day strip."""
+    """One day's plan versus actual, for the weekly review's per-day strip.
+
+    `reflection` rides along because this object is what the weekly narrative is
+    written from — the prompt is handed the whole stats block, so a field here
+    is material there with no second channel to keep in sync. It also means the
+    narrative and the words it quotes are stored in the same snapshot, so a
+    review can always be checked against what it was actually given."""
 
     date: str  # ISO local date
     committed_est: Optional[int] = None
     done_est: Optional[int] = None
+    reflection: Optional[str] = None
 
 
 class WeeklyReviewStats(BaseModel):

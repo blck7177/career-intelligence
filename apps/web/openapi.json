@@ -6264,6 +6264,17 @@
               }
             ],
             "title": "Done Est"
+          },
+          "reflection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection"
           }
         },
         "type": "object",
@@ -6271,7 +6282,7 @@
           "date"
         ],
         "title": "PlannerDayStat",
-        "description": "One day's plan versus actual, for the weekly review's per-day strip."
+        "description": "One day's plan versus actual, for the weekly review's per-day strip.\n\n`reflection` rides along because this object is what the weekly narrative is\nwritten from \u2014 the prompt is handed the whole stats block, so a field here\nis material there with no second channel to keep in sync. It also means the\nnarrative and the words it quotes are stored in the same snapshot, so a\nreview can always be checked against what it was actually given."
       },
       "PlannerSettings": {
         "properties": {

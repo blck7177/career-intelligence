@@ -131,6 +131,14 @@ function ReviewCard({ review }: { review: WeeklyReviewRead }) {
                 </div>
               );
             })}
+            {/* The reflections themselves, under the bars. They are the user's
+                own words; showing them only to the model that summarises them
+                would be an odd thing to do with someone's diary. */}
+            {days.filter((d) => d.reflection).map((d) => (
+              <p key={`${d.date}-r`} className="text-2xs pl-[4.5rem] italic" style={{ color: "var(--ink-muted)" }}>
+                {d.date.slice(5)} — {d.reflection}
+              </p>
+            ))}
           </div>
         </div>
       )}

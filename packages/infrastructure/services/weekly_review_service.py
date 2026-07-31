@@ -97,6 +97,7 @@ def generate_weekly_review(
             local_date=row.local_date,
             committed_est=row.committed_est,
             done_est=row.done_est,
+            reflection=row.reflection,
         )
         for row in PlannerDayLogRepository(session).list_for_range(
             workspace_id, week_start, week_start + timedelta(days=7)

@@ -69,6 +69,7 @@ class DayLogView:
     local_date: date
     committed_est: Optional[int] = None
     done_est: Optional[int] = None
+    reflection: Optional[str] = None
 
 
 def build_weekly_stats(
@@ -155,6 +156,7 @@ def build_weekly_stats(
                 date=d.local_date.isoformat(),
                 committed_est=d.committed_est,
                 done_est=d.done_est,
+                reflection=d.reflection,
             )
             for d in sorted(day_logs or [], key=lambda d: d.local_date)
             if week_start <= d.local_date < week_start + timedelta(days=7)
@@ -169,7 +171,12 @@ _SYSTEM_PROMPT = (
     "markdown headers, no bullet lists, no invented facts): acknowledge the "
     "week's effort against the weekly targets, name one thing going well and "
     "one concrete thing to focus on next week, grounded ONLY in the numbers "
-    "given. If applied is 0, be gentle, not alarmist. Never state or imply that "
+    "given. If a day carries a reflection, you may quote a short phrase from it "
+    "VERBATIM in quotation marks; never paraphrase one, never interpret it, and "
+    "never infer a mood from it — those are the user's own words about their own "
+    "week and restating them back as your reading of their state is exactly the "
+    "kind of thing this review must not do. "
+    "If applied is 0, be gentle, not alarmist. Never state or imply that "
     "an employer replied or ghosted — the tracker only knows what the user "
     "logged, not their inbox. Do not repeat every number back; interpret them."
 )

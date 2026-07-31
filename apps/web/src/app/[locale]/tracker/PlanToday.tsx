@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useApiToken, useApiUserId } from "@/hooks/useApiToken";
+import { useApiToken } from "@/hooks/useApiToken";
 import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay, closePlannerDay } from "@/api/client";
 import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -22,18 +22,6 @@ const GROUP_OF: Record<string, string> = {
   thank_you: "wrapup",
 };
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
-
-// Whose ritual, and which day, was waved away. Module scope so it survives
-// leaving and re-entering the Plan tab — a prompt that returns every time you
-// come back is one you learn to dismiss without reading — and keyed by the day
-// so tomorrow morning still asks. Not persisted: skipping is a decision about
-// this sitting, not a setting.
-//
-// The USER belongs in the key for the same reason it does in the review
-// banner's (V5-C7): Clerk routes a sign-out through the Next router without
-// reloading, so the module survives an account switch and a bare day key would
-// mute the next person's morning.
-let skippedRitual: string | null = null;
 
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
@@ -119,7 +107,6 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
 export function PlanToday() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const userId = useApiUserId();
   const [actions, setActions] = useState<ActionRead[] | null>(null);
   const [stats, setStats] = useState<PlannerStats | null>(null);
   const [settings, setSettings] = useState<PlannerSettings | null>(null);
@@ -144,7 +131,6 @@ export function PlanToday() {
   // "Skip" is a decision about this sitting, not a preference. Module scope so
   // it survives leaving and re-entering the Plan tab (see reviewBanner.ts for
   // the same call), keyed by day so tomorrow still asks.
-  const [skipped, setSkipped] = useState<string | null>(skippedRitual);
   // Revocation is remembered by the TEXT that was rejected, not as a sticky flag.
   // A flag leaked: undo the date once and every later line silently stopped
   // parsing dates — the same silent failure this feature exists to avoid, just
@@ -404,21 +390,26 @@ export function PlanToday() {
     return localMidnightUtc(addDays(from, days), tz);
   }
 
-  // The day, as the SERVER labelled it in the week strip. Re-deriving it from
-  // the browser clock is how a user in a different timezone gets asked twice —
-  // or not at all — and it is the same off-by-one the strip already avoids.
-  function todayKey(): string {
-    const date = week?.days.find((d) => d.is_today)?.date;
-    // No date yet means we cannot name the day, and an unnamed key would match
-    // every day. Return null so the banner asks rather than silently hides.
-    return date ? `${userId ?? "anon"}:${date}` : "";
-  }
-
-  function skipRitual() {
-    const day = todayKey();
-    if (!day) return;
-    skippedRitual = day;
-    setSkipped(day);
+  async function skipRitual() {
+    // "Skip" commits to everything already on the plate rather than recording
+    // nothing. The plan said so, and it is right for three reasons: the banner
+    // stops asking because the day HAS been planned (not because a variable in
+    // this tab says to hide it, which no reload survives), the weekly
+    // comparison keeps a baseline for the day instead of a hole, and the two
+    // bugs a module flag brought with it — lost on refresh, shared across a
+    // client-side account switch — cannot exist at all.
+    if (ritualBusy) return;
+    setRitualBusy(true);
+    setRitualError(false);
+    try {
+      const token = await getToken();
+      const log = await commitPlannerDay(todayItems.map((a) => a.id), token);
+      setDay((prev) => (prev ? { ...prev, log } : prev));
+    } catch {
+      setRitualError(true);
+    } finally {
+      setRitualBusy(false);
+    }
   }
 
   const items = actions ?? [];
@@ -458,11 +449,18 @@ export function PlanToday() {
     day !== undefined &&
     day.log?.committed_est == null &&
     actions !== null &&
-    week !== null &&
-    skipped !== todayKey();
-  // (todayKey() is "" until the strip loads, which never equals a stored key —
-  // so the banner asks rather than hides while the day is unknown.)
+    week !== null;
   const closed = !!day?.log?.closed_at;
+  // The week's next hard commitment — the one thing that should shape a day
+  // before anything on the to-do list does (the digest principle: lead with
+  // what cannot move).
+  const nextInterview = (() => {
+    for (const d of week?.days ?? []) {
+      const iv = d.interviews ?? [];
+      if (iv.length > 0) return { company: iv[0].company, day: d.date.slice(5) };
+    }
+    return null;
+  })();
   const zoneSub = [
     items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
     isRestToday ? t("restDayNote") : null,
@@ -484,6 +482,9 @@ export function PlanToday() {
           <b className="text-sm" style={{ color: "var(--ink-primary)" }}>{t("ritualBannerTitle")}</b>
           <span className="flex-1 min-w-0 text-xs" style={{ color: "var(--ink-secondary)" }}>
             {t("ritualBannerSummary", { count: items.length, carry: overdue.length })}
+            {nextInterview && (
+              <> {t("ritualBannerInterview", { company: nextInterview.company, day: nextInterview.day })}</>
+            )}
           </span>
           <Button size="sm" variant="outline" onClick={() => setRitualOpen(true)}>
             {t("ritualBannerStart")}
@@ -565,6 +566,12 @@ export function PlanToday() {
               style={{ borderColor: "var(--border)" }}
             >
               <span style={{ color: "var(--ink-secondary)" }}>
+                {/* 🌙 rides the done bar rather than the empty state: the plan
+                    asked for a closed day to READ as closed, and it has to hold
+                    until the next morning — "see you at tomorrow's digest" is
+                    the promise the ritual makes. A marker that only appears on
+                    an empty list disappears the moment anything new comes due. */}
+                {closed && "🌙 "}
                 {t("doneToday", { n: day.done_count, minutes: fmtMinutes(day.done_est) })}
               </span>
               {day.log?.committed_est != null && (

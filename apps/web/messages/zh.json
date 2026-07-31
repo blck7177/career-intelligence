@@ -599,6 +599,7 @@
     "reviewDayDone": "实际",
     "ritualBannerTitle": "规划今天",
     "ritualBannerSummary": "列表上 {count} 件，其中 {carry} 件是今天之前留下的。花五分钟：处理尾巴 → 挑今天做的 → 对一下总量。",
+    "ritualBannerInterview": "最近的硬时间点：{company}，{day}。",
     "ritualBannerStart": "开始",
     "ritualBannerSkip": "跳过",
     "ritualStep1Title": "1/3 · 昨天的尾巴",
