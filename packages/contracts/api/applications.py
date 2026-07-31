@@ -399,6 +399,89 @@ class PlannerSettingsUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class PlannerDayLogRead(BaseModel):
+    """One day's plan-versus-outcome. `null` from the API means the day has no
+    row at all — the ritual never ran — which the Plan view shows differently
+    from a day committed to nothing."""
+
+    local_date: str  # ISO date in settings.timezone
+    committed_est: Optional[int] = None
+    done_est: Optional[int] = None
+    reflection: Optional[str] = None
+    closed_at: Optional[datetime] = None
+
+
+class PlannerDayRead(BaseModel):
+    """Today's planner state.
+
+    Two things that look alike and are not. `log` is the RITUAL record and may
+    be null — no row means the morning ritual has not run, which is what the
+    banner keys off. done_count/done_est are a MEASUREMENT of what has actually
+    been completed today, always present, recomputed on every read: the done bar
+    shows them all day, whereas the log's done_est is only written at close."""
+
+    log: Optional[PlannerDayLogRead] = None
+    done_count: int = 0
+    done_est: int = 0
+
+
+class PlannerDayCommit(BaseModel):
+    """Body of POST /planner-day/commit — the morning ritual's third step.
+
+    The client sends WHICH to-dos it kept, never the total: the stored number
+    has to be the server's own arithmetic over the same estimates the capacity
+    bar was drawn from, or the weekly comparison is measuring a figure the user
+    could have edited. There is no date field either — the day is resolved from
+    settings.timezone, so a browser in the wrong zone cannot file a commitment
+    against yesterday."""
+
+    kept_action_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class PlannerDayClose(BaseModel):
+    """Body of POST /planner-day/close — the evening ritual.
+
+    done_est is deliberately absent for the same reason as commit's total: it is
+    measured from completed_at server-side.
+
+    `local_date` is the one place a day ritual takes a date, and it is an ECHO,
+    not a calculation: the client sends back the day the server itself labelled,
+    and the server accepts only today or yesterday. It exists because a job
+    search runs past midnight — closing at 00:30 otherwise files the log against
+    a day that has not started, stamping the new day closed before it began.
+    Bounded to two days because "which day am I ending" has exactly two sensible
+    answers at 00:30 and none at all a week later."""
+
+    reflection: Optional[str] = Field(None, max_length=4000)
+    local_date: Optional[str] = None
+
+    @field_validator("local_date")
+    @classmethod
+    def _valid_local_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("local_date must be an ISO date (YYYY-MM-DD)") from exc
+        return v
+
+
+class PlannerDayStat(BaseModel):
+    """One day's plan versus actual, for the weekly review's per-day strip.
+
+    `reflection` rides along because this object is what the weekly narrative is
+    written from — the prompt is handed the whole stats block, so a field here
+    is material there with no second channel to keep in sync. It also means the
+    narrative and the words it quotes are stored in the same snapshot, so a
+    review can always be checked against what it was actually given."""
+
+    date: str  # ISO local date
+    committed_est: Optional[int] = None
+    done_est: Optional[int] = None
+    reflection: Optional[str] = None
+
+
 class WeeklyReviewStats(BaseModel):
     """The deterministic numbers a weekly review is built from — computed by the
     PURE aggregator (packages/domain/planner/weekly.py) and stored verbatim in
@@ -420,6 +503,11 @@ class WeeklyReviewStats(BaseModel):
     reached_interview: int  # of those, how many got any interview
     interview_rate: float  # reached_interview / applied_total (0 when no applies)
     benchmark_interview_rate: float = 0.08  # Job Search Quality Scale app→screen target
+    # Plan versus actual, one entry per day that has a day log. Days the ritual
+    # never ran are ABSENT rather than zero-filled: "did not plan" and "planned
+    # nothing" are different, and a week of zeroes would read as a bad week
+    # instead of an unrecorded one.
+    days: list["PlannerDayStat"] = Field(default_factory=list)
     # Honesty flag: pre-Gmail (P2), an employer "reply" is only what the user
     # logged (status advance + manual interview events), never inbox-detected.
     replies_are_manual: bool = True

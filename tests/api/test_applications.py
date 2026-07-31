@@ -942,3 +942,148 @@ def test_mark_review_read_bad_date_422(make_client):
     client = make_client()
     resp = client.post("/api/app/planner-review/read", json={"week_start": "notadate"})
     assert resp.status_code == 422
+
+
+# --- planner day log (V6-C1) -------------------------------------------------
+
+
+def _day_row(**over) -> SimpleNamespace:
+    base = dict(
+        local_date=date(2026, 7, 15),
+        committed_est=90,
+        done_est=None,
+        reflection=None,
+        closed_at=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_planner_day_log_is_null_before_the_ritual_runs(make_client):
+    """The morning banner's whole condition is log == null. The done totals sit
+    OUTSIDE the log precisely so they still arrive on a day with no ritual —
+    the done bar counts from the first completed to-do, not from a commitment."""
+    client = make_client()
+    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions:
+        MockDays.return_value.get_for_date.return_value = None
+        MockActions.return_value.count_completed_in_range.return_value = 2
+        MockActions.return_value.sum_est_completed_in_range.return_value = 45
+        resp = client.get("/api/app/planner-day")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["log"] is None
+    assert (body["done_count"], body["done_est"]) == (2, 45)
+
+
+def test_planner_day_measures_done_live_rather_than_reading_the_log(make_client):
+    """The log's own done_est is only written at close. If the endpoint read it
+    back the done bar would sit at zero all day and jump at bedtime."""
+    client = make_client()
+    with patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions:
+        MockDays.return_value.get_for_date.return_value = _day_row(done_est=None, reflection="slow")
+        MockActions.return_value.count_completed_in_range.return_value = 3
+        MockActions.return_value.sum_est_completed_in_range.return_value = 75
+        resp = client.get("/api/app/planner-day")
+        _, start, end = MockActions.return_value.sum_est_completed_in_range.call_args[0]
+        assert end - start == timedelta(days=1)
+        assert start.hour in (4, 5), "not local midnight for America/New_York"
+    body = resp.json()
+    assert body["log"]["committed_est"] == 90
+    assert body["log"]["done_est"] is None, "the stored field is untouched"
+    assert (body["done_count"], body["done_est"]) == (3, 75), "live totals not measured"
+    assert body["log"]["local_date"] == "2026-07-15"
+
+
+def test_commit_stores_the_servers_own_total_not_the_clients(make_client):
+    """The body carries ids, never a total. What gets filed has to be the
+    server's arithmetic over the same estimates the capacity bar was drawn
+    from, or the weekly comparison measures a number the user could edit."""
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions, \
+         patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays:
+        MockActions.return_value.sum_est_for_ids.return_value = 75
+        MockDays.return_value.commit_day.return_value = _day_row(committed_est=75)
+        resp = client.post(
+            "/api/app/planner-day/commit",
+            json={"kept_action_ids": ["a1", "a2"], "committed_est": 9999},
+        )
+        args, kwargs = MockActions.return_value.sum_est_for_ids.call_args
+        assert args == (WS_ID, ["a1", "a2"])
+        assert MockDays.return_value.commit_day.call_args.kwargs["committed_est"] == 75
+    assert resp.status_code == 200, resp.text
+    # The 9999 the client tried to smuggle in is not a field and is ignored.
+    assert resp.json()["committed_est"] == 75
+
+
+def test_close_measures_done_server_side_over_the_local_day(make_client):
+    """done_est is not in the request body. The window handed to the query must
+    be this local day in the workspace timezone, not a UTC calendar day."""
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions, \
+         patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays:
+        MockActions.return_value.sum_est_completed_in_range.return_value = 60
+        MockDays.return_value.close_day.return_value = _day_row(done_est=60, reflection="ok")
+        resp = client.post("/api/app/planner-day/close", json={"reflection": "  ok  "})
+        args, _ = MockActions.return_value.sum_est_completed_in_range.call_args
+        _, start, end = args
+        assert end - start == timedelta(days=1), "window is not one day"
+        assert start.hour in (4, 5), "not local midnight for America/New_York (EDT/EST)"
+        # Whitespace-only reflections become None rather than a blank string.
+        assert MockDays.return_value.close_day.call_args.kwargs["reflection"] == "ok"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["done_est"] == 60
+
+
+def test_close_turns_a_blank_reflection_into_null(make_client):
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions, \
+         patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays:
+        MockActions.return_value.sum_est_completed_in_range.return_value = 0
+        MockDays.return_value.close_day.return_value = _day_row(done_est=0)
+        client.post("/api/app/planner-day/close", json={"reflection": "   "})
+        assert MockDays.return_value.close_day.call_args.kwargs["reflection"] is None
+
+
+def test_commit_rejects_an_unbounded_id_list(make_client):
+    client = make_client()
+    resp = client.post(
+        "/api/app/planner-day/commit", json={"kept_action_ids": [f"a{i}" for i in range(501)]}
+    )
+    assert resp.status_code == 422
+
+
+def test_close_accepts_yesterday_and_measures_that_day(make_client):
+    """A job search runs past midnight. At 00:30 the server's "today" is a day
+    that has not started; closing it stamps the new day finished before it
+    began, and locks it out of both rituals. The client echoes back the day it
+    was shown, and the done window follows it."""
+    client = make_client()
+    yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    with patch("apps.api.routes.applications.ApplicationActionRepository") as MockActions, \
+         patch("apps.api.routes.applications.PlannerDayLogRepository") as MockDays:
+        MockActions.return_value.sum_est_completed_in_range.return_value = 60
+        MockDays.return_value.close_day.return_value = _day_row(done_est=60)
+        resp = client.post(
+            "/api/app/planner-day/close", json={"reflection": None, "local_date": yesterday}
+        )
+        assert resp.status_code == 200, resp.text
+        # The row is filed against yesterday...
+        assert MockDays.return_value.close_day.call_args[0][1].isoformat() == yesterday
+        # ...and done_est is measured over YESTERDAY's window, not today's.
+        _, start, end = MockActions.return_value.sum_est_completed_in_range.call_args[0]
+        assert end - start == timedelta(days=1)
+        assert start.date().isoformat() in (yesterday, (datetime.fromisoformat(yesterday).date() - timedelta(days=1)).isoformat())
+
+
+def test_close_refuses_a_day_further_back_than_yesterday(make_client):
+    """The client is confirming a date it was shown, not choosing one. Two days
+    is not a past-midnight session, it is a mistake or a forged body."""
+    client = make_client()
+    old = (datetime.now(timezone.utc).date() - timedelta(days=5)).isoformat()
+    resp = client.post("/api/app/planner-day/close", json={"local_date": old})
+    assert resp.status_code == 422
+    future = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    assert client.post("/api/app/planner-day/close", json={"local_date": future}).status_code == 422
+    assert client.post("/api/app/planner-day/close", json={"local_date": "nope"}).status_code == 422

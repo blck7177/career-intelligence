@@ -11,6 +11,7 @@ from packages.domain.planner.rules import ActionView, ApplicationView, EventView
 from packages.domain.planner.weekly import build_weekly_stats
 from packages.infrastructure.db.repositories import (
     JobApplicationRepository,
+    PlannerDayLogRepository,
     PlannerReviewRepository,
     WorkspaceRepository,
 )
@@ -92,9 +93,11 @@ class _FakeLLM:
         self._text = text
         self._error = error
         self.calls = 0
+        self.last_user_prompt = ""
 
     def complete_simple(self, system_prompt, user_prompt, **kwargs):
         self.calls += 1
+        self.last_user_prompt = user_prompt
         if self._error:
             raise LLMCallError("boom")
         return self._text
@@ -301,3 +304,121 @@ def test_changed_regeneration_reopens_the_review(db_session):
     repo.mark_read("ws11", WEEK_START, now_utc=READ_AT)
     repo.upsert(workspace_id="ws11", week_start=WEEK_START, stats_json={"a": 2}, narrative_md="arrived")
     assert repo.get_for_week("ws11", WEEK_START).read_at is None
+
+
+# --- plan versus actual (V6-C3) ---------------------------------------------
+
+
+def test_weekly_days_omit_the_days_the_ritual_never_ran(db_session):
+    """Absent, not zero-filled. "Did not plan" and "planned nothing" are
+    different facts, and a week padded with zeroes reads as a bad week rather
+    than an unrecorded one — which is the opposite of what a gentle review is
+    for."""
+    from packages.domain.planner.weekly import DayLogView, build_weekly_stats
+
+    logs = [
+        DayLogView(local_date=WEEK_START, committed_est=90, done_est=60),
+        DayLogView(local_date=WEEK_START + timedelta(days=2), committed_est=45, done_est=None),
+    ]
+    stats = build_weekly_stats(
+        [], PlannerSettings(), WEEK_START, NOW, global_actions=[], day_logs=logs
+    )
+    assert [d.date for d in stats.days] == [
+        WEEK_START.isoformat(),
+        (WEEK_START + timedelta(days=2)).isoformat(),
+    ]
+    assert (stats.days[0].committed_est, stats.days[0].done_est) == (90, 60)
+    # Planned but never closed: done_est stays None rather than becoming 0.
+    assert stats.days[1].done_est is None
+
+
+def test_weekly_days_are_clipped_to_the_reviewed_week_and_sorted(db_session):
+    """The caller queries a range, but the aggregate is the authority on which
+    week it describes — a log from the next week leaking in would be attributed
+    to the wrong review."""
+    from packages.domain.planner.weekly import DayLogView, build_weekly_stats
+
+    logs = [
+        DayLogView(local_date=WEEK_START + timedelta(days=3), committed_est=30),
+        DayLogView(local_date=WEEK_START - timedelta(days=1), committed_est=30),  # before
+        DayLogView(local_date=WEEK_START + timedelta(days=7), committed_est=30),  # after
+        DayLogView(local_date=WEEK_START, committed_est=30),
+    ]
+    stats = build_weekly_stats(
+        [], PlannerSettings(), WEEK_START, NOW, global_actions=[], day_logs=logs
+    )
+    assert [d.date for d in stats.days] == [
+        WEEK_START.isoformat(),
+        (WEEK_START + timedelta(days=3)).isoformat(),
+    ]
+
+
+def test_weekly_days_default_to_empty_when_no_logs_exist(db_session):
+    """Every review generated before V6 has no day logs at all; the field has to
+    degrade to an empty list, not None or a crash."""
+    from packages.domain.planner.weekly import build_weekly_stats
+
+    stats = build_weekly_stats([], PlannerSettings(), WEEK_START, NOW, global_actions=[])
+    assert stats.days == []
+
+
+def test_day_logs_actually_reach_the_generated_review(db_session, monkeypatch):
+    """The wiring, not the aggregator.
+
+    The three tests above call build_weekly_stats directly and pass day_logs by
+    hand, so they prove the arithmetic and nothing about whether the service
+    ever supplies it. Deleting `day_logs=day_logs` from the service call left
+    the whole suite green — the feature could be unplugged at the seam without a
+    single failure. This is the test that fails when it is."""
+    monkeypatch.setattr(weekly_review_service, "get_llm_client", lambda: _FakeLLM())
+    WorkspaceRepository(db_session).create(name="t", workspace_id="ws-days")
+    PlannerDayLogRepository(db_session).commit_day("ws-days", WEEK_START, committed_est=90)
+    PlannerDayLogRepository(db_session).close_day(
+        "ws-days", WEEK_START, done_est=60, reflection=None, now_utc=NOW
+    )
+    db_session.flush()
+
+    row = weekly_review_service.generate_weekly_review(
+        db_session, "ws-days", now_utc=NOW, week_start=WEEK_START
+    )
+
+    assert row is not None
+    days = row.stats_json["days"]
+    assert len(days) == 1, "day logs never reached the review"
+    assert (days[0]["committed_est"], days[0]["done_est"]) == (90, 60)
+
+
+def test_reflections_reach_the_narrative_material(db_session, monkeypatch):
+    """The shutdown wizard tells the user their reflection "goes into the weekly
+    review". Until this, nothing read it back — the copy was a promise the data
+    never kept. The prompt is handed the whole stats block, so being in days[]
+    IS being in the material; this asserts it arrives."""
+    fake = _FakeLLM()
+    monkeypatch.setattr(weekly_review_service, "get_llm_client", lambda: fake)
+    WorkspaceRepository(db_session).create(name="t", workspace_id="ws-refl")
+    PlannerDayLogRepository(db_session).close_day(
+        "ws-refl", WEEK_START, done_est=45, reflection="kept getting pulled into email",
+        now_utc=NOW,
+    )
+    db_session.flush()
+
+    row = weekly_review_service.generate_weekly_review(
+        db_session, "ws-refl", now_utc=NOW, week_start=WEEK_START
+    )
+
+    assert row.stats_json["days"][0]["reflection"] == "kept getting pulled into email"
+    # ...and it is actually in the text the model was given.
+    assert "kept getting pulled into email" in fake.last_user_prompt
+
+
+def test_the_prompt_forbids_paraphrasing_a_reflection(db_session):
+    """A reflection is the user's own words about their own week. A coach model
+    restating them as its reading of your state is the failure mode this whole
+    review is written to avoid, so the instruction is explicit and pinned."""
+    from packages.domain.planner.weekly import weekly_review_prompt
+
+    system, _ = weekly_review_prompt(
+        build_weekly_stats([], PlannerSettings(), WEEK_START, NOW, global_actions=[])
+    )
+    assert "VERBATIM" in system
+    assert "never paraphrase" in system

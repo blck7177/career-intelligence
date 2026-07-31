@@ -50,6 +50,8 @@ export type PlannerStats = components["schemas"]["PlannerStats"];
 export type PlannerWeek = components["schemas"]["PlannerWeek"];
 export type PlannerWeekDay = components["schemas"]["PlannerWeekDay"];
 export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
+export type PlannerDayLogRead = components["schemas"]["PlannerDayLogRead"];
+export type PlannerDayRead = components["schemas"]["PlannerDayRead"];
 export type WeeklyReviewStats = components["schemas"]["WeeklyReviewStats"];
 export type StatusTransition = components["schemas"]["StatusTransition"];
 export type ActionRead = components["schemas"]["ActionRead"];
@@ -432,6 +434,41 @@ export async function getPlannerStats(week?: string, token?: string | null): Pro
 export async function getPlannerWeek(week?: string, token?: string | null): Promise<PlannerWeek> {
   const qs = week ? `?week=${encodeURIComponent(week)}` : "";
   return req<PlannerWeek>(`/api/app/planner-week${qs}`, undefined, token);
+}
+
+// Today's planner state: the ritual record (log may be null) plus the live
+// done totals, which arrive whether or not the ritual has run.
+export async function getPlannerDay(token?: string | null): Promise<PlannerDayRead> {
+  return req<PlannerDayRead>("/api/app/planner-day", undefined, token);
+}
+
+// File the morning commitment. Sends WHICH to-dos were kept, never a total —
+// the server sums them with its own copy of the per-type estimates.
+export async function commitPlannerDay(
+  keptActionIds: string[],
+  token?: string | null,
+): Promise<PlannerDayLogRead> {
+  return req<PlannerDayLogRead>(
+    "/api/app/planner-day/commit",
+    { method: "POST", body: JSON.stringify({ kept_action_ids: keptActionIds }) },
+    token,
+  );
+}
+
+// Close the day. done_est is measured server-side; all we send is the reflection.
+export async function closePlannerDay(
+  reflection: string | null,
+  localDate: string | null,
+  token?: string | null,
+): Promise<PlannerDayLogRead> {
+  // localDate echoes a day the server labelled; it accepts only today or
+  // yesterday. Null means "today", which is what any session not running past
+  // midnight sends.
+  return req<PlannerDayLogRead>(
+    "/api/app/planner-day/close",
+    { method: "POST", body: JSON.stringify({ reflection, local_date: localDate }) },
+    token,
+  );
 }
 
 // Latest weekly review, or null when none has been generated yet (200 null body).

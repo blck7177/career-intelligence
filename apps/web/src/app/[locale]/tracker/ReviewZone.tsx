@@ -57,6 +57,10 @@ function ReviewCard({ review }: { review: WeeklyReviewRead }) {
   const s = review.stats;
   const target = s.weekly_target;
   const ratePct = Math.round((s.interview_rate ?? 0) * 100);
+  // Reviews generated before V6 have no `days` key in their stored stats at
+  // all. Pydantic fills the default on the way out, but the field is optional
+  // in the schema for exactly that reason — so treat absent as "none recorded".
+  const days = s.days ?? [];
   const benchPct = Math.round((s.benchmark_interview_rate ?? 0.08) * 100);
 
   return (
@@ -75,6 +79,68 @@ function ReviewCard({ review }: { review: WeeklyReviewRead }) {
         </p>
       ) : (
         <p className="text-xs italic" style={{ color: "var(--ink-muted)" }}>{t("reviewNarrativeUnavailable")}</p>
+      )}
+
+      {/* Plan versus actual. Only days with a ritual record appear — a week
+          zero-filled to seven bars would read as a week of failure rather than
+          a week that was not planned. */}
+      {days.length > 0 && (
+        <div>
+          <div className="text-2xs uppercase tracking-wide mb-1.5" style={{ color: "var(--ink-faint)" }}>
+            {t("reviewDaysTitle")}
+          </div>
+          <div className="space-y-1.5">
+            {days.map((d) => {
+              const planned = d.committed_est ?? 0;
+              const done = d.done_est ?? 0;
+              // Scale to the busiest day of the week so the bars compare with
+              // each other; an absolute scale would flatten a light week.
+              const peak = Math.max(
+                1,
+                ...days.map((x) => Math.max(x.committed_est ?? 0, x.done_est ?? 0)),
+              );
+              return (
+                <div key={d.date} className="flex items-center gap-2 text-2xs">
+                  <span className="w-16 shrink-0 tabular-nums" style={{ color: "var(--ink-faint)" }}>
+                    {d.date.slice(5)}
+                  </span>
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <div className="h-1.5 rounded-full" style={{ background: "var(--muted)" }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${(planned / peak) * 100}%`, background: "var(--ink-faint)" }}
+                      />
+                    </div>
+                    <div className="h-1.5 rounded-full" style={{ background: "var(--muted)" }}>
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${(done / peak) * 100}%`, background: "var(--primary)" }}
+                      />
+                    </div>
+                  </div>
+                  <span className="shrink-0 tabular-nums" style={{ color: "var(--ink-muted)" }}>
+                    {/* Never "0" for a null. A day closed without a morning
+                        ritual has committed_est null, and one planned but never
+                        closed has done_est null — printing either as 0m would
+                        collapse "no record" into "recorded nothing", which is
+                        the distinction the whole feature is built around. */}
+                    {t("reviewDayCommitted")}{" "}
+                    {d.committed_est == null ? "—" : `${planned}m`} · {t("reviewDayDone")}{" "}
+                    {d.done_est == null ? "—" : `${done}m`}
+                  </span>
+                </div>
+              );
+            })}
+            {/* The reflections themselves, under the bars. They are the user's
+                own words; showing them only to the model that summarises them
+                would be an odd thing to do with someone's diary. */}
+            {days.filter((d) => d.reflection).map((d) => (
+              <p key={`${d.date}-r`} className="text-2xs pl-[4.5rem] italic" style={{ color: "var(--ink-muted)" }}>
+                {d.date.slice(5)} — {d.reflection}
+              </p>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Conversion vs benchmark */}

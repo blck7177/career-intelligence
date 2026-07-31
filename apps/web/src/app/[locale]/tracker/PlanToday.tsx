@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
-import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek } from "@/api/client";
-import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay } from "@/api/client";
+import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay, closePlannerDay } from "@/api/client";
+import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
+import { RitualWizard, type RitualResult } from "./RitualWizard";
+import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
-import { parseQuickAdd, dueAtFor } from "@/lib/quickParse";
+import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 
 const HORIZON_DAYS = 14;
 
@@ -19,17 +22,6 @@ const GROUP_OF: Record<string, string> = {
   thank_you: "wrapup",
 };
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
-
-// Fallback estimate by type, for rows written before est_minutes existed and for
-// manual to-dos the user did not estimate. The engine now emits its own value
-// (packages/domain/planner/rules.py DEFAULT_EST_MINUTES) — prefer that.
-const EST_FALLBACK: Record<string, number> = {
-  follow_up: 15, thank_you: 15, prep: 30, apply: 60, networking: 20, custom: 20, global: 15,
-};
-
-function estOf(a: ActionRead): number {
-  return a.est_minutes ?? EST_FALLBACK[a.type] ?? 20;
-}
 
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
@@ -44,13 +36,6 @@ function groupOf(a: ActionRead): string {
 function countsTowardToday(a: ActionRead): boolean {
   const info = dueInfo(a);
   return info === null || info.today;
-}
-
-function fmtMinutes(m: number): string {
-  const h = Math.floor(m / 60);
-  const mm = m % 60;
-  if (!h) return `${mm}m`;
-  return mm ? `${h}h${String(mm).padStart(2, "0")}` : `${h}h`;
 }
 
 // The engine records the facts each auto to-do fired on (the payload contract in
@@ -131,6 +116,21 @@ export function PlanToday() {
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
+  // undefined = still loading. `day.log` null = no row today (ritual not run);
+  // day.done_* are measured live and arrive either way.
+  const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
+  const [shutdownOpen, setShutdownOpen] = useState(false);
+  const [shutdownBusy, setShutdownBusy] = useState(false);
+  const [ritualError, setRitualError] = useState(false);
+  const [shutdownError, setShutdownError] = useState(false);
+  // Which day the evening ritual is ending. Defaults to the server-labelled
+  // today; a session running past midnight switches it to yesterday.
+  const [closingDate, setClosingDate] = useState<string | null>(null);
+  const [ritualOpen, setRitualOpen] = useState(false);
+  const [ritualBusy, setRitualBusy] = useState(false);
+  // "Skip" is a decision about this sitting, not a preference. Module scope so
+  // it survives leaving and re-entering the Plan tab (see reviewBanner.ts for
+  // the same call), keyed by day so tomorrow still asks.
   // Revocation is remembered by the TEXT that was rejected, not as a sticky flag.
   // A flag leaked: undo the date once and every later line silently stopped
   // parsing dates — the same silent failure this feature exists to avoid, just
@@ -163,16 +163,18 @@ export function PlanToday() {
       const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
       // The strip is context, not the list itself — it degrades to absent
       // rather than failing the view.
-      const [res, st, cfg, wk] = await Promise.all([
+      const [res, st, cfg, wk, dayState] = await Promise.all([
         listActions({ due_on_or_before: horizon, include_undated: true }, token),
         getPlannerStats(undefined, token).catch(() => null),
         getPlannerSettings(token).catch(() => null),
         getPlannerWeek(undefined, token).catch(() => null),
+        getPlannerDay(token).catch(() => undefined),
       ]);
       setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
       setStats(st);
       setSettings(cfg);
       setWeek(wk);
+      setDay(dayState);
       setError(false);
     } catch {
       setError(true);
@@ -185,6 +187,18 @@ export function PlanToday() {
   // the server (they fold in overdue and undated work, and that arithmetic
   // belongs in one place). Without this, clearing the last to-do left "today's
   // cleared" sitting next to a strip still showing dots on today.
+  // The done bar and the shutdown summary are server-measured, so any mutation
+  // that could change what is complete has to re-read them. Without this the
+  // bar sits at its page-load value all day — the one thing it exists to avoid.
+  const refreshDay = useCallback(async () => {
+    try {
+      const token = await getToken();
+      setDay(await getPlannerDay(token));
+    } catch {
+      // Keep the last good reading rather than blanking the bar.
+    }
+  }, [getToken]);
+
   const refreshWeek = useCallback(async () => {
     try {
       const token = await getToken();
@@ -200,7 +214,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await updateAction(id, { op, snooze_days: 1 }, token);
-      await refreshWeek();
+      await Promise.all([refreshWeek(), refreshDay()]);
     } catch {
       load();
     } finally {
@@ -239,12 +253,19 @@ export function PlanToday() {
   // Rest until Monday: snooze every current action to the next Monday.
   async function restUntilMonday() {
     if (resting || !actions || actions.length === 0) return;
+    // Days to the NEXT Monday, counted from the day the SERVER labelled today —
+    // the strip is Monday-first, so the index IS the weekday and no browser
+    // clock is involved. Absolute local-midnight target so overdue actions land
+    // ON Monday rather than +N days from a past due, which could stay past.
+    //
+    // Resolved BEFORE the button enters its loading state: both of these bail
+    // out, and setting it first would leave the spinner running forever on a
+    // page whose strip or settings had not arrived.
+    const todayIdx = week?.days.findIndex((d) => d.is_today) ?? -1;
+    if (todayIdx < 0) return;
+    const until = dayShift(7 - todayIdx);
+    if (!until) return;
     setResting(true);
-    const now = new Date();
-    const daysToMon = ((8 - now.getDay()) % 7) || 7; // 1..7 days to the NEXT Monday
-    // Absolute local-midnight of next Monday, so overdue actions land ON Monday
-    // (not merely +N days from a past due, which could stay in the past).
-    const until = new Date(now.getFullYear(), now.getMonth(), now.getDate() + daysToMon).toISOString();
     const ids = actions.map((a) => a.id);
     ids.forEach((id) => removingRef.current.add(id));
     setActions([]);
@@ -272,12 +293,122 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
-      await refreshWeek();
+      await Promise.all([refreshWeek(), refreshDay()]);
     } catch {
       load();
     } finally {
       ids.forEach((id) => removingRef.current.delete(id));
       setDeferring(false);
+    }
+  }
+
+  async function applyRitual({ keptIds, deferIds, dropIds }: RitualResult) {
+    setRitualBusy(true);
+    setRitualError(false);
+    // Order matters: file the commitment FIRST. If the moves fail we have still
+    // recorded what the user agreed to, which is the part that cannot be
+    // reconstructed later; the to-dos are all still there to move by hand.
+    try {
+      const token = await getToken();
+      const log = await commitPlannerDay(keptIds, token);
+      setDay((prev) => (prev ? { ...prev, log } : prev));
+      // Absolute target, not snooze_days: a relative snooze is measured from
+      // due_at, so an overdue item moved "to tomorrow" would land on the day
+      // after its ORIGINAL due date — still in the past, and straight back into
+      // tomorrow's list. Same reason Rest-until-Monday sends a date.
+      //
+      // Anchored on the day the SERVER labelled today and encoded at local
+      // midnight in the WORKSPACE timezone, which is the encoding due_at means
+      // everywhere else. Building it from the browser clock instead put the
+      // to-do on the wrong day of the strip for anyone not sitting in their
+      // workspace's zone.
+      const tomorrow = dayShift(1);
+      if (!tomorrow) throw new Error("day or timezone unknown — refusing to guess a due date");
+      await Promise.all([
+        ...deferIds.map((id) =>
+          updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: tomorrow }, token),
+        ),
+        ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
+      ]);
+      setRitualOpen(false);
+      await load();
+      await refreshWeek();
+    } catch {
+      // Leave the wizard open so the user can retry without redoing three steps,
+      // and say so — setError only renders while the list is still loading, so
+      // on a loaded page it would have failed in complete silence.
+      setRitualError(true);
+    } finally {
+      setRitualBusy(false);
+    }
+  }
+
+  async function applyShutdown({ tomorrowIds, nextWeekIds, dropIds, reflection }: ShutdownResult) {
+    setShutdownBusy(true);
+    setShutdownError(false);
+    try {
+      const token = await getToken();
+      // Same absolute-date reasoning as the morning ritual — and anchored on the
+      // day being CLOSED, not on "now". Closing yesterday at 00:30, "tomorrow"
+      // means the day you wake up into, which is already today; anchoring on now
+      // would push it a day further than the user meant.
+      const at = (days: number) => dayShift(days, closingDate ?? undefined);
+      if (!at(1)) throw new Error("day or timezone unknown — refusing to guess a due date");
+      await Promise.all([
+        ...tomorrowIds.map((id) =>
+          updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: at(1)! }, token),
+        ),
+        ...nextWeekIds.map((id) =>
+          updateAction(id, { op: "snooze", snooze_days: 7, snooze_until: at(7)! }, token),
+        ),
+        ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
+      ]);
+      // Close LAST here, the opposite order from the morning: done_est is
+      // measured at close, and moving the leftovers first means the number is
+      // taken against the day's final state rather than a half-tidied one.
+      const log = await closePlannerDay(reflection, closingDate, token);
+      setDay((prev) => (prev ? { ...prev, log } : prev));
+      setShutdownOpen(false);
+      await load();
+      await refreshWeek();
+    } catch {
+      setShutdownError(true);
+    } finally {
+      setShutdownBusy(false);
+    }
+  }
+
+  /** `base` (default: the server-labelled today) shifted by N days, encoded as
+   *  local midnight in the workspace timezone — the same instant the backend
+   *  writes for a due date. Returns undefined while the day or the timezone is
+   *  still unknown, and every caller treats that as "do not move anything"
+   *  rather than guessing from the browser clock. */
+  function dayShift(days: number, base?: string): string | undefined {
+    const tz = settings?.timezone;
+    const from = base ?? week?.days.find((d) => d.is_today)?.date;
+    if (!tz || !from) return undefined;
+    return localMidnightUtc(addDays(from, days), tz);
+  }
+
+  async function skipRitual() {
+    // "Skip" commits to everything already on the plate rather than recording
+    // nothing. The plan said so, and it is right for three reasons: the banner
+    // stops asking because the day HAS been planned (not because a variable in
+    // this tab says to hide it, which no reload survives), the weekly
+    // comparison keeps a baseline for the day instead of a hole, and the two
+    // bugs a module flag brought with it — lost on refresh, shared across a
+    // client-side account switch — cannot exist at all.
+    if (ritualBusy) return;
+    setRitualBusy(true);
+    setRitualError(false);
+    try {
+      const token = await getToken();
+      const log = await commitPlannerDay(todayItems.map((a) => a.id), token);
+      setDay((prev) => (prev ? { ...prev, log } : prev));
+    } catch {
+      setRitualError(true);
+    } finally {
+      setRitualBusy(false);
     }
   }
 
@@ -299,6 +430,37 @@ export function PlanToday() {
   // is how the day-boundary bugs get back in. The old note only asked whether
   // sat/sun were in rest_days at all, so it read the same on a Tuesday.
   const isRestToday = !!week?.days.find((d) => d.is_today)?.is_rest;
+  // Yesterday's leftovers: due before today and still open. dueInfo folds
+  // everything past into today (that is what the capacity bar counts), so
+  // "overdue" is read off due_at directly.
+  const overdue = items.filter((a) => {
+    if (!a.due_at) return false;
+    const info = dueInfo(a);
+    return info !== null && info.today && new Date(a.due_at) < startOfToday();
+  });
+  // Ask only once the day is actually known and the list has loaded: a banner
+  // that flashes before the data arrives is a banner that gets clicked away.
+  // The question is "has the morning ritual run today", and committed_est is
+  // the direct answer. `log === null` was a proxy for it, and a proxy that
+  // breaks in exactly the case that matters: closing a session past midnight
+  // creates a row for the new day, which silently made the proxy false and shut
+  // the banner off for a day nobody had planned.
+  const askRitual =
+    day !== undefined &&
+    day.log?.committed_est == null &&
+    actions !== null &&
+    week !== null;
+  const closed = !!day?.log?.closed_at;
+  // The week's next hard commitment — the one thing that should shape a day
+  // before anything on the to-do list does (the digest principle: lead with
+  // what cannot move).
+  const nextInterview = (() => {
+    for (const d of week?.days ?? []) {
+      const iv = d.interviews ?? [];
+      if (iv.length > 0) return { company: iv[0].company, day: d.date.slice(5) };
+    }
+    return null;
+  })();
   const zoneSub = [
     items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
     isRestToday ? t("restDayNote") : null,
@@ -307,6 +469,67 @@ export function PlanToday() {
   return (
     <section className="w-full">
       <ZoneHead eyebrow={t("zoneEyebrowToday")} title={t("todayTitle")} sub={zoneSub || undefined} />
+
+      {/* Morning ritual. Above the strip and the list because it is the thing
+          to do BEFORE looking at either — once you have read the list you have
+          already started planning in your head, informally, which is the habit
+          the ritual replaces. */}
+      {askRitual && (
+        <div
+          className="rounded-lg border px-4 py-3 mb-5 flex flex-wrap items-center gap-x-3 gap-y-2"
+          style={{ borderColor: "var(--border)", background: "var(--muted)" }}
+        >
+          <b className="text-sm" style={{ color: "var(--ink-primary)" }}>{t("ritualBannerTitle")}</b>
+          <span className="flex-1 min-w-0 text-xs" style={{ color: "var(--ink-secondary)" }}>
+            {t("ritualBannerSummary", { count: items.length, carry: overdue.length })}
+            {nextInterview && (
+              <> {t("ritualBannerInterview", { company: nextInterview.company, day: nextInterview.day })}</>
+            )}
+          </span>
+          <Button size="sm" variant="outline" onClick={() => setRitualOpen(true)}>
+            {t("ritualBannerStart")}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={skipRitual}>{t("ritualBannerSkip")}</Button>
+        </div>
+      )}
+
+      {(ritualError || shutdownError) && (
+        <div
+          className="rounded-lg border px-4 py-2 mb-4 text-xs"
+          style={{ borderColor: "var(--match-partial-fg)", color: "var(--match-partial-fg)" }}
+          role="alert"
+        >
+          {t("ritualFailed")}
+        </div>
+      )}
+
+      <ShutdownWizard
+        open={shutdownOpen}
+        onOpenChange={setShutdownOpen}
+        leftovers={todayItems}
+        doneCount={day?.done_count ?? 0}
+        doneEst={day?.done_est ?? 0}
+        today={week?.days.find((d) => d.is_today)?.date ?? null}
+        yesterday={(() => {
+          const td = week?.days.find((d) => d.is_today)?.date;
+          return td ? addDays(td, -1) : null;
+        })()}
+        closingDate={closingDate}
+        onClosingDateChange={setClosingDate}
+        onApply={applyShutdown}
+        applying={shutdownBusy}
+      />
+
+      <RitualWizard
+        open={ritualOpen}
+        onOpenChange={setRitualOpen}
+        actions={todayItems}
+        overdue={overdue}
+        cap={cap}
+        onApply={applyRitual}
+        applying={ritualBusy}
+      />
+
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
         <div className="min-w-0 space-y-5 order-2 lg:order-1">
@@ -328,6 +551,39 @@ export function PlanToday() {
                   onDefer={deferToFit}
                   deferring={deferring}
                 />
+              )}
+            </div>
+          )}
+
+          {/* Done bar. Visible all day, not only on a cleared list: the point is
+              to see the day accumulating while it happens. Finished to-dos leave
+              the list the moment they are ticked, so without this the only
+              evidence of a productive morning is an emptier list — which looks
+              identical to a morning where nothing was there to begin with. */}
+          {day !== undefined && actions !== null && (
+            <div
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <span style={{ color: "var(--ink-secondary)" }}>
+                {/* 🌙 rides the done bar rather than the empty state: the plan
+                    asked for a closed day to READ as closed, and it has to hold
+                    until the next morning — "see you at tomorrow's digest" is
+                    the promise the ritual makes. A marker that only appears on
+                    an empty list disappears the moment anything new comes due. */}
+                {closed && "🌙 "}
+                {t("doneToday", { n: day.done_count, minutes: fmtMinutes(day.done_est) })}
+              </span>
+              {day.log?.committed_est != null && (
+                <span style={{ color: "var(--ink-faint)" }}>
+                  · {t("doneVsCommitted", { minutes: fmtMinutes(day.log.committed_est) })}
+                </span>
+              )}
+              <span className="flex-1" />
+              {!closed && (
+                <Button size="sm" variant="ghost" onClick={() => setShutdownOpen(true)}>
+                  {t("shutdownOpen")}
+                </Button>
               )}
             </div>
           )}
@@ -379,12 +635,13 @@ export function PlanToday() {
               <div className="animate-pulse h-24" aria-hidden />
             )
           ) : isEmpty ? (
-            /* Done bar */
             <div
               className="rounded-lg border px-4 py-4 text-center"
               style={{ borderColor: "var(--match-good-border, var(--border))", background: "var(--match-good-bg)" }}
             >
-              <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--match-good-fg)" }}>{t("todayCleared")}</p>
+              <p className="text-sm font-semibold mb-0.5" style={{ color: "var(--match-good-fg)" }}>
+                {closed ? t("todayClosed") : t("todayCleared")}
+              </p>
               <p className="text-xs" style={{ color: "var(--ink-muted)" }}>{t("todayEmpty")}</p>
             </div>
           ) : (
@@ -565,58 +822,39 @@ function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
 }) {
   const t = useTranslations("tracker");
   const pct = Math.round((used / cap) * 100);
-  const state = pct > 100 ? "over" : pct > 85 ? "near" : "under";
-  const fill = state === "under" ? "var(--primary)" : "var(--match-partial-fg)";
   const excess = used - cap;
   // Only offer the escape hatch when it can actually move the needle.
-  const wouldMove = state === "over" ? pickToDefer(deferrable, excess).length : 0;
+  const wouldMove = pct > 100 ? pickToDefer(deferrable, excess).length : 0;
 
   return (
     <div>
-      <div className="flex items-center justify-between text-2xs mb-1" style={{ color: "var(--ink-muted)" }}>
-        <span>{t("capacityTitle")}</span>
-        <span className="tabular-nums">{fmtMinutes(used)} / {fmtMinutes(cap)}</span>
-      </div>
-      <div className="relative h-2 rounded-full overflow-hidden" style={{ background: "var(--muted)" }}>
-        {/* the "stop here" mark */}
-        <span
-          className="absolute top-0 bottom-0 w-px z-10"
-          style={{ left: "85%", background: "var(--ink-faint)" }}
-          aria-hidden
-        />
-        <div
-          className="h-full rounded-full transition-[width] duration-300"
-          style={{ width: `${Math.min(pct, 100)}%`, background: fill }}
-        />
-      </div>
-      <div className="flex items-center gap-2 flex-wrap mt-1 text-2xs" style={{ color: "var(--ink-faint)" }}>
-        {state === "over" ? (
-          <span className="font-semibold" style={{ color: "var(--match-partial-fg)" }}>
-            {t("capacityOver", { pct: pct - 100 })}
-          </span>
-        ) : state === "near" ? (
-          <span style={{ color: "var(--match-partial-fg)" }}>{t("capacityNear", { pct })}</span>
-        ) : (
-          <span>{t("capacityUnder", { pct })}</span>
-        )}
-        <span>· {t("capacityHint")}</span>
-        {wouldMove > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            loading={deferring}
-            onClick={() => onDefer(deferrable, excess)}
-          >
-            {t("capacityDefer", { n: wouldMove })}
-          </Button>
-        )}
-      </div>
+      <CapacityMeter
+        used={used}
+        cap={cap}
+        trailing={
+          wouldMove > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              loading={deferring}
+              onClick={() => onDefer(deferrable, excess)}
+            >
+              {t("capacityDefer", { n: wouldMove })}
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   );
 }
 
 type DueInfo = { today: boolean; days: number; warn: boolean };
+
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
 
 // Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
 // (warn within a day). Undated actions get no pill (they read as "anytime").

@@ -2731,6 +2731,176 @@
         }
       }
     },
+    "/api/app/planner-day": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Get Planner Day",
+        "description": "Today's planner state: the ritual record, plus what has actually been\ncompleted so far.\n\n`log` is null when the day has no row \u2014 the morning ritual has not run,\nwhich is what the banner keys off. The done totals are measured on every\nread rather than taken from the log, because the done bar shows them all\nday while the log's own done_est is not written until the evening close.",
+        "operationId": "get_planner_day_api_app_planner_day_get",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerDayRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/planner-day/commit": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Commit Planner Day",
+        "description": "Snapshot the morning commitment: the sum of the effective estimates of\nthe to-dos the user kept.\n\nThe total is computed here, from the same per-type fallback the Today view\nrenders with, so the number filed is the number the user agreed to. Ids that\nare not this workspace's are ignored rather than rejected \u2014 the list can\nmove under a ritual left open \u2014 which also makes the endpoint the wrong\nplace to learn whether an id exists.",
+        "operationId": "commit_planner_day_api_app_planner_day_commit_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerDayCommit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerDayLogRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/planner-day/close": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Close Planner Day",
+        "description": "Close the day: measure what was actually completed during it and stamp\nthe moment.\n\ndone_est is measured server-side over the closed day's completed_at window,\nnever taken from the client. Closing a day whose morning ritual never ran is\nallowed and leaves committed_est NULL \u2014 that is a true record of what\nhappened, and inventing a commitment to compare against would be worse.\n\nThe day is today unless the body echoes back yesterday, which is what a\nsession running past midnight sends: at 00:30 the server's \"today\" is a day\nthat has not started, and closing it would stamp the new day finished before\nit began. 422 for anything further out \u2014 the client is confirming a date it\nwas shown, not choosing one.",
+        "operationId": "close_planner_day_api_app_planner_day_close_post",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlannerDayClose"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannerDayLogRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/app/planner-review": {
       "get": {
         "tags": [
@@ -5936,6 +6106,184 @@
         ],
         "title": "NotInterestedResponse"
       },
+      "PlannerDayClose": {
+        "properties": {
+          "reflection": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection"
+          },
+          "local_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Date"
+          }
+        },
+        "type": "object",
+        "title": "PlannerDayClose",
+        "description": "Body of POST /planner-day/close \u2014 the evening ritual.\n\ndone_est is deliberately absent for the same reason as commit's total: it is\nmeasured from completed_at server-side.\n\n`local_date` is the one place a day ritual takes a date, and it is an ECHO,\nnot a calculation: the client sends back the day the server itself labelled,\nand the server accepts only today or yesterday. It exists because a job\nsearch runs past midnight \u2014 closing at 00:30 otherwise files the log against\na day that has not started, stamping the new day closed before it began.\nBounded to two days because \"which day am I ending\" has exactly two sensible\nanswers at 00:30 and none at all a week later."
+      },
+      "PlannerDayCommit": {
+        "properties": {
+          "kept_action_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Kept Action Ids"
+          }
+        },
+        "type": "object",
+        "title": "PlannerDayCommit",
+        "description": "Body of POST /planner-day/commit \u2014 the morning ritual's third step.\n\nThe client sends WHICH to-dos it kept, never the total: the stored number\nhas to be the server's own arithmetic over the same estimates the capacity\nbar was drawn from, or the weekly comparison is measuring a figure the user\ncould have edited. There is no date field either \u2014 the day is resolved from\nsettings.timezone, so a browser in the wrong zone cannot file a commitment\nagainst yesterday."
+      },
+      "PlannerDayLogRead": {
+        "properties": {
+          "local_date": {
+            "type": "string",
+            "title": "Local Date"
+          },
+          "committed_est": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Committed Est"
+          },
+          "done_est": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done Est"
+          },
+          "reflection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "local_date"
+        ],
+        "title": "PlannerDayLogRead",
+        "description": "One day's plan-versus-outcome. `null` from the API means the day has no\nrow at all \u2014 the ritual never ran \u2014 which the Plan view shows differently\nfrom a day committed to nothing."
+      },
+      "PlannerDayRead": {
+        "properties": {
+          "log": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlannerDayLogRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "done_count": {
+            "type": "integer",
+            "title": "Done Count",
+            "default": 0
+          },
+          "done_est": {
+            "type": "integer",
+            "title": "Done Est",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "PlannerDayRead",
+        "description": "Today's planner state.\n\nTwo things that look alike and are not. `log` is the RITUAL record and may\nbe null \u2014 no row means the morning ritual has not run, which is what the\nbanner keys off. done_count/done_est are a MEASUREMENT of what has actually\nbeen completed today, always present, recomputed on every read: the done bar\nshows them all day, whereas the log's done_est is only written at close."
+      },
+      "PlannerDayStat": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "committed_est": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Committed Est"
+          },
+          "done_est": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done Est"
+          },
+          "reflection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reflection"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "PlannerDayStat",
+        "description": "One day's plan versus actual, for the weekly review's per-day strip.\n\n`reflection` rides along because this object is what the weekly narrative is\nwritten from \u2014 the prompt is handed the whole stats block, so a field here\nis material there with no second channel to keep in sync. It also means the\nnarrative and the words it quotes are stored in the same snapshot, so a\nreview can always be checked against what it was actually given."
+      },
       "PlannerSettings": {
         "properties": {
           "timezone": {
@@ -7473,6 +7821,13 @@
             "type": "number",
             "title": "Benchmark Interview Rate",
             "default": 0.08
+          },
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerDayStat"
+            },
+            "type": "array",
+            "title": "Days"
           },
           "replies_are_manual": {
             "type": "boolean",
