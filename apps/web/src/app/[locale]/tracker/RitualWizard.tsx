@@ -221,8 +221,15 @@ export function RitualWizard({
                 </p>
               )}
               <p className="text-2xs mt-3" style={{ color: "var(--ink-faint)" }}>
+                {/* Everything the Commit will move, including the leftovers sent
+                    on in step 1 — they are not in `candidates`, so counting only
+                    unticked rows understated it and the confirmation described a
+                    smaller action than the button performs. */}
                 {t("ritualConfirmMoved", {
-                  n: candidates.length - keptList.length,
+                  n:
+                    candidates.length -
+                    keptList.length +
+                    Object.values(carry).filter((c) => c === "tomorrow").length,
                   dropped: Object.values(carry).filter((c) => c === "drop").length,
                 })}
               </p>
@@ -236,7 +243,7 @@ export function RitualWizard({
             size="sm"
             onClick={() => (step === 1 ? close(false) : setStep(step - 1))}
           >
-            {t(step === 1 ? "cancel" : "ritualBack")}
+            {t(step === 1 ? "ritualCancel" : "ritualBack")}
           </Button>
           <span className="flex-1" />
           {step < 3 ? (

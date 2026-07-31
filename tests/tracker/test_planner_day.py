@@ -137,8 +137,23 @@ def test_done_est_counts_only_this_day_and_only_completed(db_session):
     unestimated = repo.create(workspace_id="ws5", type="prep", title="no est", application_id=app.id)
     unestimated.status = "done"
     unestimated.completed_at = start + timedelta(hours=11)
+    # Completed, then dismissed. dismiss() does not clear completed_at, and the
+    # shutdown wizard dismisses leftovers — so if the user completes one in
+    # another tab while the wizard is open, this row exists. Without the status
+    # filter it would count toward the day's total. The pending row above cannot
+    # catch that: its completed_at is NULL, so the time window excludes it
+    # anyway and the filter it is meant to protect goes untested.
+    completed_then_dismissed = repo.create(
+        workspace_id="ws5", type="apply", title="undone", application_id=app.id, est_minutes=60
+    )
+    completed_then_dismissed.status = "done"
+    completed_then_dismissed.completed_at = start + timedelta(hours=12)
+    db_session.flush()
+    repo.dismiss(completed_then_dismissed.id, "ws5")
+
     db_session.flush()
     assert still_pending.status == "pending"
+    assert completed_then_dismissed.completed_at is not None, "fixture no longer bites"
 
     assert repo.sum_est_completed_in_range("ws5", start, end) == 90  # 60 + prep's 30
 

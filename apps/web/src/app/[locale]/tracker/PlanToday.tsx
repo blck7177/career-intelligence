@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useApiToken } from "@/hooks/useApiToken";
+import { useApiToken, useApiUserId } from "@/hooks/useApiToken";
 import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay, closePlannerDay } from "@/api/client";
 import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -23,12 +23,17 @@ const GROUP_OF: Record<string, string> = {
 };
 const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 
-// Which local day's ritual the user waved away. Module scope so it survives
+// Whose ritual, and which day, was waved away. Module scope so it survives
 // leaving and re-entering the Plan tab — a prompt that returns every time you
 // come back is one you learn to dismiss without reading — and keyed by the day
 // so tomorrow morning still asks. Not persisted: skipping is a decision about
 // this sitting, not a setting.
-let skippedRitualDay: string | null = null;
+//
+// The USER belongs in the key for the same reason it does in the review
+// banner's (V5-C7): Clerk routes a sign-out through the Next router without
+// reloading, so the module survives an account switch and a bare day key would
+// mute the next person's morning.
+let skippedRitual: string | null = null;
 
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
@@ -114,6 +119,7 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
 export function PlanToday() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
+  const userId = useApiUserId();
   const [actions, setActions] = useState<ActionRead[] | null>(null);
   const [stats, setStats] = useState<PlannerStats | null>(null);
   const [settings, setSettings] = useState<PlannerSettings | null>(null);
@@ -128,12 +134,14 @@ export function PlanToday() {
   const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [shutdownBusy, setShutdownBusy] = useState(false);
+  const [ritualError, setRitualError] = useState(false);
+  const [shutdownError, setShutdownError] = useState(false);
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualBusy, setRitualBusy] = useState(false);
   // "Skip" is a decision about this sitting, not a preference. Module scope so
   // it survives leaving and re-entering the Plan tab (see reviewBanner.ts for
   // the same call), keyed by day so tomorrow still asks.
-  const [skipped, setSkipped] = useState<string | null>(skippedRitualDay);
+  const [skipped, setSkipped] = useState<string | null>(skippedRitual);
   // Revocation is remembered by the TEXT that was rejected, not as a sticky flag.
   // A flag leaked: undo the date once and every later line silently stopped
   // parsing dates — the same silent failure this feature exists to avoid, just
@@ -190,6 +198,18 @@ export function PlanToday() {
   // the server (they fold in overdue and undated work, and that arithmetic
   // belongs in one place). Without this, clearing the last to-do left "today's
   // cleared" sitting next to a strip still showing dots on today.
+  // The done bar and the shutdown summary are server-measured, so any mutation
+  // that could change what is complete has to re-read them. Without this the
+  // bar sits at its page-load value all day — the one thing it exists to avoid.
+  const refreshDay = useCallback(async () => {
+    try {
+      const token = await getToken();
+      setDay(await getPlannerDay(token));
+    } catch {
+      // Keep the last good reading rather than blanking the bar.
+    }
+  }, [getToken]);
+
   const refreshWeek = useCallback(async () => {
     try {
       const token = await getToken();
@@ -205,7 +225,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await updateAction(id, { op, snooze_days: 1 }, token);
-      await refreshWeek();
+      await Promise.all([refreshWeek(), refreshDay()]);
     } catch {
       load();
     } finally {
@@ -277,7 +297,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
-      await refreshWeek();
+      await Promise.all([refreshWeek(), refreshDay()]);
     } catch {
       load();
     } finally {
@@ -288,6 +308,7 @@ export function PlanToday() {
 
   async function applyRitual({ keptIds, deferIds, dropIds }: RitualResult) {
     setRitualBusy(true);
+    setRitualError(false);
     // Order matters: file the commitment FIRST. If the moves fail we have still
     // recorded what the user agreed to, which is the part that cannot be
     // reconstructed later; the to-dos are all still there to move by hand.
@@ -311,8 +332,10 @@ export function PlanToday() {
       await load();
       await refreshWeek();
     } catch {
-      // Leave the wizard open: the user can retry without redoing three steps.
-      setError(true);
+      // Leave the wizard open so the user can retry without redoing three steps,
+      // and say so — setError only renders while the list is still loading, so
+      // on a loaded page it would have failed in complete silence.
+      setRitualError(true);
     } finally {
       setRitualBusy(false);
     }
@@ -320,6 +343,7 @@ export function PlanToday() {
 
   async function applyShutdown({ tomorrowIds, nextWeekIds, dropIds, reflection }: ShutdownResult) {
     setShutdownBusy(true);
+    setShutdownError(false);
     try {
       const token = await getToken();
       // Same absolute-date reasoning as the morning ritual: a relative snooze
@@ -345,7 +369,7 @@ export function PlanToday() {
       await load();
       await refreshWeek();
     } catch {
-      setError(true);
+      setShutdownError(true);
     } finally {
       setShutdownBusy(false);
     }
@@ -355,12 +379,16 @@ export function PlanToday() {
   // the browser clock is how a user in a different timezone gets asked twice —
   // or not at all — and it is the same off-by-one the strip already avoids.
   function todayKey(): string {
-    return week?.days.find((d) => d.is_today)?.date ?? "";
+    const date = week?.days.find((d) => d.is_today)?.date;
+    // No date yet means we cannot name the day, and an unnamed key would match
+    // every day. Return null so the banner asks rather than silently hides.
+    return date ? `${userId ?? "anon"}:${date}` : "";
   }
 
   function skipRitual() {
     const day = todayKey();
-    skippedRitualDay = day;
+    if (!day) return;
+    skippedRitual = day;
     setSkipped(day);
   }
 
@@ -394,6 +422,8 @@ export function PlanToday() {
   // that flashes before the data arrives is a banner that gets clicked away.
   const askRitual =
     day?.log === null && actions !== null && week !== null && skipped !== todayKey();
+  // (todayKey() is "" until the strip loads, which never equals a stored key —
+  // so the banner asks rather than hides while the day is unknown.)
   const closed = !!day?.log?.closed_at;
   const zoneSub = [
     items.length > 0 ? t("estMinutes", { minutes: estTotal }) : null,
@@ -421,6 +451,16 @@ export function PlanToday() {
             {t("ritualBannerStart")}
           </Button>
           <Button size="sm" variant="ghost" onClick={skipRitual}>{t("ritualBannerSkip")}</Button>
+        </div>
+      )}
+
+      {(ritualError || shutdownError) && (
+        <div
+          className="rounded-lg border px-4 py-2 mb-4 text-xs"
+          style={{ borderColor: "var(--match-partial-fg)", color: "var(--match-partial-fg)" }}
+          role="alert"
+        >
+          {t("ritualFailed")}
         </div>
       )}
 
@@ -474,7 +514,7 @@ export function PlanToday() {
               the list the moment they are ticked, so without this the only
               evidence of a productive morning is an emptier list — which looks
               identical to a morning where nothing was there to begin with. */}
-          {day !== undefined && actions !== null && (day.done_count > 0 || !isEmpty) && (
+          {day !== undefined && actions !== null && (
             <div
               className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs"
               style={{ borderColor: "var(--border)" }}
@@ -748,7 +788,7 @@ function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
               loading={deferring}
               onClick={() => onDefer(deferrable, excess)}
             >
-              {t("deferToFit", { n: wouldMove })}
+              {t("capacityDefer", { n: wouldMove })}
             </Button>
           ) : undefined
         }

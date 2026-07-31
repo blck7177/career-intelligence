@@ -609,6 +609,8 @@
     "ritualCarryToday": "今天做",
     "ritualCarryTomorrow": "明天",
     "ritualCarryDrop": "放弃",
+    "ritualCancel": "取消",
+    "ritualFailed": "中途失败了。部分待办可能已经移动——再试之前先看一眼列表。",
     "ritualBack": "上一步",
     "ritualNext": "下一步",
     "ritualCommit": "承诺并开始",

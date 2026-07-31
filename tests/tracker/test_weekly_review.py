@@ -11,6 +11,7 @@ from packages.domain.planner.rules import ActionView, ApplicationView, EventView
 from packages.domain.planner.weekly import build_weekly_stats
 from packages.infrastructure.db.repositories import (
     JobApplicationRepository,
+    PlannerDayLogRepository,
     PlannerReviewRepository,
     WorkspaceRepository,
 )
@@ -357,3 +358,29 @@ def test_weekly_days_default_to_empty_when_no_logs_exist(db_session):
 
     stats = build_weekly_stats([], PlannerSettings(), WEEK_START, NOW, global_actions=[])
     assert stats.days == []
+
+
+def test_day_logs_actually_reach_the_generated_review(db_session, monkeypatch):
+    """The wiring, not the aggregator.
+
+    The three tests above call build_weekly_stats directly and pass day_logs by
+    hand, so they prove the arithmetic and nothing about whether the service
+    ever supplies it. Deleting `day_logs=day_logs` from the service call left
+    the whole suite green — the feature could be unplugged at the seam without a
+    single failure. This is the test that fails when it is."""
+    monkeypatch.setattr(weekly_review_service, "get_llm_client", lambda: _FakeLLM())
+    WorkspaceRepository(db_session).create(name="t", workspace_id="ws-days")
+    PlannerDayLogRepository(db_session).commit_day("ws-days", WEEK_START, committed_est=90)
+    PlannerDayLogRepository(db_session).close_day(
+        "ws-days", WEEK_START, done_est=60, reflection=None, now_utc=NOW
+    )
+    db_session.flush()
+
+    row = weekly_review_service.generate_weekly_review(
+        db_session, "ws-days", now_utc=NOW, week_start=WEEK_START
+    )
+
+    assert row is not None
+    days = row.stats_json["days"]
+    assert len(days) == 1, "day logs never reached the review"
+    assert (days[0]["committed_est"], days[0]["done_est"]) == (90, 60)

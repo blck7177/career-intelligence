@@ -609,6 +609,8 @@
     "ritualCarryToday": "Today",
     "ritualCarryTomorrow": "Tomorrow",
     "ritualCarryDrop": "Drop",
+    "ritualCancel": "Cancel",
+    "ritualFailed": "Something failed partway through. Some to-dos may already have moved — check the list before trying again.",
     "ritualBack": "Back",
     "ritualNext": "Next",
     "ritualCommit": "Commit",

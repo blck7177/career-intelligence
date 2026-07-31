@@ -119,9 +119,13 @@ function ReviewCard({ review }: { review: WeeklyReviewRead }) {
                     </div>
                   </div>
                   <span className="shrink-0 tabular-nums" style={{ color: "var(--ink-muted)" }}>
-                    {/* Never "0" for a day that was planned but not closed —
-                        done_est is null then, which is not the same as none. */}
-                    {t("reviewDayCommitted")} {planned}m · {t("reviewDayDone")}{" "}
+                    {/* Never "0" for a null. A day closed without a morning
+                        ritual has committed_est null, and one planned but never
+                        closed has done_est null — printing either as 0m would
+                        collapse "no record" into "recorded nothing", which is
+                        the distinction the whole feature is built around. */}
+                    {t("reviewDayCommitted")}{" "}
+                    {d.committed_est == null ? "—" : `${planned}m`} · {t("reviewDayDone")}{" "}
                     {d.done_est == null ? "—" : `${done}m`}
                   </span>
                 </div>
