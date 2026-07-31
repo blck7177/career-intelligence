@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
 import { createAction, updateAction, commitPlannerDay, closePlannerDay } from "@/api/client";
@@ -140,6 +140,13 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
   // action (not just an id) keeps the panel's header and reason line rendering
   // from the same row the user clicked, even after the list refetches.
   const [peek, setPeek] = useState<ActionRead | null>(null);
+  // Where focus goes when the panel closes after an action. A dialog normally
+  // returns focus to what opened it, but acting from the peek removes that row
+  // optimistically, so there is nothing to return to and the keyboard user
+  // lands on <body>. Closing WITHOUT acting (Esc, ×, overlay) leaves the row in
+  // place and is left alone. Verified by reading, not by executing: there is no
+  // jsdom in this repo.
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
   // the encoding the rules engine writes. Until settings arrive we know no zone,
@@ -507,7 +514,11 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
           decision; this is the context for it, without leaving the day. */}
       <ApplicationPeek
         action={peek}
-        onClose={() => setPeek(null)}
+        onClose={() => {
+          const rowGone = peek !== null && !(actions ?? []).some((a) => a.id === peek.id);
+          setPeek(null);
+          if (rowGone) requestAnimationFrame(() => listRef.current?.focus());
+        }}
         onComplete={(a) => mutate(a.id, "complete")}
         onSnooze={(a) => mutate(a.id, "snooze")}
         onDismiss={dismissFromPeek}
@@ -517,7 +528,7 @@ export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
 
       <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
         {/* MAIN — action list */}
-        <div className="min-w-0 space-y-5 order-2 lg:order-1">
+        <div ref={listRef} tabIndex={-1} className="min-w-0 space-y-5 order-2 lg:order-1 outline-none">
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}

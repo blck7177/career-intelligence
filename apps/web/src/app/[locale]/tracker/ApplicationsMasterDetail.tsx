@@ -407,16 +407,18 @@ function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMu
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
+    // The row is a plain container with a click handler, and the TITLE is the
+    // button — the shape PlanToday's ActionItem already uses. The row was
+    // originally role="button" + tabIndex + its own Enter/Space handler, which
+    // made it the keyboard target for everything inside it: keydown bubbles, so
+    // a space typed in the inline note box hit the row's preventDefault (the
+    // space never reached the input) and opened the application instead, and
+    // tabbing to "Note" and pressing Enter fired the button AND the row. Making
+    // the title the button removes the second code path rather than patching
+    // it, and stops nesting interactive controls inside a role="button" whose
+    // accessible name would otherwise swallow theirs.
     <div
-      role="button"
-      tabIndex={0}
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
       className="group px-[var(--space-row-edge)] py-2.5 cursor-pointer transition-colors border-l-2 border-b"
       style={{
         borderLeftColor: isViewed ? "var(--primary)" : "transparent",
@@ -425,16 +427,16 @@ function AppListRow({ app, isViewed, statusLabel, subline, onOpen, deferTo, onMu
       }}
     >
       <div className="flex items-center gap-2.5">
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate group-hover:underline" style={{ color: "var(--ink-primary)" }}>
+        <button type="button" className="flex-1 min-w-0 text-left">
+          <span className="block text-sm font-medium truncate group-hover:underline" style={{ color: "var(--ink-primary)" }}>
             {app.jobTitle}
-          </div>
-          <div className="text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
+          </span>
+          <span className="block text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
             {app.company}
             <span className="mx-1">·</span>
             {subline}
-          </div>
-        </div>
+          </span>
+        </button>
 
         {/* Hover actions. focus-within keeps them reachable by keyboard, which
             display:none on hover alone would not. */}
