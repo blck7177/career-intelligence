@@ -651,6 +651,31 @@ class TestActionsMore:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "dismissed"
 
+    def test_delete_planned_application_returns_204(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = _app(status="planned")
+            resp = client.delete("/api/app/applications/app-1")
+        assert resp.status_code == 204, resp.text
+        MockApp.return_value.delete_planned.assert_called_once_with("app-1", WS_ID)
+
+    @pytest.mark.parametrize("status", ["applied", "interviewing", "rejected", "ghosted"])
+    def test_delete_refuses_an_application_with_history(self, make_client, status):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = _app(status=status)
+            resp = client.delete("/api/app/applications/app-1")
+        assert resp.status_code == 409, resp.text
+        MockApp.return_value.delete_planned.assert_not_called()
+
+    def test_delete_foreign_application_returns_404(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:
+            MockApp.return_value.get.return_value = None
+            resp = client.delete("/api/app/applications/nope")
+        assert resp.status_code == 404
+        MockApp.return_value.delete_planned.assert_not_called()
+
     def test_patch_action_reopen(self, make_client):
         client = make_client()
         with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(

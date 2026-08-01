@@ -11,10 +11,10 @@ import {
   updateApplication,
   createAction,
   updateAction,
-  addApplicationEvent,
-} from "@/api/client";
+  addApplicationEvent, deleteApplication } from "@/api/client";
 import type { ApplicationDetail, ApplicationUpdate, StatusTransition, ApplicationEventRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { parseQuickAdd } from "@/lib/quickParse";
@@ -24,6 +24,9 @@ interface Props {
   applicationId: string | null;
   /** Nudge the server-rendered list to re-fetch after a mutation here. */
   onListChanged?: () => void;
+  /** The application is gone. The list owns the selection, so it clears it —
+   *  a pane left pointing at a deleted id would refetch into a 404. */
+  onDeleted?: (id: string) => void;
   /** Bumped by the LIST when something outside this pane mutated the same
    *  application. The pane's own data is client-fetched, so `router.refresh()`
    *  — which is all a row action can do to the server-rendered list — leaves it
@@ -31,7 +34,7 @@ interface Props {
   refreshKey?: number;
 }
 
-export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey = 0 }: Props) {
+export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted, refreshKey = 0 }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [data, setData] = useState<ApplicationDetail | null>(null);
@@ -187,7 +190,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
         <MetaSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
         {/* Status transitions */}
-        <StatusSection app={app} onMutated={mutated} getToken={getToken} t={t} />
+        <StatusSection app={app} onMutated={mutated} onDeleted={onDeleted} getToken={getToken} t={t} />
 
         {/* Next actions */}
         <ActionsSection app={app} onMutated={mutated} getToken={getToken} t={t} />
@@ -353,8 +356,10 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
   );
 }
 
-function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted?: (id: string) => void; getToken: Getter; t: T }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const forward = FORWARD_NEXT[app.status] ?? [];
   const closable = LIVE_STATUSES.includes(app.status);
@@ -387,7 +392,29 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
   // user's inbox — so the recoverable half is the half that has to exist.
   // (mockup_final_0726.html:1088/:1090 promised exactly this: "之后若对方回来，
   // 可 force 恢复".)
-  if (forward.length === 0 && !closable && !closed) return null;
+  // Removal is for mistakes, and a mistake is always still `planned` — a wrong
+  // URL, a duplicate, a row typed to try the box. Past that the record is
+  // history the funnel and the weekly snapshots are counted from, so it closes
+  // out instead of disappearing. The server enforces the same line (409).
+  const removable = app.status === "planned";
+
+  async function remove() {
+    setRemoving(true);
+    setErr(null);
+    try {
+      const token = await getToken();
+      await deleteApplication(app.id, token);
+      setConfirmRemove(false);
+      onDeleted?.(app.id);
+    } catch (e) {
+      setErr(t("transitionFailed", { msg: e instanceof Error ? e.message : "error" }));
+      setConfirmRemove(false);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  if (forward.length === 0 && !closable && !closed && !removable) return null;
 
   return (
     <section className="space-y-2">
@@ -425,6 +452,31 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
           <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("reopenHint")}</span>
         </div>
       )}
+      {removable && (
+        <div className="flex items-center gap-2 flex-wrap pt-1">
+          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setConfirmRemove(true)}>
+            {t("removeApplication")}
+          </Button>
+          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("removeHint")}</span>
+        </div>
+      )}
+      <Dialog open={confirmRemove} onOpenChange={(o) => { if (!removing) setConfirmRemove(o); }}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="text-base font-semibold">{t("removeConfirmTitle")}</DialogTitle>
+          <DialogDescription className="text-xs mt-1" style={{ color: "var(--ink-muted)" }}>
+            {t("removeConfirmBody", { title: app.job?.title ?? "" })}
+          </DialogDescription>
+          <div className="flex items-center gap-2 mt-4">
+            <span className="flex-1" />
+            <Button size="sm" variant="ghost" disabled={removing} onClick={() => setConfirmRemove(false)}>
+              {t("removeCancel")}
+            </Button>
+            <Button size="sm" variant="destructive" loading={removing} onClick={remove}>
+              {t("removeConfirm")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {err && <p className="text-xs text-rose-600">{err}</p>}
     </section>
   );

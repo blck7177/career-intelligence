@@ -8,6 +8,7 @@ Contract:
   GET    /api/app/applications/funnel                       -> FunnelResponse
   GET    /api/app/applications/{application_id}             -> ApplicationDetail
   PATCH  /api/app/applications/{application_id}             -> ApplicationRead
+  DELETE /api/app/applications/{application_id}             -> 204 (planned only)
   POST   /api/app/applications/{application_id}/transition  -> ApplicationRead
   POST   /api/app/applications/{application_id}/events      -> ApplicationEventRead (201)
   POST   /api/app/actions                                   -> ActionRead (201)
@@ -360,6 +361,31 @@ def update_application(
     db.commit()
     job = JobRepository(db).get(app.job_id)
     return _application_read(app, job=job)
+
+
+@router.delete("/applications/{application_id}", status_code=204)
+def delete_application(
+    application_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> None:
+    """Remove a never-applied application. 409 once it has any history.
+
+    Deleting is for mistakes — a wrong URL, a duplicate, a row typed to try the
+    box — and those are always still `planned`. An application that has been
+    applied to is counted by the funnel, the interview rate and the already
+    frozen weekly snapshots; erasing one would move numbers the user reads to
+    judge the search, with nothing left to point at. Those close out instead.
+    """
+    repo = JobApplicationRepository(db)
+    app = _assert_owned(repo.get(application_id, workspace.id), workspace)
+    if app.status != "planned":
+        raise HTTPException(
+            status_code=409,
+            detail="Only a planned application can be removed — close it out instead.",
+        )
+    repo.delete_planned(application_id, workspace.id)
+    db.commit()
 
 
 @router.post("/applications/{application_id}/transition", response_model=ApplicationRead)

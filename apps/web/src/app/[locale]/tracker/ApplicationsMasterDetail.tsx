@@ -146,6 +146,22 @@ export function ApplicationsMasterDetail({
     [selectRow, router],
   );
 
+  const handleDeleted = useCallback(
+    (id: string) => {
+      // Clear the selection before refreshing: the pane fetches by id, and a
+      // pane still pointing at a deleted application refetches into a 404 and
+      // renders its error state over an otherwise fine list.
+      setPendingSelect((p) => (p === id ? null : p));
+      setSelectedId(null);
+      const params = new URLSearchParams(window.location.search);
+      params.delete("selected");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+      router.refresh();
+    },
+    [router],
+  );
+
   const openRow = useCallback(
     (id: string) => {
       if (isDesktop) selectRow(id);
@@ -292,6 +308,7 @@ export function ApplicationsMasterDetail({
       <div className="hidden lg:flex flex-1 min-w-0 min-h-0">
         <ApplicationDetailPane
           applicationId={selectedForPane}
+          onDeleted={handleDeleted}
           onListChanged={() => router.refresh()}
           refreshKey={paneKey}
         />

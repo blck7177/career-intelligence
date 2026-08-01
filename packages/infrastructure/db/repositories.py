@@ -1704,6 +1704,44 @@ class JobApplicationRepository:
         self._s.flush()
         return row
 
+    def delete_planned(self, application_id: str, workspace_id: str) -> bool:
+        """Remove an application that was never applied to, with its rows.
+
+        Scoped to `planned` on purpose. A mis-add is always a fresh row — wrong
+        URL, duplicate, something typed to try the box — so this line covers
+        every mistake worth erasing. Past that point the record is history: the
+        funnel, the interview rate and the frozen weekly snapshots are all
+        counted from it, and deleting one would move numbers the user reads to
+        judge how the search is going, silently and with nothing left to point
+        at. Those close out (`rejected` / `withdrawn` / `ghosted`) instead.
+
+        Children go first and explicitly: application_events.application_id is
+        NOT NULL with no ON DELETE, and neither relationship declares a cascade,
+        so the FK would reject the delete (postgres) or orphan the rows
+        (sqlite). Returns False when there is nothing to delete or the status
+        does not allow it, so the route can tell 404 from 409.
+        """
+        from sqlalchemy import delete as sa_delete
+
+        row = self.get(application_id, workspace_id)
+        if row is None or row.status != "planned":
+            return False
+        self._s.execute(
+            sa_delete(ApplicationEvent).where(
+                ApplicationEvent.application_id == row.id,
+                ApplicationEvent.workspace_id == workspace_id,
+            )
+        )
+        self._s.execute(
+            sa_delete(ApplicationAction).where(
+                ApplicationAction.application_id == row.id,
+                ApplicationAction.workspace_id == workspace_id,
+            )
+        )
+        self._s.delete(row)
+        self._s.flush()
+        return True
+
     def transition_status(
         self,
         application_id: str,
