@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ActionRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { DropAcknowledgement, dropGateBlocks } from "./DropAcknowledgement";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 
@@ -56,6 +57,7 @@ export function RitualWizard({
   const [step, setStep] = useState(1);
   const [carry, setCarry] = useState<Record<string, CarryChoice>>({});
   const [kept, setKept] = useState<Set<string> | null>(null);
+  const [ackDrop, setAckDrop] = useState(false);
 
   // Default ticks: dated work is on, undated ("anytime") is off. Undated work
   // is what the day absorbs when there is room, so it should be an opt-in
@@ -74,10 +76,12 @@ export function RitualWizard({
   const keptList = candidates.filter((a) => ticked.has(a.id));
   const committed = keptList.reduce((sum, a) => sum + estOf(a), 0);
   const pct = cap > 0 ? Math.round((committed / cap) * 100) : 0;
+  const dropCount = Object.values(carry).filter((c) => c === "drop").length;
 
   function reset() {
     setStep(1);
     setCarry({});
+    setAckDrop(false);
     setKept(null);
   }
 
@@ -230,9 +234,15 @@ export function RitualWizard({
                     candidates.length -
                     keptList.length +
                     Object.values(carry).filter((c) => c === "tomorrow").length,
-                  dropped: Object.values(carry).filter((c) => c === "drop").length,
+                  dropped: dropCount,
                 })}
               </p>
+              <DropAcknowledgement
+                count={dropCount}
+                checked={ackDrop}
+                onChange={setAckDrop}
+                label={t("dropAcknowledge", { n: dropCount })}
+              />
             </div>
           )}
         </div>
@@ -249,7 +259,14 @@ export function RitualWizard({
           {step < 3 ? (
             <Button size="sm" onClick={() => setStep(step + 1)}>{t("ritualNext")}</Button>
           ) : (
-            <Button size="sm" onClick={apply} loading={applying}>{t("ritualCommit")}</Button>
+            <Button
+              size="sm"
+              onClick={apply}
+              loading={applying}
+              disabled={dropGateBlocks(dropCount, ackDrop)}
+            >
+              {t("ritualCommit")}
+            </Button>
           )}
         </div>
       </DialogContent>

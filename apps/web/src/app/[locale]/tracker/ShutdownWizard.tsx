@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ActionRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { DropAcknowledgement, dropGateBlocks } from "./DropAcknowledgement";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { estOf, fmtMinutes } from "./capacity";
 
@@ -59,15 +60,21 @@ export function ShutdownWizard({
 }) {
   const t = useTranslations("tracker");
   const [choices, setChoices] = useState<Record<string, LeftoverChoice>>({});
+  const [ackDrop, setAckDrop] = useState(false);
   const [reflection, setReflection] = useState("");
 
   function close(next: boolean) {
     if (!next) {
       setChoices({});
       setReflection("");
+      // The gate has to re-arm. A stale tick would pre-acknowledge the NEXT
+      // set of drops, which is a gate that only ever stops the first one.
+      setAckDrop(false);
     }
     onOpenChange(next);
   }
+
+  const dropCount = leftovers.filter((a) => (choices[a.id] ?? "tomorrow") === "drop").length;
 
   function apply() {
     const pick = (want: LeftoverChoice) =>
@@ -177,10 +184,24 @@ export function ShutdownWizard({
           </div>
         </div>
 
+        <DropAcknowledgement
+          count={dropCount}
+          checked={ackDrop}
+          onChange={setAckDrop}
+          label={t("dropAcknowledge", { n: dropCount })}
+        />
+
         <div className="flex items-center gap-2 mt-4">
           <Button variant="ghost" size="sm" onClick={() => close(false)}>{t("shutdownNotYet")}</Button>
           <span className="flex-1" />
-          <Button size="sm" onClick={apply} loading={applying}>{t("shutdownConfirm")}</Button>
+          <Button
+            size="sm"
+            onClick={apply}
+            loading={applying}
+            disabled={dropGateBlocks(dropCount, ackDrop)}
+          >
+            {t("shutdownConfirm")}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
