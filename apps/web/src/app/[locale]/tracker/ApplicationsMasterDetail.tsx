@@ -96,12 +96,25 @@ export function ApplicationsMasterDetail({
 
   // Selection: local state is source of truth, ?selected= synced via History API.
   const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get("selected"));
+  // An id just created, held until the server list catches up on it.
+  // `applications` is a server prop and `router.refresh()` is asynchronous, so
+  // for the frames in between a freshly added id is "not in the list" — which
+  // the fallback below cannot tell apart from a stale ?selected= pointing at a
+  // row that no longer exists, and so it selected the first row instead. That
+  // is why adding a job left you looking at the application you already had
+  // open, with the new one silently filed behind it.
+  const [pendingSelect, setPendingSelect] = useState<string | null>(null);
   const selectedValid =
     selectedId && applications.some((a) => a.id === selectedId) ? selectedId : null;
   const selectedForPane = selectedValid ?? (isDesktop ? applications[0]?.id ?? null : null);
 
   useEffect(() => {
+    if (pendingSelect && applications.some((a) => a.id === pendingSelect)) setPendingSelect(null);
+  }, [applications, pendingSelect]);
+
+  useEffect(() => {
     if (!isDesktop || selectedValid) return;
+    if (pendingSelect) return; // the list has not caught up — do not fall back
     const first = applications[0]?.id ?? null;
     setSelectedId(first);
     const params = new URLSearchParams(window.location.search);
@@ -109,7 +122,7 @@ export function ApplicationsMasterDetail({
     else params.delete("selected");
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
-  }, [isDesktop, selectedValid, applications]);
+  }, [isDesktop, selectedValid, applications, pendingSelect]);
 
   useEffect(() => {
     const onPop = () => setSelectedId(new URLSearchParams(window.location.search).get("selected"));
@@ -126,6 +139,7 @@ export function ApplicationsMasterDetail({
 
   const handleAdded = useCallback(
     (id: string) => {
+      setPendingSelect(id);
       selectRow(id);
       router.refresh(); // re-fetch the server list so the new row appears
     },
