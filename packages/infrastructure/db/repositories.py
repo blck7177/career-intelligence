@@ -1713,7 +1713,7 @@ class JobApplicationRepository:
         note: str | None = None,
         force: bool = False,
     ) -> Optional[JobApplication]:
-        from packages.domain.applications.transitions import assert_transition
+        from packages.domain.applications.transitions import CLOSED_STATUSES, assert_transition
 
         row = self.get(application_id, workspace_id)
         if row is None:
@@ -1725,6 +1725,14 @@ class JobApplicationRepository:
         # TaskRepository.mark_running stamping started_at).
         if new_status == "applied" and row.applied_at is None:
             row.applied_at = datetime.now(timezone.utc)
+        # Closing the application retires its outstanding to-dos in the same
+        # transaction; the count rides along in the audit event so the timeline
+        # can say how much work the close took off the list.
+        cancelled = (
+            self._cancel_pending_actions(row.id, workspace_id)
+            if new_status in CLOSED_STATUSES
+            else 0
+        )
         # Same-transaction audit event (append-only timeline).
         self._s.add(
             ApplicationEvent(
@@ -1732,11 +1740,47 @@ class JobApplicationRepository:
                 workspace_id=workspace_id,
                 event_type="status_changed",
                 message=note,
-                payload_json={"from": old_status, "to": new_status, "forced": force},
+                payload_json={
+                    "from": old_status,
+                    "to": new_status,
+                    "forced": force,
+                    "cancelled_actions": cancelled,
+                },
             )
         )
         self._s.flush()
         return row
+
+    def _cancel_pending_actions(self, application_id: str, workspace_id: str) -> int:
+        """Retire this application's outstanding to-dos. Returns how many.
+
+        Nothing else does. The rules engine only ever creates rows
+        (planner_run.run_daily_rules_once never prunes) and `list_due` filters
+        on (workspace, status, due_at) without joining the application — so a
+        follow-up raised the day before a rejection keeps surfacing on Today
+        for a company that is no longer in play, indefinitely.
+
+        The retired status is RETIRED_STATUS ("cancelled"), NOT "dismissed".
+        `_suppressed()` treats *dismissed* as a lifetime veto per
+        (application, type), so reusing it here would leave a force-reopened
+        application permanently silent — the correction path would quietly
+        break the engine for that row. The constant is imported from the rules
+        module rather than spelled here so the two sides cannot drift; the
+        invariant that ties them is asserted in test_planner_rules.py.
+        """
+        from sqlalchemy import select
+
+        from packages.domain.planner.rules import RETIRED_STATUS
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.application_id == application_id,
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.status == "pending",
+        )
+        rows = list(self._s.scalars(stmt))
+        for action in rows:
+            action.status = RETIRED_STATUS
+        return len(rows)
 
     def count_by_status(self, workspace_id: str) -> dict[str, int]:
         from sqlalchemy import func, select

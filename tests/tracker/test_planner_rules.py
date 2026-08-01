@@ -10,6 +10,8 @@ from packages.contracts.api.applications import (
     PlannerSettings,
 )
 from packages.domain.planner.rules import (
+    RETIRED_STATUS,
+    _SUPPRESSING_STATUSES,
     ActionView,
     ApplicationView,
     EventView,
@@ -123,6 +125,20 @@ def test_follow_up_NOT_suppressed_by_user_note():
 def test_follow_up_idempotent_when_pending_exists():
     app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="pending")])
     assert [s for s in _gen([app]) if s.type == "follow_up"] == []
+
+
+def test_the_status_a_closing_application_retires_todos_with_never_suppresses():
+    """The load-bearing half of P7: closing an application retires its to-dos,
+    and force-reopening it must start them again.
+
+    This asserts the *constant the repository actually writes* stays out of the
+    suppressing set — not a literal. Spelling "cancelled" in both places would
+    let the repository switch to "dismissed" with this file still green, which
+    is the shape of not-actually-a-test this repo keeps finding.
+    """
+    assert RETIRED_STATUS not in _SUPPRESSING_STATUSES
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status=RETIRED_STATUS)])
+    assert "follow_up" in _types(_gen([app]))
 
 
 def test_follow_up_suppressed_when_dismissed():

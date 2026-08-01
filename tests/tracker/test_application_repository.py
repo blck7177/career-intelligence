@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from packages.domain.applications.transitions import InvalidTransition
 from packages.infrastructure.db.repositories import (
+    ApplicationActionRepository,
     ApplicationEventRepository,
     JobApplicationRepository,
 )
@@ -93,6 +94,64 @@ def test_transition_cross_workspace_returns_none(db_session: Session):
     repo = JobApplicationRepository(db_session)
     app = repo.create(workspace_id=WS, job_id="j1")
     assert repo.transition_status(app.id, OTHER_WS, "applied") is None
+
+
+def test_closing_retires_the_applications_pending_todos(db_session: Session):
+    # A follow-up raised the day before a rejection used to keep surfacing on
+    # Today forever: nothing cancelled it, and list_due never joins the
+    # application. Closing now retires exactly the pending rows.
+    repo = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="applied")
+    pending_a = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="follow up")
+    pending_b = actions.create(workspace_id=WS, application_id=app.id, type="prep", title="prep")
+    done = actions.create(workspace_id=WS, application_id=app.id, type="apply", title="applied", status="done")
+    dismissed = actions.create(
+        workspace_id=WS, application_id=app.id, type="thank_you", title="thanks", status="dismissed"
+    )
+
+    repo.transition_status(app.id, WS, "ghosted", note="no reply in 15 days")
+
+    assert pending_a.status == "cancelled"
+    assert pending_b.status == "cancelled"
+    assert done.status == "done"  # history is not rewritten
+    assert dismissed.status == "dismissed"  # the user's own veto still stands
+    log = events.list_for_application(app.id, WS)
+    assert log[-1].payload_json["cancelled_actions"] == 2
+
+
+def test_closing_only_touches_this_application_in_this_workspace(db_session: Session):
+    repo = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="applied")
+    other_app = repo.create(workspace_id=WS, job_id="j2", status="applied")
+    mine = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="mine")
+    neighbour = actions.create(workspace_id=WS, application_id=other_app.id, type="follow_up", title="theirs")
+    # A global to-do ("refill the queue") has no application and must survive.
+    global_row = actions.create(workspace_id=WS, application_id=None, type="global", title="refill")
+    # Same application id, different workspace — the IDOR shape this repo guards.
+    foreign = actions.create(workspace_id=OTHER_WS, application_id=app.id, type="follow_up", title="foreign")
+
+    repo.transition_status(app.id, WS, "rejected")
+
+    assert mine.status == "cancelled"
+    assert neighbour.status == "pending"
+    assert global_row.status == "pending"
+    assert foreign.status == "pending"
+
+
+def test_moving_forward_retires_nothing(db_session: Session):
+    repo = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="applied")
+    row = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="follow up")
+
+    repo.transition_status(app.id, WS, "interviewing")
+
+    assert row.status == "pending"
+    assert events.list_for_application(app.id, WS)[-1].payload_json["cancelled_actions"] == 0
 
 
 def test_update_fields_whitelist(db_session: Session):

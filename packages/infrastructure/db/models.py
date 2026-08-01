@@ -918,7 +918,11 @@ class ApplicationAction(Base):
     snooze_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
-    # pending | done | snoozed | dismissed
+    # pending | done | dismissed | cancelled. (A snooze moves due_at and leaves
+    # the row pending — there is no "snoozed" status.) "dismissed" is the user
+    # saying "not needed", and the rules engine reads it as a lifetime veto for
+    # that (application, type); "cancelled" is the system retiring the row
+    # because its application closed, and suppresses nothing.
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", index=True)
     auto_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
