@@ -1,14 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 
+import { updateAction } from "@/api/client";
 import type { ActionRead, PlannerWeekInterview } from "@/api/client";
+import { useApiToken } from "@/hooks/useApiToken";
+import { toast } from "@/components/ui/toaster";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { optionPillVariants } from "@/components/ui/option-pill-variants";
+import { localWallTimeUtc } from "@/lib/quickParse";
 import { estOf, fmtMinutes } from "./capacity";
 import { usePlannerData } from "./usePlannerData";
 import {
   BLOCK_INSET, SLOT, SLOT_H,
-  bandFor, fmtClock, geometryFor, minutesOfDay, rowsFor,
+  bandFor, fmtClock, geometryFor, minutesOfDay, rowsFor, snapDuration,
 } from "./scheduleGrid";
 
 /** Sizes taken from the Compass mockup. SLOT_H lives in scheduleGrid because
@@ -28,16 +35,67 @@ const WEEKDAY_KEYS = [
   "weekdayMon", "weekdayTue", "weekdayWed", "weekdayThu", "weekdayFri", "weekdaySat", "weekdaySun",
 ] as const;
 
+/** `duration` is the honest estimate and is what day totals add up; `slot` is
+ *  what the block OCCUPIES once dropped, rounded to the grid. They differ for a
+ *  20-minute task, which takes the whole half-hour it lands in — and the block's
+ *  height and its own label have to agree about which of the two they mean, or
+ *  the picture says one thing and the text another. */
 type Item =
-  | { kind: "block"; action: ActionRead; start: number; duration: number | null; title: string }
-  | { kind: "interview"; interview: PlannerWeekInterview; start: number; duration: number | null; title: string };
+  | { kind: "block"; action: ActionRead; start: number; duration: number | null; slot: number | null; title: string }
+  | { kind: "interview"; interview: PlannerWeekInterview; start: number; duration: number | null; slot: number | null; title: string };
 
 export function ScheduleView() {
   const t = useTranslations("tracker");
+  const getToken = useApiToken();
   const data = usePlannerData({ schedule: true });
-  const { week, settings, blocks, tray } = data;
+  const { week, settings, blocks, tray, refresh } = data;
   const tz = settings?.timezone ?? null;
   const cap = settings?.daily_cap_minutes ?? 0;
+  /** Id being dragged. Also the flag that makes slots accept a drop: without
+   *  it every dragged file from the desktop would light the grid up. */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  /** The to-do the picker is open for — the keyboard and touch path, which the
+   *  mockup has neither of. Drag-and-drop alone would leave the grid unusable
+   *  with a keyboard and invisible on a phone. */
+  const [picking, setPicking] = useState<ActionRead | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function place(actionId: string, date: string, minutes: number) {
+    if (!tz || busy) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      // The wall time the user pointed at, encoded in the WORKSPACE zone — the
+      // slot they dropped on is a time of day there, not in their browser.
+      await updateAction(
+        actionId,
+        // snooze_days is required by the generated type (it has a server
+        // default); it is ignored by every op but snooze.
+        { op: "schedule", snooze_days: 1, scheduled_at: localWallTimeUtc(date, tz, minutes) },
+        token,
+      );
+      await refresh("schedule");
+    } catch {
+      toast.error(t("scheduleFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unplace(actionId: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      await updateAction(actionId, { op: "unschedule", snooze_days: 1 }, token);
+      await refresh("schedule");
+    } catch {
+      toast.error(t("scheduleFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   /** One bucket per day of the week the server resolved. Days come from the
    *  server (Mon..Sun, index = weekday), never from parsing dates here. */
@@ -55,7 +113,9 @@ export function ScheduleView() {
         if (start === null) continue;
         out[i].push({
           kind: "interview", interview: iv, start,
+          // A real appointment is not rounded: it runs as long as it runs.
           duration: iv.duration_minutes ?? null,
+          slot: iv.duration_minutes ?? null,
           title: iv.company,
         });
       }
@@ -69,7 +129,8 @@ export function ScheduleView() {
       if (i === undefined) continue; // outside the loaded week
       const start = minutesOfDay(a.scheduled_at, tz);
       if (start === null) continue;
-      out[i].push({ kind: "block", action: a, start, duration: estOf(a), title: a.title });
+      const est = estOf(a);
+      out[i].push({ kind: "block", action: a, start, duration: est, slot: snapDuration(est), title: a.title });
     }
     return out;
   }, [days, blocks, tz]);
@@ -77,7 +138,7 @@ export function ScheduleView() {
   // The visible band stretches to hold whatever is actually there, so an 08:00
   // call or a round running past 18:00 is drawn where it belongs instead of
   // being clamped onto the edge row with a label that contradicts its position.
-  const band = useMemo(() => bandFor(byDay.flat()), [byDay]);
+  const band = useMemo(() => bandFor(byDay.flat().map((i) => ({ start: i.start, duration: i.slot }))), [byDay]);
   const rows = useMemo(() => rowsFor(band), [band]);
 
   // The grid's cells ARE its day columns: with no days, the time-axis labels
@@ -111,7 +172,14 @@ export function ScheduleView() {
         </div>
 
         <div className="grid grid-cols-1 min-[861px]:grid-cols-[230px_minmax(0,1fr)] gap-4 items-start">
-          <Tray items={tray} loading={loading} t={t} />
+          <Tray
+            items={tray}
+            loading={loading}
+            onDragStart={setDragId}
+            onDragEnd={() => { setDragId(null); setOver(null); }}
+            onPick={setPicking}
+            t={t}
+          />
 
           <div
             className="rounded-[14px] overflow-x-auto"
@@ -159,7 +227,26 @@ export function ScheduleView() {
 
               {/* Time rows */}
               {rows.map((m) => (
-                <RowCells key={m} minutes={m} days={days} byDay={byDay} band={band} tz={tz} t={t} />
+                <RowCells
+                  key={m}
+                  minutes={m}
+                  days={days}
+                  byDay={byDay}
+                  band={band}
+                  over={over}
+                  dragging={dragId !== null}
+                  onOver={setOver}
+                  onDrop={(date, min) => {
+                    setOver(null);
+                    if (dragId) void place(dragId, date, min);
+                    setDragId(null);
+                  }}
+                  onBlockDragStart={setDragId}
+                  onBlockDragEnd={() => { setDragId(null); setOver(null); }}
+                  onPick={setPicking}
+                  onRemove={(id) => void unplace(id)}
+                  t={t}
+                />
               ))}
 
               {/* Day footers: Σ / cap */}
@@ -172,18 +259,124 @@ export function ScheduleView() {
           </div>
         </div>
       </div>
+
+      {picking && (
+        <SchedulePicker
+          action={picking}
+          days={days}
+          band={band}
+          busy={busy}
+          onClose={() => setPicking(null)}
+          onPlace={async (date, minutes) => {
+            await place(picking.id, date, minutes);
+            setPicking(null);
+          }}
+          onRemove={async () => {
+            await unplace(picking.id);
+            setPicking(null);
+          }}
+          t={t}
+        />
+      )}
     </div>
   );
 }
 
+/**
+ * Choose a day and a time without a mouse.
+ *
+ * The mockup has no click path, no keyboard handling and no touch events at
+ * all — its only way to place a to-do is HTML5 drag-and-drop, which does not
+ * fire on a phone and cannot be reached with a keyboard. Copying it faithfully
+ * would have shipped a view a keyboard user cannot operate, so this is the one
+ * place the implementation deliberately adds an affordance the design lacks.
+ */
+function SchedulePicker({
+  action, days, band, busy, onClose, onPlace, onRemove, t,
+}: {
+  action: ActionRead;
+  days: { date: string; is_rest: boolean; is_today: boolean }[];
+  band: { start: number; end: number };
+  busy: boolean;
+  onClose: () => void;
+  onPlace: (date: string, minutes: number) => void;
+  onRemove: () => void;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  // "cancel" lives in the common namespace, not tracker — bound to its own
+  // identifier so the key checker can tell which namespace each call belongs to.
+  const tc = useTranslations("common");
+  const [date, setDate] = useState(days.find((d) => d.is_today)?.date ?? days[0]?.date ?? "");
+  const [minutes, setMinutes] = useState(Math.max(band.start, 9 * 60));
+  const slots = rowsFor(band);
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogTitle>{t("pickerTitle")}</DialogTitle>
+        <DialogDescription>{action.title}</DialogDescription>
+
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {days.map((d, i) => (
+            <button
+              key={d.date}
+              type="button"
+              className={optionPillVariants({ selected: d.date === date, className: "!h-7 !px-2.5 !text-xs" })}
+              onClick={() => setDate(d.date)}
+            >
+              {t(WEEKDAY_KEYS[i])} {Number(d.date.slice(8, 10))}
+            </button>
+          ))}
+        </div>
+
+        <label className="mt-3 block text-xs" style={{ color: "var(--ink-muted)" }}>
+          {t("pickerTime")}
+          <select
+            className="mt-1 block w-full h-8 px-2 rounded-md border text-sm"
+            style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
+            value={minutes}
+            onChange={(e) => setMinutes(Number(e.target.value))}
+          >
+            {slots.map((m) => (
+              <option key={m} value={m}>{fmtClock(m)}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="mt-4 flex items-center gap-2">
+          <Button size="sm" onClick={() => onPlace(date, minutes)} disabled={busy || !date} loading={busy}>
+            {t("pickerConfirm")}
+          </Button>
+          {action.scheduled_at && (
+            <Button size="sm" variant="outline" onClick={onRemove} disabled={busy}>
+              {t("pickerRemove")}
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={onClose} disabled={busy}>
+            {tc("cancel")}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RowCells({
-  minutes, days, byDay, band, tz, t,
+  minutes, days, byDay, band, over, dragging, onOver, onDrop,
+  onBlockDragStart, onBlockDragEnd, onPick, onRemove, t,
 }: {
   minutes: number;
   days: { date: string; is_rest: boolean; is_today: boolean }[];
   byDay: Item[][];
   band: { start: number; end: number };
-  tz: string | null;
+  over: string | null;
+  dragging: boolean;
+  onOver: (key: string | null) => void;
+  onDrop: (date: string, minutes: number) => void;
+  onBlockDragStart: (id: string) => void;
+  onBlockDragEnd: () => void;
+  onPick: (a: ActionRead) => void;
+  onRemove: (id: string) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
@@ -194,48 +387,90 @@ function RowCells({
       >
         {minutes % 60 === 0 ? fmtClock(minutes) : ""}
       </div>
-      {days.map((d, i) => (
-        <div
-          key={d.date}
-          className="relative"
-          style={{
-            height: ROW_PX,
-            borderBottom: "1px solid var(--border-subtle)",
-            borderLeft: "1px solid var(--border-subtle)",
-            background: d.is_rest ? "var(--muted)" : undefined,
-          }}
-        >
-          {byDay[i]
-            .filter((it) => it.start >= minutes && it.start < minutes + SLOT)
-            .map((it, n) => (
-              <Block key={`${it.kind}-${n}`} item={it} band={band} rowStart={minutes} tz={tz} t={t} />
-            ))}
-        </div>
-      ))}
+      {days.map((d, i) => {
+        const key = `${d.date}:${minutes}`;
+        const isOver = over === key;
+        return (
+          <div
+            key={d.date}
+            className="relative"
+            style={{
+              height: ROW_PX,
+              borderBottom: "1px solid var(--border-subtle)",
+              borderLeft: "1px solid var(--border-subtle)",
+              background: isOver
+                ? "var(--accent)"
+                : d.is_rest
+                  ? "var(--muted)"
+                  : undefined,
+              boxShadow: isOver ? "inset 0 0 0 2px var(--primary)" : undefined,
+              borderRadius: isOver ? 4 : undefined,
+              zIndex: isOver ? 2 : undefined,
+            }}
+            onDragOver={(e) => {
+              // Only claim the drop when one of OUR items is in flight;
+              // preventDefault on anything else tells the browser this grid
+              // accepts files it has no idea what to do with.
+              if (!dragging) return;
+              e.preventDefault();
+              onOver(key);
+            }}
+            onDragLeave={() => onOver(null)}
+            onDrop={(e) => {
+              if (!dragging) return;
+              e.preventDefault();
+              onDrop(d.date, minutes);
+            }}
+          >
+            {byDay[i]
+              .filter((it) => it.start >= minutes && it.start < minutes + SLOT)
+              .map((it, n) => (
+                <Block
+                  key={`${it.kind}-${n}`}
+                  item={it}
+                  band={band}
+                  rowStart={minutes}
+                  onDragStart={onBlockDragStart}
+                  onDragEnd={onBlockDragEnd}
+                  onPick={onPick}
+                  onRemove={onRemove}
+                  t={t}
+                />
+              ))}
+          </div>
+        );
+      })}
     </>
   );
 }
 
 function Block({
-  item, band, rowStart, t,
+  item, band, rowStart, onDragStart, onDragEnd, onPick, onRemove, t,
 }: {
   item: Item;
   band: { start: number; end: number };
   rowStart: number;
-  tz: string | null;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  onPick: (a: ActionRead) => void;
+  onRemove: (id: string) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
-  const geo = geometryFor(item, band);
+  const geo = geometryFor({ start: item.start, duration: item.slot }, band);
   if (!geo) return null;
   const isInterview = item.kind === "interview";
   // top is measured from the band; the cell it lives in already starts at
   // rowStart, so only the remainder inside this row is offset.
   const top = geo.top - ((rowStart - band.start) / SLOT) * SLOT_H;
-  const end = item.duration === null ? null : item.start + item.duration;
+  const end = item.slot === null ? null : item.start + item.slot;
+
+  const when = end === null
+    ? t("blockTimeUnknownEnd", { start: fmtClock(item.start) })
+    : `${fmtClock(item.start)}–${fmtClock(end)}`;
 
   return (
     <div
-      className="absolute rounded-[7px] px-2 py-[3px] text-[11px] leading-[1.35] overflow-hidden"
+      className="absolute rounded-[7px] px-2 py-[3px] text-[11px] leading-[1.35] overflow-hidden group"
       style={{
         left: BLOCK_INSET, right: BLOCK_INSET, top, height: geo.height, zIndex: 3,
         background: isInterview ? "var(--warn-bg)" : "var(--accent)",
@@ -244,17 +479,38 @@ function Block({
         // A solid ring in the card colour, not a shadow: it hides the grid
         // lines running underneath the block.
         boxShadow: "0 0 0 2px var(--card)",
+        cursor: isInterview ? "default" : "grab",
       }}
-      title={item.title}
+      title={`${item.title} · ${when}`}
+      // Interviews are the day's fixed skeleton: they come from the timeline,
+      // and moving one here would say the round was rescheduled when it was not.
+      draggable={!isInterview}
+      onDragStart={() => { if (!isInterview) onDragStart(item.action.id); }}
+      onDragEnd={onDragEnd}
     >
-      <b className="block text-[11px] truncate">
-        {isInterview ? `📌 ${item.title}` : item.title}
-      </b>
-      <span style={{ color: "var(--ink-muted)" }}>
-        {end === null
-          ? t("blockTimeUnknownEnd", { start: fmtClock(item.start) })
-          : `${fmtClock(item.start)}–${fmtClock(end)}`}
-      </span>
+      {isInterview ? (
+        <b className="block text-[11px] truncate">📌 {item.title}</b>
+      ) : (
+        <button
+          type="button"
+          className="block w-full text-left text-[11px] font-bold truncate hover:underline"
+          onClick={() => onPick(item.action)}
+        >
+          {item.title}
+        </button>
+      )}
+      <span style={{ color: "var(--ink-muted)" }}>{when}</span>
+      {!isInterview && (
+        <button
+          type="button"
+          className="absolute top-0 right-1 text-[11px] opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          style={{ color: "var(--ink-muted)" }}
+          onClick={() => onRemove(item.action.id)}
+          aria-label={t("unscheduleAria", { title: item.title })}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -295,10 +551,13 @@ function DayFoot({
 }
 
 function Tray({
-  items, loading, t,
+  items, loading, onDragStart, onDragEnd, onPick, t,
 }: {
   items: ActionRead[] | null;
   loading: boolean;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  onPick: (a: ActionRead) => void;
   t: ReturnType<typeof useTranslations>;
 }) {
   return (
@@ -329,9 +588,23 @@ function Tray({
             <div
               key={a.id}
               className="flex items-center gap-2 px-2.5 py-[7px] my-1.5 rounded-[9px] text-[12.5px] select-none"
-              style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+              style={{ background: "var(--card)", border: "1px solid var(--border)", cursor: "grab" }}
+              draggable
+              onDragStart={() => onDragStart(a.id)}
+              onDragEnd={onDragEnd}
             >
-              <span className="truncate" style={{ color: "var(--ink-secondary)" }}>{a.title}</span>
+              {/* A real button, not a div with a key handler: it is reachable by
+                  Tab and fires on Enter for free, and rowKeyboard.test.ts forbids
+                  the role="button" + onKeyDown shape that stole space bar from an
+                  input the last time this was hand-rolled. */}
+              <button
+                type="button"
+                className="truncate text-left hover:underline"
+                style={{ color: "var(--ink-secondary)" }}
+                onClick={() => onPick(a)}
+              >
+                {a.title}
+              </button>
               <span className="ml-auto text-[10.5px] tabular-nums shrink-0" style={{ color: "var(--ink-muted)" }}>
                 ~{estOf(a)}m
               </span>

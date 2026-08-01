@@ -812,6 +812,12 @@
     "weekdayFri": "五",
     "weekdaySat": "六",
     "weekdaySun": "日",
-    "scheduleUnavailable": "本周数据没能加载。"
+    "scheduleUnavailable": "本周数据没能加载。",
+    "scheduleFailed": "排期没能改成。",
+    "unscheduleAria": "把「{title}」撤回托盘",
+    "pickerTitle": "放到日程上",
+    "pickerTime": "开始于",
+    "pickerConfirm": "就放这里",
+    "pickerRemove": "撤回托盘"
   }
 }

@@ -812,6 +812,12 @@
     "weekdayFri": "Fri",
     "weekdaySat": "Sat",
     "weekdaySun": "Sun",
-    "scheduleUnavailable": "The week could not be loaded."
+    "scheduleUnavailable": "The week could not be loaded.",
+    "scheduleFailed": "Could not change the schedule.",
+    "unscheduleAria": "Take {title} off the calendar",
+    "pickerTitle": "Put this on the calendar",
+    "pickerTime": "Start at",
+    "pickerConfirm": "Place it",
+    "pickerRemove": "Take it off"
   }
 }
