@@ -913,6 +913,14 @@ class ApplicationAction(Base):
     # NULL on legacy rows and on manual rows the user did not estimate, so every
     # consumer needs a fallback (never SUM() this column blindly).
     est_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # When this to-do is planned to START, as an instant. due_at says which day
+    # it is owed; this says where on that day it sits. NULL is the unscheduled
+    # tray, not a default time — the week view is built around that distinction.
+    # Duration is not stored here: est_minutes already carries it, and a second
+    # copy could disagree with the total the capacity bar shows.
+    scheduled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     # How many times this to-do has been pushed to a later day. Unlike
     # est_minutes, 0 is a real value here (never deferred), not "unknown".
     snooze_count: Mapped[int] = mapped_column(

@@ -138,11 +138,20 @@ class ActionUpdate(BaseModel):
     # due_at back to NULL), would count the restoration as a postponement, and
     # would leave completed_at set. The route only allows it inside the current
     # local day, before that day is closed — see update_action.
-    op: Literal["complete", "snooze", "dismiss", "reopen"]
+    # "schedule" places the to-do at a time of day; "unschedule" returns it to
+    # the tray. Both are distinct from snooze: a snooze moves which DAY the
+    # to-do is owed (due_at) and counts as a postponement, whereas scheduling
+    # only says where on the calendar the user intends to sit down and do it —
+    # a to-do due Friday can be scheduled for Wednesday without that being a
+    # postponement of anything.
+    op: Literal["complete", "snooze", "dismiss", "reopen", "schedule", "unschedule"]
     snooze_days: int = Field(1, ge=1, le=90)
     # Absolute snooze target (overrides snooze_days) — "Rest until Monday" sets
     # this so overdue actions land ON Monday, not merely +N days from a past due.
     snooze_until: Optional[datetime] = None
+    # Required by op="schedule"; the instant the block starts. Enforced at the
+    # route layer, per this file's cross-field convention.
+    scheduled_at: Optional[datetime] = None
 
 
 # Payload keys the API may expose. The rules engine writes the facts a rule
@@ -171,6 +180,9 @@ class ActionRead(BaseModel):
     # No ge/le here (read models don't re-validate, per this file's convention) —
     # legacy rows are NULL and must serialise, not 500.
     est_minutes: Optional[int] = None
+    # When the user placed this on the calendar. NULL = still in the tray, which
+    # is a real state the week view renders, not missing data.
+    scheduled_at: Optional[datetime] = None
     # Times pushed to a later day. 0 is a real value (never deferred), not unknown.
     snooze_count: int = 0
     # Whitelisted rule facts; None for manual rows and anything pre-dating this.

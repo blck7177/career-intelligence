@@ -315,3 +315,125 @@ def test_reopen_removes_every_completion_event_for_that_action(db_session: Sessi
     db_session.flush()
 
     assert [e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"] == []
+
+
+# --- scheduling (V8: the week grid's "which day, what time") -----------------
+
+
+def test_schedule_places_a_todo_without_touching_its_due_date(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    due = _now() + timedelta(days=3)
+    act = repo.create(workspace_id=WS, type="apply", title="Apply · HRT", due_at=due)
+    assert act.scheduled_at is None  # a fresh to-do starts in the tray
+
+    at = _now() + timedelta(days=1)
+    repo.schedule(act.id, WS, at)
+
+    assert act.scheduled_at == at
+    # The day it is OWED is a different fact from the day the user set aside to
+    # do it; scheduling one must not silently move the other.
+    assert act.due_at == due
+    assert act.snooze_count == 0
+
+
+def test_scheduling_earlier_than_the_due_date_is_not_a_postponement(db_session: Session):
+    # The bug this guards: routing schedule through snooze() would bump
+    # snooze_count and report a deferral for work the user actually pulled
+    # FORWARD — the same confusion V5-C7 had to unpick for Rest-until-Monday.
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(
+        workspace_id=WS, type="apply", title="early", due_at=_now() + timedelta(days=5)
+    )
+    repo.schedule(act.id, WS, _now() + timedelta(days=1))
+    assert act.snooze_count == 0
+
+
+def test_unschedule_returns_it_to_the_tray_still_owed(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    due = _now() + timedelta(days=2)
+    act = repo.create(workspace_id=WS, type="follow_up", title="ping", due_at=due)
+    repo.schedule(act.id, WS, _now())
+    repo.unschedule(act.id, WS)
+    assert act.scheduled_at is None
+    # Clearing due_at too would turn "I'll find another time" into "not due".
+    assert act.due_at == due
+    assert act.status == "pending"
+
+
+def test_schedule_and_unschedule_are_workspace_scoped(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="apply", title="mine")
+    assert repo.schedule(act.id, OTHER_WS, _now()) is None
+    assert repo.unschedule(act.id, OTHER_WS) is None
+    assert act.scheduled_at is None  # the foreign call changed nothing
+
+
+def test_list_scheduled_between_is_half_open_and_ordered(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    start = datetime(2026, 8, 3, tzinfo=timezone.utc)
+    end = start + timedelta(days=7)
+
+    late = repo.create(workspace_id=WS, type="apply", title="thu")
+    repo.schedule(late.id, WS, start + timedelta(days=3, hours=14))
+    early = repo.create(workspace_id=WS, type="apply", title="mon")
+    repo.schedule(early.id, WS, start + timedelta(hours=9))
+    on_start = repo.create(workspace_id=WS, type="apply", title="on start")
+    repo.schedule(on_start.id, WS, start)
+    on_end = repo.create(workspace_id=WS, type="apply", title="on end")
+    repo.schedule(on_end.id, WS, end)
+    unplaced = repo.create(workspace_id=WS, type="apply", title="tray")
+
+    rows = repo.list_scheduled_between(WS, start, end)
+    ids = [r.id for r in rows]
+    # [start, end): the boundary instant belongs to the NEXT week, or a block
+    # would be counted twice when the grid pages forward.
+    assert on_start.id in ids
+    assert on_end.id not in ids
+    assert unplaced.id not in ids
+    assert ids.index(early.id) < ids.index(late.id)
+
+
+def test_a_finished_block_still_shows_how_the_day_was_spent(db_session: Session):
+    # Dropping completed blocks would make a day look emptier the more got done.
+    repo = ApplicationActionRepository(db_session)
+    start = datetime(2026, 8, 3, tzinfo=timezone.utc)
+    act = repo.create(workspace_id=WS, type="apply", title="done one")
+    repo.schedule(act.id, WS, start + timedelta(hours=10))
+    repo.complete(act.id, WS)
+    assert act.id in {r.id for r in repo.list_scheduled_between(WS, start, start + timedelta(days=7))}
+
+
+def test_dismissed_and_retired_blocks_leave_the_grid(db_session: Session):
+    from packages.domain.planner.rules import RETIRED_STATUS
+
+    repo = ApplicationActionRepository(db_session)
+    start = datetime(2026, 8, 3, tzinfo=timezone.utc)
+    dropped = repo.create(workspace_id=WS, type="apply", title="dropped")
+    repo.schedule(dropped.id, WS, start + timedelta(hours=10))
+    repo.dismiss(dropped.id, WS)
+    retired = repo.create(workspace_id=WS, type="apply", title="retired")
+    repo.schedule(retired.id, WS, start + timedelta(hours=11))
+    retired.status = RETIRED_STATUS
+    db_session.flush()
+
+    ids = {r.id for r in repo.list_scheduled_between(WS, start, start + timedelta(days=7))}
+    assert dropped.id not in ids
+    assert retired.id not in ids
+
+
+def test_list_unscheduled_is_the_tray_soonest_first(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    now = _now()
+    undated = repo.create(workspace_id=WS, type="custom", title="someday")
+    later = repo.create(workspace_id=WS, type="apply", title="later", due_at=now + timedelta(days=4))
+    sooner = repo.create(workspace_id=WS, type="apply", title="sooner", due_at=now + timedelta(days=1))
+    placed = repo.create(workspace_id=WS, type="apply", title="placed", due_at=now)
+    repo.schedule(placed.id, WS, now)
+    done = repo.create(workspace_id=WS, type="apply", title="done")
+    repo.complete(done.id, WS)
+
+    ids = [a.id for a in repo.list_unscheduled(WS)]
+    assert placed.id not in ids  # already on the calendar
+    assert done.id not in ids  # not pending
+    assert ids.index(sooner.id) < ids.index(later.id)
+    assert ids.index(undated.id) == len(ids) - 1  # undated sorts last

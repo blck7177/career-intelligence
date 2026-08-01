@@ -2277,6 +2277,91 @@ class ApplicationActionRepository:
         self._s.flush()
         return row
 
+    def schedule(
+        self, action_id: str, workspace_id: str, at: datetime
+    ) -> Optional[ApplicationAction]:
+        """Place a to-do at a time of day, or move one already placed.
+
+        Deliberately not expressed through snooze(), which is the shape it first
+        resembles. Scheduling records where on the calendar the user intends to
+        sit down and do the thing; due_at records which day it is owed. They are
+        independent: a to-do due Friday can be scheduled for Wednesday without
+        anything being postponed. Routing this through snooze() would move due_at
+        and bump snooze_count, reporting a deferral that never happened — the
+        same confusion V5-C7 and V2-C5 each had to unpick once already.
+        """
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.scheduled_at = at
+        self._s.flush()
+        return row
+
+    def unschedule(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        """Return a to-do to the tray.
+
+        due_at is deliberately untouched: the work is still owed on the same day,
+        it just no longer has a place on the calendar. Clearing both would turn
+        "I'll find another time for this" into "this isn't due any more".
+        """
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        row.scheduled_at = None
+        self._s.flush()
+        return row
+
+    def list_scheduled_between(
+        self, workspace_id: str, start: datetime, end: datetime
+    ) -> list[ApplicationAction]:
+        """To-dos placed on the calendar within [start, end), earliest first.
+
+        Unlike list_due_between this is not restricted to pending rows: a block
+        the user finished is still a true record of how that day was spent, and
+        dropping it the moment it is ticked would make the day look emptier the
+        more got done. Retired rows are excluded — a cancelled to-do belongs to
+        an application that closed, so its block is no longer anyone's plan.
+        """
+        from sqlalchemy import select
+
+        from packages.domain.planner.rules import RETIRED_STATUS
+
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status.not_in(("dismissed", RETIRED_STATUS)),
+                ApplicationAction.scheduled_at.is_not(None),
+                ApplicationAction.scheduled_at >= start,
+                ApplicationAction.scheduled_at < end,
+            )
+            .order_by(ApplicationAction.scheduled_at, ApplicationAction.id)
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
+    def list_unscheduled(self, workspace_id: str) -> list[ApplicationAction]:
+        """The tray: pending to-dos with no place on the calendar yet.
+
+        Ordered by due date so the most pressing work is nearest the top of the
+        tray; undated ones sort last, as they do in Today.
+        """
+        from sqlalchemy import select
+
+        stmt = (
+            select(ApplicationAction)
+            .where(
+                ApplicationAction.workspace_id == workspace_id,
+                ApplicationAction.status == "pending",
+                ApplicationAction.scheduled_at.is_(None),
+            )
+            .order_by(
+                ApplicationAction.due_at.is_(None),
+                ApplicationAction.due_at,
+                ApplicationAction.id,
+            )
+        )
+        return list(self._s.execute(stmt).scalars().all())
+
     def count_due(self, workspace_id: str, on_or_before: datetime) -> int:
         from sqlalchemy import func, or_, select
 
