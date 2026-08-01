@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
-import {
-  getFunnel, getPlannerSettings, listApplications, transitionApplication, updateApplication,
-} from "@/api/client";
-import type { FunnelResponse, ApplicationRead } from "@/api/client";
+import { listApplications, transitionApplication, updateApplication } from "@/api/client";
+import type { ApplicationRead } from "@/api/client";
+import type { PlannerData } from "./usePlannerData";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { bandOf, BAND } from "@/lib/matchBand";
@@ -24,36 +23,43 @@ const ACTIVE_STAGES = ["applied", "in_review", "interviewing", "offer"];
  * lane cycle · age (posted/seen + fresh / apply-or-drop) · Apply now / Drop.
  * Sorted by freshness × fit × excitement.
  */
-export function PipelineZone() {
+export function PipelineZone({ data }: { data: PlannerData }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
+  // The funnel and the settings come from the Plan view's single store. This
+  // zone used to fetch its own copy of both, which meant the alerts it renders
+  // and the identical alerts in Today's rail were two independent readings:
+  // acting in either place left the other showing the old one, in both
+  // directions. The planned queue stays local — nothing else renders it.
+  const { funnel, settings, refresh } = data;
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
-  const [freshDays, setFreshDays] = useState(DEFAULT_FRESH_DAYS);
-  const [onsiteTarget, setOnsiteTarget] = useState(4);
-  const [applyOrDropDays, setApplyOrDropDays] = useState(DEFAULT_APPLY_OR_DROP);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const freshDays = settings?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
+  const onsiteTarget = settings?.onsite_target ?? 4;
+  const applyOrDropDays = settings?.apply_or_drop_days ?? DEFAULT_APPLY_OR_DROP;
+
+  const loadPlanned = useCallback(async () => {
     const token = await getToken();
-    const [f, p, s] = await Promise.all([
-      getFunnel(token).catch(() => null),
-      listApplications({ status_group: "planned", include_fit: true, limit: 100 }, token).catch(() => ({ items: [], total: 0 })),
-      getPlannerSettings(token).catch(() => null),
-    ]);
-    setFunnel(f);
-    const fresh = s?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
-    setFreshDays(fresh);
-    setOnsiteTarget(s?.onsite_target ?? 4);
-    setApplyOrDropDays(s?.apply_or_drop_days ?? DEFAULT_APPLY_OR_DROP);
-    // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
-    // fit, then excitement.
-    const score = (a: ApplicationRead) =>
-      (isFresh(a.job?.posted_at, fresh) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
-    setPlanned([...p.items].sort((a, b) => score(b) - score(a)));
+    const p = await listApplications(
+      { status_group: "planned", include_fit: true, limit: 100 },
+      token,
+    ).catch(() => ({ items: [], total: 0 }));
+    setPlanned(p.items);
   }, [getToken]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadPlanned(); }, [loadPlanned]);
+
+  // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
+  // fit, then excitement. Sorted on render rather than on fetch because the
+  // window now arrives from a source this component does not fetch — sorting at
+  // fetch time would freeze whichever window happened to have loaded first.
+  const queue = useMemo(() => {
+    if (planned === null) return null;
+    const score = (a: ApplicationRead) =>
+      (isFresh(a.job?.posted_at, freshDays) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
+    return [...planned].sort((a, b) => score(b) - score(a));
+  }, [planned, freshDays]);
 
   async function drop(id: string) {
     setBusyId(id);
@@ -63,7 +69,9 @@ export function PipelineZone() {
       // six months on, "dropped from the queue" is the difference between a
       // decision and an unexplained state change.
       await transitionApplication(id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
-      await load();
+      // Both: the row leaves this queue, and it leaves the funnel's planned
+      // stage — which Today's rail is also showing.
+      await Promise.all([loadPlanned(), refresh("funnel")]);
     } finally { setBusyId(null); }
   }
 
@@ -73,7 +81,7 @@ export function PipelineZone() {
     try {
       const token = await getToken();
       await updateApplication(app.id, { excitement: next }, token);
-    } catch { load(); }
+    } catch { loadPlanned(); }
   }
 
   async function cycleLane(app: ApplicationRead) {
@@ -82,7 +90,7 @@ export function PipelineZone() {
     try {
       const token = await getToken();
       await updateApplication(app.id, { lane: next }, token);
-    } catch { load(); }
+    } catch { loadPlanned(); }
   }
 
   const stages = funnel?.stages ?? [];
@@ -156,9 +164,9 @@ export function PipelineZone() {
         <h3 className="text-xs font-semibold uppercase tracking-wide mb-2 flex items-baseline gap-1.5" style={{ color: "var(--ink-muted)" }}>
           {t("plannedQueue")}<span className="text-2xs normal-case font-normal" style={{ color: "var(--ink-faint)" }}>{t("plannedQueueSort")}</span>
         </h3>
-        {planned === null ? (
+        {queue === null ? (
           <div className="animate-pulse h-16" aria-hidden />
-        ) : planned.length === 0 ? (
+        ) : queue.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--ink-faint)" }}>{t("plannedEmpty")}</p>
         ) : (
           <div className="overflow-x-auto">
@@ -174,7 +182,7 @@ export function PipelineZone() {
                 </tr>
               </thead>
               <tbody>
-                {planned.map((app) => {
+                {queue.map((app) => {
                   const posted = app.job?.posted_at;
                   const ageIso = posted ?? app.created_at;
                   const days = ageDays(ageIso);

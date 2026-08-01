@@ -11,7 +11,7 @@ import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
 import { toast } from "@/components/ui/toaster";
-import { usePlannerData, type PlannerSource } from "./usePlannerData";
+import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 
@@ -107,14 +107,15 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
+export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowPipeline?: () => void }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   // Every server-side source the view reads, plus the two ways to write to the
   // list. Which sources a mutation dirties is declared at each call site rather
-  // than remembered — see usePlannerData for why.
-  const { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog } =
-    usePlannerData();
+  // than remembered — see usePlannerData for why. The store itself is owned by
+  // PlanView: the Pipeline zone renders the same alerts and the same funnel, so
+  // one of them holding a private copy is a guaranteed disagreement.
+  const { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog } = data;
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
