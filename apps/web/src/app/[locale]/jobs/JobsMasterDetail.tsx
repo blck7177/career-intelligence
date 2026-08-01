@@ -7,6 +7,7 @@ import { Check, Plus, Star, ThumbsDown } from "lucide-react";
 import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { useSlowHint } from "@/hooks/useSlowHint";
 import { batchArchiveJobs, batchAnalyzeJobs, importJob, getRun } from "@/api/client";
 import type { ProfileRead } from "@/api/client";
 import { bandOf, BAND } from "@/lib/matchBand";
@@ -118,6 +119,7 @@ export function JobsMasterDetail({
   const [showImportInput, setShowImportInput] = useState(false);
   const [importUrl, setImportUrl] = useState("");
   const [importing, setImporting] = useState(false);
+  const importSlow = useSlowHint(importing);
   const [unfavoritedIds, setUnfavoritedIds] = useState<Set<string>>(new Set());
   const [reInterestedIds, setReInterestedIds] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -393,7 +395,7 @@ export function JobsMasterDetail({
           </div>
 
           {showImportInput && (
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="url"
                 value={importUrl}
@@ -401,15 +403,22 @@ export function JobsMasterDetail({
                 onKeyDown={(e) => e.key === "Enter" && handleImportUrl()}
                 placeholder={t("importPlaceholder")}
                 autoFocus
+                disabled={importing}
                 className="flex-1 min-w-0 h-9 px-3 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
                 style={{ borderColor: "var(--border)", color: "var(--foreground)" }}
               />
+              {/* Same fetch, same wait, same feedback as the tracker's add box —
+                  `importing` was already translated in both locales and had no
+                  consumer, so the label existed and only the wiring was missing. */}
               <Button onClick={handleImportUrl} disabled={!importUrl.trim()} loading={importing} size="sm">
-                {t("import")}
+                {importing ? t("importing") : t("import")}
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => { setShowImportInput(false); setImportUrl(""); }}>
+              <Button variant="ghost" size="sm" disabled={importing} onClick={() => { setShowImportInput(false); setImportUrl(""); }}>
                 {tCommon("cancel")}
               </Button>
+              {importSlow && (
+                <p className="basis-full text-2xs" style={{ color: "var(--ink-faint)" }}>{t("importSlowHint")}</p>
+              )}
             </div>
           )}
 

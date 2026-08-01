@@ -7,6 +7,7 @@ import { useApiToken } from "@/hooks/useApiToken";
 import { importJob, createApplication } from "@/api/client";
 import type { JobImportBody } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { useSlowHint } from "@/hooks/useSlowHint";
 
 /** "+ Add" entry for the tracker: two feed chutes into the same pipeline — a job
  *  URL (fetch+extract) or a pasted JD (company+title+text) — then create the
@@ -22,6 +23,9 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
   const [jd, setJd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Only the URL path can be slow — the paste path synthesises a manual:// URL
+  // and never leaves the process.
+  const slow = useSlowHint(busy && mode === "url");
 
   const canSubmit =
     mode === "url"
@@ -117,13 +121,14 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
           placeholder={t("addUrlPlaceholder")}
           className={inputCls}
           style={inputStyle}
+          disabled={busy}
           autoFocus
         />
       ) : (
         <div className="space-y-2">
           <div className="flex gap-2">
-            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder={t("addCompanyPlaceholder")} className={inputCls} style={inputStyle} autoFocus />
-            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("addTitlePlaceholder")} className={inputCls} style={inputStyle} />
+            <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder={t("addCompanyPlaceholder")} className={inputCls} style={inputStyle} disabled={busy} autoFocus />
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("addTitlePlaceholder")} className={inputCls} style={inputStyle} disabled={busy} />
           </div>
           <textarea
             value={jd}
@@ -132,6 +137,7 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
             rows={5}
             className="w-full px-3 py-2 rounded-lg border text-sm outline-none focus:ring-2 focus:ring-[var(--primary)]/20 resize-y"
             style={inputStyle}
+            disabled={busy}
           />
         </div>
       )}
@@ -139,9 +145,19 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
       {error && <p className="text-xs text-rose-600">{error}</p>}
 
       <div className="flex items-center gap-2">
-        <Button size="sm" onClick={submit} disabled={!canSubmit} loading={busy}>{t("addSubmit")}</Button>
+        {/* The label says what is happening, not just that something is. The URL
+            path fetches the posting server-side and can run for tens of
+            seconds; a 12px spinner next to an unchanged "Add" reads as a click
+            that missed, and the next thing the user does is click again. */}
+        <Button size="sm" onClick={submit} disabled={!canSubmit} loading={busy}>
+          {busy ? t(mode === "url" ? "addFetching" : "addSaving") : t("addSubmit")}
+        </Button>
         <Button size="sm" variant="ghost" onClick={close} disabled={busy}>{t("addCancel")}</Button>
       </div>
+
+      {slow && (
+        <p className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("addSlowHint")}</p>
+      )}
     </div>
   );
 }
