@@ -114,7 +114,13 @@ export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismi
               <div className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: "var(--ink-muted)" }}>
                 {app ? (
                   <>
-                    <span className="truncate">{app.job?.title ?? t("untitledRole")}</span>
+                    {/* Same destination as the full pane's title. A peek is
+                        where you decide whether a to-do is worth doing, and
+                        "what is this role again" is the question it exists to
+                        answer. */}
+                    <Link href={`/jobs/${app.job_id}`} className="truncate hover:underline">
+                      {app.job?.title ?? t("untitledRole")}
+                    </Link>
                     {style && (
                       <span
                         className="px-1.5 py-0.5 rounded text-2xs font-semibold shrink-0"

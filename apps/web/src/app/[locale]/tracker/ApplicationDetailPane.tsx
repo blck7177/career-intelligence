@@ -108,8 +108,15 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              {/* The title links to the job's own page — the JD, the
+                  intelligence report and the fit analysis all live there, and
+                  from here they were only reachable by going back to the job
+                  library and searching for it again. The planned queue has had
+                  this link since Wave 8; the master-detail never got it. */}
               <h1 className="text-base font-semibold leading-tight" style={{ color: "var(--ink-primary)" }}>
-                {app.job?.title ?? "(untitled role)"}
+                <Link href={`/jobs/${app.job_id}`} className="hover:underline">
+                  {app.job?.title ?? "(untitled role)"}
+                </Link>
               </h1>
               <span className="px-1.5 py-0.5 rounded text-2xs font-semibold shrink-0" style={{ background: style.bg, color: style.fg }}>
                 {t(`status.${app.status}`)}
@@ -142,18 +149,32 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
             </div>
             <StatusStepper app={app} t={t} />
           </div>
-          {isHttp && (
-            <a
-              href={jobUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 inline-flex items-center gap-1 text-xs font-medium hover:underline"
+          {/* Two destinations, named apart: this app's page for the analysis,
+              the employer's page to actually apply. A title link alone was
+              missable — the report that prompted this said "there is no button
+              to get to the detail page", with the title link not yet existing
+              either. */}
+          <div className="shrink-0 flex items-center gap-3">
+            <Link
+              href={`/jobs/${app.job_id}`}
+              className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
               style={{ color: "var(--primary)" }}
             >
-              <ExternalLink size={13} />
-              {t("viewJob")}
-            </a>
-          )}
+              {t("jobDetails")} →
+            </Link>
+            {isHttp && (
+              <a
+                href={jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+                style={{ color: "var(--ink-muted)" }}
+              >
+                <ExternalLink size={13} />
+                {t("viewJob")}
+              </a>
+            )}
+          </div>
         </div>
       </header>
 
