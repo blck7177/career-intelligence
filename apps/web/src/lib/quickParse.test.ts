@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dueAtFor, localMidnightUtc, localToday, parseQuickAdd } from "./quickParse";
+import { dueAtFor, localDateTimeUtc, localMidnightUtc, localToday, localWallTimeUtc, parseQuickAdd } from "./quickParse";
 
 const NY = "America/New_York";
 // Wed 2026-07-15 16:00Z = 12:00 EDT, so "today" in New York is Wed 2026-07-15.
@@ -238,6 +238,77 @@ describe("due_at encoding", () => {
   it("threads through dueAtFor", () => {
     expect(dueAtFor(parseQuickAdd("ping tomorrow", NY, {}, NOW), NY))
       .toBe("2026-07-16T04:00:00.000Z");
+  });
+});
+
+describe("wall-clock encoding (week grid slots, interview times)", () => {
+  // Reading the instant back in the same zone has to return the wall clock we
+  // asked for. Hardcoded expectations alone would pass just as happily if the
+  // arithmetic and the expectation were wrong in the same direction.
+  const readBack = (iso: string, tz: string) =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz, hour12: false,
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit",
+    }).format(new Date(iso));
+
+  it("round-trips every slot of a grid day, in zones that break naive offsets", () => {
+    for (const tz of [NY, "Asia/Kolkata", "Australia/Eucla", "Australia/Sydney", "UTC"]) {
+      for (let m = 9 * 60; m <= 18 * 60; m += 30) {
+        const iso = localWallTimeUtc("2026-08-05", tz, m);
+        const hh = String(Math.floor(m / 60)).padStart(2, "0");
+        const mm = String(m % 60).padStart(2, "0");
+        expect(readBack(iso, tz)).toBe(`2026-08-05, ${hh}:${mm}`);
+      }
+    }
+  });
+
+  it("is midnight-compatible with localMidnightUtc", () => {
+    // The named function is now a specialisation; if they ever diverge, due_at
+    // and scheduled_at would encode the same day differently.
+    for (const tz of [NY, "Asia/Kolkata", "Australia/Sydney"]) {
+      for (const d of ["2026-03-08", "2026-07-16", "2026-11-01"]) {
+        expect(localWallTimeUtc(d, tz, 0)).toBe(localMidnightUtc(d, tz));
+      }
+    }
+  });
+
+  it("uses the offset in force at that hour, not the one at midnight", () => {
+    // 2026-03-08 in New York contains both offsets: 01:30 is still EST (-5) and
+    // 03:30 is already EDT (-4). A single-probe implementation anchored on
+    // midnight would put both an hour off in opposite directions.
+    expect(localWallTimeUtc("2026-03-08", NY, 90)).toBe("2026-03-08T06:30:00.000Z");
+    expect(localWallTimeUtc("2026-03-08", NY, 210)).toBe("2026-03-08T07:30:00.000Z");
+  });
+
+  it("handles offsets that are not whole hours", () => {
+    expect(localWallTimeUtc("2026-07-16", "Asia/Kolkata", 570)).toBe("2026-07-16T04:00:00.000Z");
+    expect(localWallTimeUtc("2026-07-16", "Australia/Eucla", 570)).toBe("2026-07-16T00:45:00.000Z");
+  });
+
+  it("folds a wall time that does not exist, rather than inventing one", () => {
+    // Clocks jump 02:00 → 03:00 in New York on 2026-03-08, so 02:30 never
+    // happens there. Something has to give; this folds back to 01:30 (the
+    // instant one probe lands on) instead of silently shifting an hour forward.
+    // Recorded so a future change to the probe is a visible decision, not a
+    // drift: the grid never offers this slot (it runs 09:00–18:00), but the
+    // interview picker is a free-form datetime-local and can reach it.
+    const iso = localWallTimeUtc("2026-03-08", NY, 150);
+    expect(iso).toBe("2026-03-08T06:30:00.000Z");
+    expect(readBack(iso, NY)).toBe("2026-03-08, 01:30");
+  });
+
+  it("reads a datetime-local value in the workspace zone, not the browser's", () => {
+    expect(localDateTimeUtc("2026-08-05T14:30", NY)).toBe("2026-08-05T18:30:00.000Z");
+    expect(localDateTimeUtc("2026-08-05T14:30", "Asia/Tokyo")).toBe("2026-08-05T05:30:00.000Z");
+    // Some browsers append seconds.
+    expect(localDateTimeUtc("2026-08-05T14:30:00", NY)).toBe("2026-08-05T18:30:00.000Z");
+  });
+
+  it("refuses a malformed datetime-local instead of storing a guess", () => {
+    for (const bad of ["", "2026-08-05", "not a date", "2026-08-05T24:00", "2026-08-05T14:60", "08/05/2026 14:30"]) {
+      expect(localDateTimeUtc(bad, NY)).toBeNull();
+    }
   });
 });
 

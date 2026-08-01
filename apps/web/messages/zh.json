@@ -535,6 +535,7 @@
     },
     "interviews": "面试",
     "addInterview": "记录面试",
+    "interviewTimeUnresolved": "无法确定这是几点——取不到工作区时区，未保存。",
     "interviewLogged": "面试——{round}·{date}",
     "interviewGeneric": "面试",
     "statusChanged": "状态变更",

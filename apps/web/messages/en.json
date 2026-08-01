@@ -535,6 +535,7 @@
     },
     "interviews": "Interviews",
     "addInterview": "Log interview",
+    "interviewTimeUnresolved": "Cannot tell what time that is — the workspace timezone is unavailable. Nothing was saved.",
     "interviewLogged": "Interview — {round} · {date}",
     "interviewGeneric": "interview",
     "statusChanged": "Status changed",
