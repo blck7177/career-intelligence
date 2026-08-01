@@ -2141,6 +2141,53 @@ class ApplicationActionRepository:
         self._s.flush()
         return row
 
+    def reopen(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        """Undo a completion — back to pending, exactly as it was.
+
+        Deliberately not expressible as a snooze, which is the shape it first
+        looks like: snooze() cannot restore an UNDATED to-do (there is no way to
+        write due_at back to NULL), it would count the restoration as a
+        postponement for that row (was_due is None -> snooze_count += 1), and it
+        leaves completed_at pointing at a completion that no longer happened.
+
+        The `action_completed` event goes with it, and this is the one place
+        where the append-only convention argues FOR removal. That event is not a
+        record of something that happened and was later reversed — it is the
+        record of a mis-click the user retracted the same day. Leaving it would
+        also leave `_check_in` (rules.py) and the check-in alert (funnel.py)
+        measuring staleness from it, so the nudge the user just restored would
+        stay suppressed for days by the click they undid.
+
+        Idempotent: reopening a row that is not done changes nothing.
+        """
+        from sqlalchemy import select
+
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        if row.status != "done":
+            return row
+        row.status = "pending"
+        row.completed_at = None
+        if row.application_id:
+            stmt = (
+                select(ApplicationEvent)
+                .where(
+                    ApplicationEvent.application_id == row.application_id,
+                    ApplicationEvent.workspace_id == workspace_id,
+                    ApplicationEvent.event_type == "action_completed",
+                )
+                .order_by(ApplicationEvent.created_at.desc())
+            )
+            # payload_json is filtered here rather than in SQL: JSON predicates
+            # differ across backends and this list is one application's events.
+            for event in self._s.execute(stmt).scalars():
+                if (event.payload_json or {}).get("action_id") == row.id:
+                    self._s.delete(event)
+                    break
+        self._s.flush()
+        return row
+
     def snooze(
         self,
         action_id: str,

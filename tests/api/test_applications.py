@@ -651,6 +651,64 @@ class TestActionsMore:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "dismissed"
 
+    def test_patch_action_reopen(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
+            "apps.api.routes.applications.PlannerDayLogRepository"
+        ) as MockLog:
+            MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
+            MockAct.return_value.reopen.return_value = _action(status="pending")
+            MockLog.return_value.get_for_date.return_value = None  # day not closed
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "pending"
+        MockAct.return_value.reopen.assert_called_once_with("act-1", WS_ID)
+
+    def test_reopen_rejects_a_completion_from_an_earlier_day(self, make_client):
+        # The done bar and the weekly review freeze their totals; undoing a
+        # completion either has already counted would make a stored number
+        # wrong rather than correcting a live one.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
+            "apps.api.routes.applications.PlannerDayLogRepository"
+        ) as MockLog:
+            MockAct.return_value.get.return_value = _action(
+                status="done", completed_at=_NOW - timedelta(days=3)
+            )
+            MockLog.return_value.get_for_date.return_value = None
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 409, resp.text
+        MockAct.return_value.reopen.assert_not_called()
+
+    def test_reopen_rejects_once_the_day_is_closed(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
+            "apps.api.routes.applications.PlannerDayLogRepository"
+        ) as MockLog:
+            MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
+            # A row with done_est set is a day whose total has been recorded.
+            MockLog.return_value.get_for_date.return_value = SimpleNamespace(
+                committed_est=90, done_est=75
+            )
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 409, resp.text
+        MockAct.return_value.reopen.assert_not_called()
+
+    def test_reopen_before_the_evening_close_is_allowed(self, make_client):
+        # A morning ritual writes committed_est and leaves done_est NULL. That
+        # is a planned day, not a closed one — undo must still work all day.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
+            "apps.api.routes.applications.PlannerDayLogRepository"
+        ) as MockLog:
+            MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
+            MockAct.return_value.reopen.return_value = _action(status="pending")
+            MockLog.return_value.get_for_date.return_value = SimpleNamespace(
+                committed_est=90, done_est=None
+            )
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 200, resp.text
+
     def test_snooze_days_out_of_range_returns_422(self, make_client):
         client = make_client()
         resp = client.patch("/api/app/actions/act-1", json={"op": "snooze", "snooze_days": 91})

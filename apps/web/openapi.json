@@ -3795,7 +3795,8 @@
             "enum": [
               "complete",
               "snooze",
-              "dismiss"
+              "dismiss",
+              "reopen"
             ],
             "title": "Op"
           },

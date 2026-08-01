@@ -76,6 +76,7 @@ from packages.domain.applications.transitions import (
 )
 from packages.domain.planner.settings import load_planner_settings
 from packages.infrastructure.db.models import (
+    ApplicationAction,
     Job,
     JobApplication,
     PlannerDayLog,
@@ -475,7 +476,8 @@ def update_action(
     workspace: Workspace = Depends(get_current_workspace),
 ) -> ActionRead:
     repo = ApplicationActionRepository(db)
-    if repo.get(action_id, workspace.id) is None:
+    row = repo.get(action_id, workspace.id)
+    if row is None:
         raise HTTPException(status_code=404, detail="Action not found.")
     if body.op == "complete":
         action = repo.complete(action_id, workspace.id)
@@ -483,10 +485,53 @@ def update_action(
         action = repo.snooze(
             action_id, workspace.id, days=body.snooze_days, until=body.snooze_until
         )
+    elif body.op == "reopen":
+        _assert_within_undo_window(db, workspace, row)
+        action = repo.reopen(action_id, workspace.id)
     else:  # dismiss
         action = repo.dismiss(action_id, workspace.id)
     db.commit()
     return ActionRead.model_validate(action)
+
+
+def _assert_within_undo_window(
+    db: Session, workspace: Workspace, row: ApplicationAction
+) -> None:
+    """Undo is for today's mis-clicks, not for editing history.
+
+    Every live surface recomputes on read — the triplet, the done bar, the
+    capacity bar and the funnel all self-correct — so an undo needs no
+    bookkeeping there. Two snapshots do NOT recompute: planner_day_logs.done_est
+    is measured once at close time, and planner_reviews.stats_json is frozen by
+    the Monday beat. Undoing a completion either of those has already counted
+    would not correct a number, it would make a stored one wrong.
+
+    So: only inside the current local day, and only while that day is still
+    open. Checked server-side because "the client may not decide what day it is"
+    is the rule this planner already runs on (V6-C5) — the toast's own gate is a
+    courtesy, not the enforcement.
+    """
+    from packages.domain.planner.rules import local_day_start_utc
+
+    if row.completed_at is None:
+        return  # not a completion; repo.reopen is a no-op anyway
+    today, settings = _local_today_for(workspace)
+    completed_at = (
+        row.completed_at
+        if row.completed_at.tzinfo
+        else row.completed_at.replace(tzinfo=timezone.utc)
+    )
+    if completed_at < local_day_start_utc(today, settings.timezone):
+        raise HTTPException(
+            status_code=409,
+            detail="Only today's completions can be undone.",
+        )
+    log = PlannerDayLogRepository(db).get_for_date(workspace.id, today)
+    if log is not None and log.done_est is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Today is already closed; its totals have been recorded.",
+        )
 
 
 # ---------------------------------------------------------------------------

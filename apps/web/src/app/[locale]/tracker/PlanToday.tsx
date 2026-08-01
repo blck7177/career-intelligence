@@ -168,6 +168,12 @@ export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowP
     });
   }, [title, tz, rejected]);
 
+  // The evening close freezes done_est; a morning ritual writes committed_est
+  // and leaves done_est NULL, which is a planned day, not a finished one. While
+  // the day is still loading this reads open — the permissive direction, and
+  // the server is the one that decides (it 409s a late reopen).
+  const dayIsOpen = day?.log?.done_est == null;
+
   // The list updates optimistically, but the strip's per-day counts come from
   // the server (they fold in overdue and undated work, and that arithmetic
   // belongs in one place). Without this, clearing the last to-do left "today's
@@ -195,11 +201,36 @@ export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowP
     // the Applications row; the Today row's own snooze and the peek's
     // "Tomorrow" button were the two that still went out relative.
     const tomorrow = op === "snooze" ? dayShift(1) : undefined;
-    return mutateActions(
+    const ok = await mutateActions(
       [id],
       (token) => updateAction(id, { op, snooze_days: 1, ...(tomorrow ? { snooze_until: tomorrow } : {}) }, token),
       dirties,
     );
+    // The ✓ box is 18px and the whole row is clickable next to it, so a
+    // mis-tick is ordinary. Offered only while the server would still accept
+    // it: once the day is closed its done_est is frozen, and a button whose
+    // request comes back 409 is worse than no button.
+    if (ok && op === "complete" && dayIsOpen) {
+      toast(t("completedToast"), { action: { label: t("undo"), onClick: () => undoComplete(id) } });
+    }
+    return ok;
+  }
+
+  /** Put a completion back. Not a snooze: an undated to-do has no due_at to
+   *  restore, so a snooze would invent one and count the restore as a
+   *  postponement. `reload()` rather than a refresh because the row has to
+   *  reappear in the list, which is the one source `refresh` cannot re-read. */
+  async function undoComplete(id: string) {
+    try {
+      const token = await getToken();
+      // snooze_days is inert for this op but the generated body type requires
+      // it (pydantic gives it a default, which openapi-typescript reads as
+      // required) — every other call site spells it out the same way.
+      await updateAction(id, { op: "reopen", snooze_days: 1 }, token);
+      await reload();
+    } catch {
+      toast(t("undoFailed"));
+    }
   }
 
   /** "Not needed" is the one row action with a consequence worth stating: the
