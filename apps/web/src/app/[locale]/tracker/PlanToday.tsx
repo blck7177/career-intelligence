@@ -228,6 +228,11 @@ export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowP
       // required) — every other call site spells it out the same way.
       await updateAction(id, { op: "reopen", snooze_days: 1 }, token);
       await reload();
+      // Announced, not just performed. The toast outlives this view — switch to
+      // Applications and click Undo and the reopen still lands, but reload()
+      // repaints a tree nobody is looking at, so without this the success path
+      // is the only silent one while the failure path still speaks.
+      toast(t("undoDone"));
     } catch {
       toast(t("undoFailed"));
     }

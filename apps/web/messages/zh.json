@@ -748,6 +748,7 @@
     "peekDismiss": "不需要",
     "completedToast": "已完成。",
     "undo": "撤销",
+    "undoDone": "已放回。",
     "undoFailed": "撤销失败——刷新后重试。",
     "dropAcknowledge": "我知道：这 {n} 项不会再被提醒。",
     "peekDismissToast": "已忽略 —— 规则引擎不会再生成这一条。",

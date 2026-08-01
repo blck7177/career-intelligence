@@ -31,9 +31,10 @@ export function PipelineZone({ data }: { data: PlannerData }) {
   // and the identical alerts in Today's rail were two independent readings:
   // acting in either place left the other showing the old one, in both
   // directions. The planned queue stays local — nothing else renders it.
-  const { funnel, settings, refresh } = data;
+  const { funnel, settings, refresh, reload } = data;
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [orderEpoch, setOrderEpoch] = useState(0);
 
   const freshDays = settings?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
   const onsiteTarget = settings?.onsite_target ?? 4;
@@ -46,20 +47,38 @@ export function PipelineZone({ data }: { data: PlannerData }) {
       token,
     ).catch(() => ({ items: [], total: 0 }));
     setPlanned(p.items);
+    setOrderEpoch((n) => n + 1);
   }, [getToken]);
 
   useEffect(() => { loadPlanned(); }, [loadPlanned]);
 
   // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
-  // fit, then excitement. Sorted on render rather than on fetch because the
-  // window now arrives from a source this component does not fetch — sorting at
-  // fetch time would freeze whichever window happened to have loaded first.
-  const queue = useMemo(() => {
+  // fit, then excitement.
+  //
+  // Recomputed when the list is FETCHED or when the freshness window first
+  // arrives — not on every write to `planned`. The window comes from a source
+  // this component does not fetch, so sorting inside loadPlanned would freeze
+  // whichever of the two landed first; but sorting on every render moved rows
+  // under the cursor, because rating a row optimistically rewrites `planned`
+  // and a third star can lift it past its neighbour mid-gesture, so the next
+  // click lands on a different application. The order is therefore a snapshot,
+  // and edits change what a row says without changing where it is.
+  const order = useMemo(() => {
     if (planned === null) return null;
     const score = (a: ApplicationRead) =>
       (isFresh(a.job?.posted_at, freshDays) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
-    return [...planned].sort((a, b) => score(b) - score(a));
-  }, [planned, freshDays]);
+    return [...planned].sort((a, b) => score(b) - score(a)).map((a) => a.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderEpoch, freshDays]);
+
+  const queue = useMemo(() => {
+    if (planned === null || order === null) return planned;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Rows added since the last ordering (there are none today, but a future
+    // optimistic insert would otherwise vanish) sort to the end rather than
+    // being dropped.
+    return [...planned].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  }, [planned, order]);
 
   async function drop(id: string) {
     setBusyId(id);
@@ -69,9 +88,14 @@ export function PipelineZone({ data }: { data: PlannerData }) {
       // six months on, "dropped from the queue" is the difference between a
       // decision and an unexplained state change.
       await transitionApplication(id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
-      // Both: the row leaves this queue, and it leaves the funnel's planned
-      // stage — which Today's rail is also showing.
-      await Promise.all([loadPlanned(), refresh("funnel")]);
+      // Three things move, not one. The row leaves this queue; it leaves the
+      // funnel's planned stage; and — since V7.5-C1 — the server retires the
+      // application's pending to-dos, so the "apply or drop this one" item that
+      // put the amber badge on this very row disappears from Today, one scroll
+      // above. `reload()` is the only path that re-reads the action list (it is
+      // deliberately not a PlannerSource), and it re-reads week/day/stats/funnel
+      // on the way, which is why the funnel refresh is not also needed here.
+      await Promise.all([loadPlanned(), reload()]);
     } finally { setBusyId(null); }
   }
 

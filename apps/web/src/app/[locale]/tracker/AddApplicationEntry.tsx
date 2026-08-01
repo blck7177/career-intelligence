@@ -100,6 +100,7 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
         {(["url", "paste"] as const).map((m) => (
           <button
             key={m}
+            disabled={busy}
             onClick={() => { setMode(m); setError(null); }}
             className="h-7 px-2.5 rounded-md text-xs font-medium"
             style={

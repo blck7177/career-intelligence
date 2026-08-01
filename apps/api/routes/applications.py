@@ -511,7 +511,7 @@ def _assert_within_undo_window(
     is the rule this planner already runs on (V6-C5) — the toast's own gate is a
     courtesy, not the enforcement.
     """
-    from packages.domain.planner.rules import local_day_start_utc
+    from packages.domain.planner.rules import local_day_start_utc, local_today
 
     if row.completed_at is None:
         return  # not a completion; repo.reopen is a no-op anyway
@@ -531,6 +531,19 @@ def _assert_within_undo_window(
         raise HTTPException(
             status_code=409,
             detail="Today is already closed; its totals have been recorded.",
+        )
+    # The weekly review is the other frozen snapshot, and "still inside today"
+    # does not imply "not yet reviewed": the beat runs Monday 02:00 UTC, which
+    # for any workspace west of UTC-2 is still local SUNDAY, and _week_start_for
+    # anchors on (today - 1 day) so the frozen week INCLUDES that Sunday. A
+    # completion made Sunday afternoon can therefore already be counted in
+    # stats_json while it is still today.
+    completed_local = local_today(completed_at, settings.timezone)
+    week_start = completed_local - timedelta(days=completed_local.weekday())
+    if PlannerReviewRepository(db).get_for_week(workspace.id, week_start) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="That week's review has been generated; its totals have been recorded.",
         )
 
 

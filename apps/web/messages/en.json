@@ -748,6 +748,7 @@
     "peekDismiss": "Not needed",
     "completedToast": "Done.",
     "undo": "Undo",
+    "undoDone": "Put back.",
     "undoFailed": "Couldn't undo — reload and try again.",
     "dropAcknowledge": "I understand: {n, plural, one {this to-do} other {these # to-dos}} will not be raised again.",
     "peekDismissToast": "Dismissed — the planner won't raise this one again.",

@@ -2125,6 +2125,12 @@ class ApplicationActionRepository:
         row = self.get(action_id, workspace_id)
         if row is None:
             return None
+        # Idempotent. Two tabs, or a retried PATCH, used to move completed_at and
+        # append a SECOND action_completed event — which then outlived a reopen,
+        # because that deletes the completion it undoes, not every one ever
+        # written for the row.
+        if row.status == "done":
+            return row
         row.status = "done"
         row.completed_at = datetime.now(timezone.utc)
         # Completing an action worth a timeline entry on its application.
@@ -2181,10 +2187,12 @@ class ApplicationActionRepository:
             )
             # payload_json is filtered here rather than in SQL: JSON predicates
             # differ across backends and this list is one application's events.
+            # Every one of them, not the newest: complete() is idempotent now,
+            # but rows completed twice before that fix still carry duplicates,
+            # and leaving one behind is the same lie in a quieter font.
             for event in self._s.execute(stmt).scalars():
                 if (event.payload_json or {}).get("action_id") == row.id:
                     self._s.delete(event)
-                    break
         self._s.flush()
         return row
 

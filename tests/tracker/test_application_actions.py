@@ -275,3 +275,43 @@ def test_reopen_a_global_action_has_no_event_to_remove(db_session: Session):
     repo.complete(act.id, WS)
     repo.reopen(act.id, WS)
     assert act.status == "pending"  # no application_id -> no event, no crash
+
+
+def test_completing_twice_is_a_no_op(db_session: Session):
+    # Two tabs or a retried PATCH used to move completed_at and append a second
+    # event — which then survived a reopen and left the timeline claiming a
+    # completion for an open to-do.
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j1")
+    act = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="ping")
+    actions.complete(act.id, WS)
+    first = act.completed_at
+
+    actions.complete(act.id, WS)
+
+    assert act.completed_at == first
+    assert len([e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]) == 1
+
+
+def test_reopen_removes_every_completion_event_for_that_action(db_session: Session):
+    # Historical rows completed twice (before complete() was idempotent) carry
+    # duplicates; leaving one behind keeps the check-in clock reset.
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j1")
+    act = actions.create(workspace_id=WS, application_id=app.id, type="prep", title="check in")
+    actions.complete(act.id, WS)
+    # Simulate the pre-fix duplicate directly, since complete() now refuses to.
+    events.append(
+        application_id=app.id, workspace_id=WS, event_type="action_completed",
+        message=act.title, payload_json={"action_id": act.id, "type": act.type},
+    )
+    assert len([e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]) == 2
+
+    actions.reopen(act.id, WS)
+    db_session.flush()
+
+    assert [e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"] == []

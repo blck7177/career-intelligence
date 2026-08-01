@@ -655,10 +655,13 @@ class TestActionsMore:
         client = make_client()
         with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
             "apps.api.routes.applications.PlannerDayLogRepository"
-        ) as MockLog:
+        ) as MockLog, patch(
+            "apps.api.routes.applications.PlannerReviewRepository"
+        ) as MockRev:
             MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
             MockAct.return_value.reopen.return_value = _action(status="pending")
             MockLog.return_value.get_for_date.return_value = None  # day not closed
+            MockRev.return_value.get_for_week.return_value = None  # week not reviewed
             resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "pending"
@@ -700,14 +703,38 @@ class TestActionsMore:
         client = make_client()
         with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
             "apps.api.routes.applications.PlannerDayLogRepository"
-        ) as MockLog:
+        ) as MockLog, patch(
+            "apps.api.routes.applications.PlannerReviewRepository"
+        ) as MockRev:
             MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
             MockAct.return_value.reopen.return_value = _action(status="pending")
             MockLog.return_value.get_for_date.return_value = SimpleNamespace(
                 committed_est=90, done_est=None
             )
+            MockRev.return_value.get_for_week.return_value = None
             resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
         assert resp.status_code == 200, resp.text
+
+    def test_reopen_rejects_once_that_week_has_been_reviewed(self, make_client):
+        # "still inside today" does not imply "not yet counted": the weekly beat
+        # runs Monday 02:00 UTC, which is still local Sunday west of UTC-2, and
+        # the week it freezes includes that Sunday. stats_json is a snapshot, so
+        # a completion it already counted cannot be undone.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, patch(
+            "apps.api.routes.applications.PlannerDayLogRepository"
+        ) as MockLog, patch(
+            "apps.api.routes.applications.PlannerReviewRepository"
+        ) as MockRev:
+            MockAct.return_value.get.return_value = _action(status="done", completed_at=_NOW)
+            MockLog.return_value.get_for_date.return_value = None
+            MockRev.return_value.get_for_week.return_value = SimpleNamespace(week_start=_NOW.date())
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 409, resp.text
+        MockAct.return_value.reopen.assert_not_called()
+        # Asked for the Monday of the completion's own week, not "this week".
+        (_ws, asked_week), _ = MockRev.return_value.get_for_week.call_args
+        assert asked_week.weekday() == 0
 
     def test_snooze_days_out_of_range_returns_422(self, make_client):
         client = make_client()
