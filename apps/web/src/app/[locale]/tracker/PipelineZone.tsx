@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
-import {
-  getFunnel, getPlannerSettings, listApplications, transitionApplication, updateApplication,
-} from "@/api/client";
-import type { FunnelResponse, ApplicationRead } from "@/api/client";
+import { listApplications, transitionApplication, updateApplication } from "@/api/client";
+import type { ApplicationRead } from "@/api/client";
+import type { PlannerData } from "./usePlannerData";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { ZoneHead } from "@/components/ui/zone-head";
 
@@ -18,57 +18,84 @@ const ACTIVE_STAGES = ["applied", "in_review", "interviewing", "offer"];
 
 /**
  * Plan · Pipeline zone. Funnel (horizontal, onsite target line) + advisory
- * alerts (ghosted suggestions confirm before applying — the audit-D gate) + the
- * planned-to-apply queue as a table: Fit · excitement · lane cycle · age
- * (posted/seen + fresh / apply-or-drop) · Apply now / Drop. Sorted by
- * freshness × fit × excitement.
+ * alerts (read-only: a ghosted suggestion links to the application, it does not
+ * apply itself) + the planned-to-apply queue as a table: Fit · excitement ·
+ * lane cycle · age (posted/seen + fresh / apply-or-drop) · Apply now / Drop.
+ * Sorted by freshness × fit × excitement.
  */
-export function PipelineZone() {
+export function PipelineZone({ data }: { data: PlannerData }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
+  // The funnel and the settings come from the Plan view's single store. This
+  // zone used to fetch its own copy of both, which meant the alerts it renders
+  // and the identical alerts in Today's rail were two independent readings:
+  // acting in either place left the other showing the old one, in both
+  // directions. The planned queue stays local — nothing else renders it.
+  const { funnel, settings, refresh, reload } = data;
   const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
-  const [freshDays, setFreshDays] = useState(DEFAULT_FRESH_DAYS);
-  const [onsiteTarget, setOnsiteTarget] = useState(4);
-  const [applyOrDropDays, setApplyOrDropDays] = useState(DEFAULT_APPLY_OR_DROP);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [orderEpoch, setOrderEpoch] = useState(0);
 
-  const load = useCallback(async () => {
+  const freshDays = settings?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
+  const onsiteTarget = settings?.onsite_target ?? 4;
+  const applyOrDropDays = settings?.apply_or_drop_days ?? DEFAULT_APPLY_OR_DROP;
+
+  const loadPlanned = useCallback(async () => {
     const token = await getToken();
-    const [f, p, s] = await Promise.all([
-      getFunnel(token).catch(() => null),
-      listApplications({ status_group: "planned", include_fit: true, limit: 100 }, token).catch(() => ({ items: [], total: 0 })),
-      getPlannerSettings(token).catch(() => null),
-    ]);
-    setFunnel(f);
-    const fresh = s?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
-    setFreshDays(fresh);
-    setOnsiteTarget(s?.onsite_target ?? 4);
-    setApplyOrDropDays(s?.apply_or_drop_days ?? DEFAULT_APPLY_OR_DROP);
-    // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
-    // fit, then excitement.
-    const score = (a: ApplicationRead) =>
-      (isFresh(a.job?.posted_at, fresh) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
-    setPlanned([...p.items].sort((a, b) => score(b) - score(a)));
+    const p = await listApplications(
+      { status_group: "planned", include_fit: true, limit: 100 },
+      token,
+    ).catch(() => ({ items: [], total: 0 }));
+    setPlanned(p.items);
+    setOrderEpoch((n) => n + 1);
   }, [getToken]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadPlanned(); }, [loadPlanned]);
 
-  async function confirmGhost(id: string) {
-    setBusyId(id);
-    try {
-      const token = await getToken();
-      await transitionApplication(id, { status: "ghosted", force: false }, token);
-      await load();
-    } finally { setBusyId(null); }
-  }
+  // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
+  // fit, then excitement.
+  //
+  // Recomputed when the list is FETCHED or when the freshness window first
+  // arrives — not on every write to `planned`. The window comes from a source
+  // this component does not fetch, so sorting inside loadPlanned would freeze
+  // whichever of the two landed first; but sorting on every render moved rows
+  // under the cursor, because rating a row optimistically rewrites `planned`
+  // and a third star can lift it past its neighbour mid-gesture, so the next
+  // click lands on a different application. The order is therefore a snapshot,
+  // and edits change what a row says without changing where it is.
+  const order = useMemo(() => {
+    if (planned === null) return null;
+    const score = (a: ApplicationRead) =>
+      (isFresh(a.job?.posted_at, freshDays) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
+    return [...planned].sort((a, b) => score(b) - score(a)).map((a) => a.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderEpoch, freshDays]);
+
+  const queue = useMemo(() => {
+    if (planned === null || order === null) return planned;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Rows added since the last ordering (there are none today, but a future
+    // optimistic insert would otherwise vanish) sort to the end rather than
+    // being dropped.
+    return [...planned].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
+  }, [planned, order]);
 
   async function drop(id: string) {
     setBusyId(id);
     try {
       const token = await getToken();
-      await transitionApplication(id, { status: "withdrawn", force: false }, token);
-      await load();
+      // The note is what the timeline shows instead of a bare "status changed";
+      // six months on, "dropped from the queue" is the difference between a
+      // decision and an unexplained state change.
+      await transitionApplication(id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
+      // Three things move, not one. The row leaves this queue; it leaves the
+      // funnel's planned stage; and — since V7.5-C1 — the server retires the
+      // application's pending to-dos, so the "apply or drop this one" item that
+      // put the amber badge on this very row disappears from Today, one scroll
+      // above. `reload()` is the only path that re-reads the action list (it is
+      // deliberately not a PlannerSource), and it re-reads week/day/stats/funnel
+      // on the way, which is why the funnel refresh is not also needed here.
+      await Promise.all([loadPlanned(), reload()]);
     } finally { setBusyId(null); }
   }
 
@@ -78,7 +105,7 @@ export function PipelineZone() {
     try {
       const token = await getToken();
       await updateApplication(app.id, { excitement: next }, token);
-    } catch { load(); }
+    } catch { loadPlanned(); }
   }
 
   async function cycleLane(app: ApplicationRead) {
@@ -87,7 +114,7 @@ export function PipelineZone() {
     try {
       const token = await getToken();
       await updateApplication(app.id, { lane: next }, token);
-    } catch { load(); }
+    } catch { loadPlanned(); }
   }
 
   const stages = funnel?.stages ?? [];
@@ -136,10 +163,20 @@ export function PipelineZone() {
               style={{ borderColor: al.severity === "warn" ? "#f59e0b55" : "var(--border)", background: al.severity === "warn" ? "#fffbeb" : "transparent" }}
             >
               <span style={{ color: "var(--ink-secondary)" }}>{t(al.message_key, al.context as Record<string, string | number>)}</span>
+              {/* An advisory line does not get to fire an irreversible mutation.
+                  Marking ghosted is terminal — every move out of it needs
+                  force — so this hands off to the application's own page, where
+                  the timeline, the last contact and the close buttons are all
+                  in view. (planner_ux_research_0726.html:596 offers exactly two
+                  remedies for an irreversible action in a list: move it to L3,
+                  or gate it. This is the first.) */}
               {al.kind === "ghosted_suggestion" && al.application_id && (
-                <Button size="sm" variant="outline" loading={busyId === al.application_id} onClick={() => confirmGhost(al.application_id!)}>
-                  {t("confirmGhosted")}
-                </Button>
+                <Link
+                  href={`/tracker/${al.application_id}`}
+                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                >
+                  {t("alertReview")}
+                </Link>
               )}
             </li>
           ))}
@@ -151,9 +188,9 @@ export function PipelineZone() {
         <h3 className="text-xs font-semibold uppercase tracking-wide mb-2 flex items-baseline gap-1.5" style={{ color: "var(--ink-muted)" }}>
           {t("plannedQueue")}<span className="text-2xs normal-case font-normal" style={{ color: "var(--ink-faint)" }}>{t("plannedQueueSort")}</span>
         </h3>
-        {planned === null ? (
+        {queue === null ? (
           <div className="animate-pulse h-16" aria-hidden />
-        ) : planned.length === 0 ? (
+        ) : queue.length === 0 ? (
           <p className="text-sm" style={{ color: "var(--ink-faint)" }}>{t("plannedEmpty")}</p>
         ) : (
           <div className="overflow-x-auto">
@@ -169,7 +206,7 @@ export function PipelineZone() {
                 </tr>
               </thead>
               <tbody>
-                {planned.map((app) => {
+                {queue.map((app) => {
                   const posted = app.job?.posted_at;
                   const ageIso = posted ?? app.created_at;
                   const days = ageDays(ageIso);

@@ -11,19 +11,22 @@ import {
   updateApplication,
   createAction,
   updateAction,
-  addApplicationEvent,
-} from "@/api/client";
+  addApplicationEvent, deleteApplication } from "@/api/client";
 import type { ApplicationDetail, ApplicationUpdate, StatusTransition, ApplicationEventRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { parseQuickAdd } from "@/lib/quickParse";
-import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE } from "./status";
+import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE, restoreTargetOf } from "./status";
 
 interface Props {
   applicationId: string | null;
   /** Nudge the server-rendered list to re-fetch after a mutation here. */
   onListChanged?: () => void;
+  /** The application is gone. The list owns the selection, so it clears it —
+   *  a pane left pointing at a deleted id would refetch into a 404. */
+  onDeleted?: (id: string) => void;
   /** Bumped by the LIST when something outside this pane mutated the same
    *  application. The pane's own data is client-fetched, so `router.refresh()`
    *  — which is all a row action can do to the server-rendered list — leaves it
@@ -31,7 +34,7 @@ interface Props {
   refreshKey?: number;
 }
 
-export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey = 0 }: Props) {
+export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted, refreshKey = 0 }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [data, setData] = useState<ApplicationDetail | null>(null);
@@ -108,8 +111,15 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
+              {/* The title links to the job's own page — the JD, the
+                  intelligence report and the fit analysis all live there, and
+                  from here they were only reachable by going back to the job
+                  library and searching for it again. The planned queue has had
+                  this link since Wave 8; the master-detail never got it. */}
               <h1 className="text-base font-semibold leading-tight" style={{ color: "var(--ink-primary)" }}>
-                {app.job?.title ?? "(untitled role)"}
+                <Link href={`/jobs/${app.job_id}`} className="hover:underline">
+                  {app.job?.title ?? "(untitled role)"}
+                </Link>
               </h1>
               <span className="px-1.5 py-0.5 rounded text-2xs font-semibold shrink-0" style={{ background: style.bg, color: style.fg }}>
                 {t(`status.${app.status}`)}
@@ -142,18 +152,32 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
             </div>
             <StatusStepper app={app} t={t} />
           </div>
-          {isHttp && (
-            <a
-              href={jobUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 inline-flex items-center gap-1 text-xs font-medium hover:underline"
+          {/* Two destinations, named apart: this app's page for the analysis,
+              the employer's page to actually apply. A title link alone was
+              missable — the report that prompted this said "there is no button
+              to get to the detail page", with the title link not yet existing
+              either. */}
+          <div className="shrink-0 flex items-center gap-3">
+            <Link
+              href={`/jobs/${app.job_id}`}
+              className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
               style={{ color: "var(--primary)" }}
             >
-              <ExternalLink size={13} />
-              {t("viewJob")}
-            </a>
-          )}
+              {t("jobDetails")} →
+            </Link>
+            {isHttp && (
+              <a
+                href={jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+                style={{ color: "var(--ink-muted)" }}
+              >
+                <ExternalLink size={13} />
+                {t("viewJob")}
+              </a>
+            )}
+          </div>
         </div>
       </header>
 
@@ -166,7 +190,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey
         <MetaSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
         {/* Status transitions */}
-        <StatusSection app={app} onMutated={mutated} getToken={getToken} t={t} />
+        <StatusSection app={app} onMutated={mutated} onDeleted={onDeleted} getToken={getToken} t={t} />
 
         {/* Next actions */}
         <ActionsSection app={app} onMutated={mutated} getToken={getToken} t={t} />
@@ -332,18 +356,26 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
   );
 }
 
-function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted?: (id: string) => void; getToken: Getter; t: T }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const forward = FORWARD_NEXT[app.status] ?? [];
   const closable = LIVE_STATUSES.includes(app.status);
+  const closed = CLOSE_STATUSES.includes(app.status);
+  const reopenTarget = restoreTargetOf(app);
 
-  async function move(status: string) {
+  async function move(status: string, opts?: { force?: boolean; note?: string }) {
     setBusy(status);
     setErr(null);
     try {
       const token = await getToken();
-      await transitionApplication(app.id, { status: status as StatusTransition["status"], force: false }, token);
+      await transitionApplication(
+        app.id,
+        { status: status as StatusTransition["status"], force: opts?.force ?? false, note: opts?.note },
+        token,
+      );
       onMutated();
     } catch (e) {
       setErr(t("transitionFailed", { msg: e instanceof Error ? e.message : "error" }));
@@ -352,7 +384,37 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
     }
   }
 
-  if (forward.length === 0 && !closable) return null;
+  // A closed application used to render nothing here: FORWARD_NEXT has no exit
+  // from a closed status and LIVE_STATUSES excludes it, so the whole section
+  // returned null and a mis-marked row could only be corrected with curl or
+  // SQL. Every close on this page is one click and unconfirmed, and the
+  // ghosted one is raised by a heuristic that says out loud it cannot see the
+  // user's inbox — so the recoverable half is the half that has to exist.
+  // (mockup_final_0726.html:1088/:1090 promised exactly this: "之后若对方回来，
+  // 可 force 恢复".)
+  // Removal is for mistakes, and a mistake is always still `planned` — a wrong
+  // URL, a duplicate, a row typed to try the box. Past that the record is
+  // history the funnel and the weekly snapshots are counted from, so it closes
+  // out instead of disappearing. The server enforces the same line (409).
+  const removable = app.status === "planned";
+
+  async function remove() {
+    setRemoving(true);
+    setErr(null);
+    try {
+      const token = await getToken();
+      await deleteApplication(app.id, token);
+      setConfirmRemove(false);
+      onDeleted?.(app.id);
+    } catch (e) {
+      setErr(t("transitionFailed", { msg: e instanceof Error ? e.message : "error" }));
+      setConfirmRemove(false);
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  if (forward.length === 0 && !closable && !closed && !removable) return null;
 
   return (
     <section className="space-y-2">
@@ -376,6 +438,45 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
           ))}
         </div>
       )}
+      {closed && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            loading={busy === reopenTarget}
+            disabled={busy !== null}
+            onClick={() => move(reopenTarget, { force: true, note: t("reopenNote") })}
+          >
+            {t("reopenAs", { status: t(`status.${reopenTarget}`) })}
+          </Button>
+          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("reopenHint")}</span>
+        </div>
+      )}
+      {removable && (
+        <div className="flex items-center gap-2 flex-wrap pt-1">
+          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setConfirmRemove(true)}>
+            {t("removeApplication")}
+          </Button>
+          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("removeHint")}</span>
+        </div>
+      )}
+      <Dialog open={confirmRemove} onOpenChange={(o) => { if (!removing) setConfirmRemove(o); }}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="text-base font-semibold">{t("removeConfirmTitle")}</DialogTitle>
+          <DialogDescription className="text-xs mt-1" style={{ color: "var(--ink-muted)" }}>
+            {t("removeConfirmBody", { title: app.job?.title ?? "" })}
+          </DialogDescription>
+          <div className="flex items-center gap-2 mt-4">
+            <span className="flex-1" />
+            <Button size="sm" variant="ghost" disabled={removing} onClick={() => setConfirmRemove(false)}>
+              {t("removeCancel")}
+            </Button>
+            <Button size="sm" variant="destructive" loading={removing} onClick={remove}>
+              {t("removeConfirm")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {err && <p className="text-xs text-rose-600">{err}</p>}
     </section>
   );
@@ -539,8 +640,22 @@ export function eventLabel(e: ApplicationEventRead, t: T): string {
     const round = p.round_type ? t(`round.${p.round_type}`) : t("interviewGeneric");
     return t("interviewLogged", { round, date: p.at ? fmtTs(p.at) : "" });
   }
+  // Every status change since P0 has recorded from/to; the timeline was
+  // throwing it away and printing "Status changed" for all of them. Reading it
+  // back costs nothing and fixes the existing history too, not just new rows.
+  // A note (why) is shown alongside the move (what), never instead of it.
+  if (e.event_type === "status_changed") {
+    const p = (e.payload_json ?? {}) as { from?: string; to?: string };
+    // Only translate statuses we have labels for: next-intl renders a missing
+    // key as the key itself, so an unrecognised status would print
+    // "tracker.status.whatever" into the timeline (V6's lesson).
+    const known = (s?: string) => !!s && (LIVE_STATUSES.includes(s) || CLOSE_STATUSES.includes(s));
+    const label = known(p.from) && known(p.to)
+      ? t("statusChangedFromTo", { from: t(`status.${p.from}`), to: t(`status.${p.to}`) })
+      : t("statusChanged");
+    return e.message ? `${label} — ${e.message}` : label;
+  }
   if (e.message) return e.message;
-  if (e.event_type === "status_changed") return t("statusChanged");
   return e.event_type;
 }
 

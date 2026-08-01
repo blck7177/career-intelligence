@@ -10,6 +10,7 @@ import { reviewKey, shouldAnnounceReview } from "@/lib/reviewBanner";
 import { PlanToday } from "./PlanToday";
 import { PipelineZone } from "./PipelineZone";
 import { ReviewZone } from "./ReviewZone";
+import { usePlannerData } from "./usePlannerData";
 
 // "Later" has to survive a tab switch: Plan unmounts when you go to Applications,
 // and a banner that returns every time you come back is one you learn to swat
@@ -23,13 +24,17 @@ let dismissedReview: string | null = null;
 /** The Plan sub-view: three stacked zones — Today (execution), Pipeline
  *  (health), Review (weekly). One scroll container.
  *
- *  The weekly review is fetched HERE, not inside ReviewZone, because two things
- *  now need it: the unread banner at the top and the zone at the bottom. Two
- *  independent fetches would let "mark read" update one copy and leave the other
- *  stale. */
+ *  Shared server state is fetched HERE and handed down, for one reason applied
+ *  twice. The weekly review: the unread banner at the top and the zone at the
+ *  bottom both need it, and two fetches would let "mark read" update one copy
+ *  and leave the other stale. The planner store: Today's rail and the Pipeline
+ *  zone render the same funnel and the same alert list, and each used to fetch
+ *  its own — so confirming from either left the other showing the reading it
+ *  had at page load, in both directions. */
 export function PlanView() {
   const getToken = useApiToken();
   const userId = useApiUserId();
+  const planner = usePlannerData();
   const [review, setReview] = useState<WeeklyReviewRead | null | undefined>(undefined);
   const [error, setError] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(dismissedReview);
@@ -84,10 +89,11 @@ export function PlanView() {
             rail's pipeline snapshot scrolls rather than navigates — same move
             the review banner makes. */}
         <PlanToday
+          data={planner}
           onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />
         <div ref={pipelineRef} className="scroll-mt-4">
-          <PipelineZone />
+          <PipelineZone data={planner} />
         </div>
         <div ref={reviewRef} className="scroll-mt-4">
           <ReviewZone review={review} error={error} onRetry={load} />

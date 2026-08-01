@@ -210,3 +210,108 @@ def test_earliest_pending_action_map_breaks_ties_on_id(db_session: Session):
         due_at=same_day - timedelta(days=1),
     )
     assert actions.earliest_pending_action_map(WS, [app.id])[app.id][1] == sooner.type
+
+
+def test_reopen_restores_an_undated_todo_exactly(db_session: Session):
+    """The case a snooze cannot express, and the reason `reopen` is its own op.
+
+    An undated to-do has no due_at to restore, so undoing its completion via
+    snooze would invent one (`now + 1 day`) and count the restoration as a
+    postponement. Reopen puts the row back the way it was.
+    """
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="custom", title="anytime")
+    repo.complete(act.id, WS)
+    assert act.status == "done"
+
+    repo.reopen(act.id, WS)
+
+    assert act.status == "pending"
+    assert act.completed_at is None
+    assert act.due_at is None  # not invented
+    assert act.snooze_count == 0  # undoing is not deferring
+
+
+def test_reopen_removes_the_completion_it_undoes(db_session: Session):
+    """The completion event is what `_check_in` and the check-in alert measure
+    staleness from. Leaving it would keep the nudge the user just restored
+    suppressed for days."""
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j1")
+    act = actions.create(workspace_id=WS, application_id=app.id, type="prep", title="check in")
+    other = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="ping")
+    actions.complete(act.id, WS)
+    actions.complete(other.id, WS)
+    assert len([e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]) == 2
+
+    actions.reopen(act.id, WS)
+    db_session.flush()
+
+    remaining = [e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]
+    # Only the undone one goes; the other completion is untouched.
+    assert len(remaining) == 1
+    assert remaining[0].payload_json["action_id"] == other.id
+
+
+def test_reopen_is_idempotent_and_workspace_scoped(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="custom", title="x", due_at=_now())
+    due = act.due_at
+
+    repo.reopen(act.id, WS)  # never completed — nothing to undo
+    assert act.status == "pending"
+    assert act.due_at == due
+
+    repo.complete(act.id, WS)
+    assert repo.reopen(act.id, OTHER_WS) is None  # IDOR guard
+    assert act.status == "done"
+
+
+def test_reopen_a_global_action_has_no_event_to_remove(db_session: Session):
+    repo = ApplicationActionRepository(db_session)
+    act = repo.create(workspace_id=WS, type="global", title="refill the queue")
+    repo.complete(act.id, WS)
+    repo.reopen(act.id, WS)
+    assert act.status == "pending"  # no application_id -> no event, no crash
+
+
+def test_completing_twice_is_a_no_op(db_session: Session):
+    # Two tabs or a retried PATCH used to move completed_at and append a second
+    # event — which then survived a reopen and left the timeline claiming a
+    # completion for an open to-do.
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j1")
+    act = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="ping")
+    actions.complete(act.id, WS)
+    first = act.completed_at
+
+    actions.complete(act.id, WS)
+
+    assert act.completed_at == first
+    assert len([e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]) == 1
+
+
+def test_reopen_removes_every_completion_event_for_that_action(db_session: Session):
+    # Historical rows completed twice (before complete() was idempotent) carry
+    # duplicates; leaving one behind keeps the check-in clock reset.
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j1")
+    act = actions.create(workspace_id=WS, application_id=app.id, type="prep", title="check in")
+    actions.complete(act.id, WS)
+    # Simulate the pre-fix duplicate directly, since complete() now refuses to.
+    events.append(
+        application_id=app.id, workspace_id=WS, event_type="action_completed",
+        message=act.title, payload_json={"action_id": act.id, "type": act.type},
+    )
+    assert len([e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"]) == 2
+
+    actions.reopen(act.id, WS)
+    db_session.flush()
+
+    assert [e for e in events.list_for_application(app.id, WS) if e.event_type == "action_completed"] == []

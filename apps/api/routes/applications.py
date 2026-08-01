@@ -8,6 +8,7 @@ Contract:
   GET    /api/app/applications/funnel                       -> FunnelResponse
   GET    /api/app/applications/{application_id}             -> ApplicationDetail
   PATCH  /api/app/applications/{application_id}             -> ApplicationRead
+  DELETE /api/app/applications/{application_id}             -> 204 (planned only)
   POST   /api/app/applications/{application_id}/transition  -> ApplicationRead
   POST   /api/app/applications/{application_id}/events      -> ApplicationEventRead (201)
   POST   /api/app/actions                                   -> ActionRead (201)
@@ -76,6 +77,7 @@ from packages.domain.applications.transitions import (
 )
 from packages.domain.planner.settings import load_planner_settings
 from packages.infrastructure.db.models import (
+    ApplicationAction,
     Job,
     JobApplication,
     PlannerDayLog,
@@ -361,6 +363,31 @@ def update_application(
     return _application_read(app, job=job)
 
 
+@router.delete("/applications/{application_id}", status_code=204)
+def delete_application(
+    application_id: str,
+    db: Session = Depends(get_db),
+    workspace: Workspace = Depends(get_current_workspace),
+) -> None:
+    """Remove a never-applied application. 409 once it has any history.
+
+    Deleting is for mistakes — a wrong URL, a duplicate, a row typed to try the
+    box — and those are always still `planned`. An application that has been
+    applied to is counted by the funnel, the interview rate and the already
+    frozen weekly snapshots; erasing one would move numbers the user reads to
+    judge the search, with nothing left to point at. Those close out instead.
+    """
+    repo = JobApplicationRepository(db)
+    app = _assert_owned(repo.get(application_id, workspace.id), workspace)
+    if app.status != "planned":
+        raise HTTPException(
+            status_code=409,
+            detail="Only a planned application can be removed — close it out instead.",
+        )
+    repo.delete_planned(application_id, workspace.id)
+    db.commit()
+
+
 @router.post("/applications/{application_id}/transition", response_model=ApplicationRead)
 def transition_application(
     application_id: str,
@@ -475,7 +502,8 @@ def update_action(
     workspace: Workspace = Depends(get_current_workspace),
 ) -> ActionRead:
     repo = ApplicationActionRepository(db)
-    if repo.get(action_id, workspace.id) is None:
+    row = repo.get(action_id, workspace.id)
+    if row is None:
         raise HTTPException(status_code=404, detail="Action not found.")
     if body.op == "complete":
         action = repo.complete(action_id, workspace.id)
@@ -483,10 +511,66 @@ def update_action(
         action = repo.snooze(
             action_id, workspace.id, days=body.snooze_days, until=body.snooze_until
         )
+    elif body.op == "reopen":
+        _assert_within_undo_window(db, workspace, row)
+        action = repo.reopen(action_id, workspace.id)
     else:  # dismiss
         action = repo.dismiss(action_id, workspace.id)
     db.commit()
     return ActionRead.model_validate(action)
+
+
+def _assert_within_undo_window(
+    db: Session, workspace: Workspace, row: ApplicationAction
+) -> None:
+    """Undo is for today's mis-clicks, not for editing history.
+
+    Every live surface recomputes on read — the triplet, the done bar, the
+    capacity bar and the funnel all self-correct — so an undo needs no
+    bookkeeping there. Two snapshots do NOT recompute: planner_day_logs.done_est
+    is measured once at close time, and planner_reviews.stats_json is frozen by
+    the Monday beat. Undoing a completion either of those has already counted
+    would not correct a number, it would make a stored one wrong.
+
+    So: only inside the current local day, and only while that day is still
+    open. Checked server-side because "the client may not decide what day it is"
+    is the rule this planner already runs on (V6-C5) — the toast's own gate is a
+    courtesy, not the enforcement.
+    """
+    from packages.domain.planner.rules import local_day_start_utc, local_today
+
+    if row.completed_at is None:
+        return  # not a completion; repo.reopen is a no-op anyway
+    today, settings = _local_today_for(workspace)
+    completed_at = (
+        row.completed_at
+        if row.completed_at.tzinfo
+        else row.completed_at.replace(tzinfo=timezone.utc)
+    )
+    if completed_at < local_day_start_utc(today, settings.timezone):
+        raise HTTPException(
+            status_code=409,
+            detail="Only today's completions can be undone.",
+        )
+    log = PlannerDayLogRepository(db).get_for_date(workspace.id, today)
+    if log is not None and log.done_est is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Today is already closed; its totals have been recorded.",
+        )
+    # The weekly review is the other frozen snapshot, and "still inside today"
+    # does not imply "not yet reviewed": the beat runs Monday 02:00 UTC, which
+    # for any workspace west of UTC-2 is still local SUNDAY, and _week_start_for
+    # anchors on (today - 1 day) so the frozen week INCLUDES that Sunday. A
+    # completion made Sunday afternoon can therefore already be counted in
+    # stats_json while it is still today.
+    completed_local = local_today(completed_at, settings.timezone)
+    week_start = completed_local - timedelta(days=completed_local.weekday())
+    if PlannerReviewRepository(db).get_for_week(workspace.id, week_start) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="That week's review has been generated; its totals have been recorded.",
+        )
 
 
 # ---------------------------------------------------------------------------

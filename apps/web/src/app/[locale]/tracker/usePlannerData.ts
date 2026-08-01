@@ -93,8 +93,15 @@ export function usePlannerData(): PlannerData {
   // Ids whose removal is in flight. A reload that overlaps a mutation would
   // otherwise put a row the user just ticked back on the list.
   const removingRef = useRef<Set<string>>(new Set());
+  // Bumped by every mutation that lands. A reload whose request was already in
+  // flight when one landed is holding a snapshot from before it — and its
+  // `removingRef` filter cannot help, because that set is emptied the moment
+  // the mutation resolves. Undo made this reachable: it reloads (six GETs) and
+  // a tick during that window would come back undone.
+  const mutationSeq = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (attempt = 0): Promise<void> => {
+    const startedAt = mutationSeq.current;
     try {
       const token = await getToken();
       const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
@@ -109,6 +116,12 @@ export function usePlannerData(): PlannerData {
         getPlannerDay(token).catch(() => undefined),
         getFunnel(token).catch(() => null),
       ]);
+      if (mutationSeq.current !== startedAt) {
+        // A mutation landed while this was in the air. Retry once — the second
+        // read is ordered after it. A second collision is left alone rather
+        // than looped on: the next user action reloads anyway.
+        if (attempt === 0) return reload(1);
+      }
       setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
       setStats(st);
       setSettings(cfg);
@@ -170,6 +183,7 @@ export function usePlannerData(): PlannerData {
       try {
         const token = await getToken();
         await run(token);
+        mutationSeq.current += 1;
         await refresh(...invalidates);
         return true;
       } catch {
@@ -196,10 +210,22 @@ export function usePlannerData(): PlannerData {
   /** Fold a freshly written day log into the cached day without a round trip.
    *  A no-op when the day has not loaded: `prev` being undefined means
    *  done_count/done_est are unknown, and inventing them would put numbers on
-   *  the done bar that nothing measured. */
-  const patchDayLog = useCallback((log: PlannerDayLogRead) => {
-    setDay((prev) => (prev ? { ...prev, log } : prev));
-  }, []);
+   *  the done bar that nothing measured.
+   *
+   *  Also a no-op when the log is not TODAY's. The shutdown wizard can close
+   *  yesterday — the whole point of V6-C5's "which day" work — and the response
+   *  is then yesterday's row, with done_est set. Folding it in here would make
+   *  the new day read as already closed: no shutdown button, no undo offered,
+   *  all day, from one late-night session. The day this payload describes is
+   *  taken from the strip the server labelled, never from the browser clock. */
+  const serverToday = week?.days.find((d) => d.is_today)?.date;
+  const patchDayLog = useCallback(
+    (log: PlannerDayLogRead) => {
+      if (serverToday && log.local_date !== serverToday) return;
+      setDay((prev) => (prev ? { ...prev, log } : prev));
+    },
+    [serverToday],
+  );
 
   return { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog };
 }

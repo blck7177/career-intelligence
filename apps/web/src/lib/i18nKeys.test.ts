@@ -41,27 +41,50 @@ function flatten(obj: Record<string, unknown>, prefix = ""): Set<string> {
  *  Picks up string literals anywhere inside a t(...) call, so the ternary form
  *  `t(cond ? "a" : "b")` is covered — that is the shape that hid one of the two
  *  bugs this test exists for. */
-function usedKeys(src: string): string[] {
-  // A file may call useTranslations several times (a component plus its
-  // sub-components). One namespace across all of them is the case we can read;
-  // more than one and we cannot tell which call a given t() belongs to.
-  // Skipping quietly is how the first version of this test missed the very bug
-  // it was written for, so the distinct-count is what decides, not the raw one.
-  const ns = [...new Set([...src.matchAll(/useTranslations\("([^"]+)"\)/g)].map((m) => m[1]))];
-  if (ns.length !== 1) return [];
+/** Keys a file references, resolved per translator variable.
+ *
+ *  The first version keyed off "how many distinct namespaces does this file
+ *  declare" and returned nothing when the answer was more than one. That
+ *  silently exempted six files and ~220 t() calls — including every page that
+ *  mixes its own namespace with `common` — which is the same shape of hole the
+ *  test was written to close, one level up. Binding each translator to its
+ *  variable (`const t = useTranslations("jobs")`, `const tCommon =
+ *  useTranslations("common")`) resolves them exactly, so no file needs an
+ *  exemption. `analysable` is false only when a translator cannot be tied to a
+ *  name at all, and that is asserted on rather than skipped. */
+function usedKeys(src: string): { keys: string[]; analysable: boolean } {
+  const declared = [...src.matchAll(/useTranslations\("([^"]+)"\)/g)].map((m) => m[1]);
+  if (declared.length === 0) return { keys: [], analysable: true };
+
+  const byVar = new Map<string, string>();
+  let ambiguous = false;
+  for (const m of src.matchAll(/(?:const|let|var)\s+(\w+)\s*=\s*useTranslations\("([^"]+)"\)/g)) {
+    const [, name, ns] = m;
+    // The same identifier bound to two namespaces in one file cannot be
+    // resolved by name — a component and its sibling would both call `t`.
+    if (byVar.has(name) && byVar.get(name) !== ns) ambiguous = true;
+    byVar.set(name, ns);
+  }
+  // Every declaration has to have been bound to a plain identifier; an inline
+  // useTranslations("x")("key") leaves calls with no name to attribute.
+  const bound = [...src.matchAll(/(?:const|let|var)\s+\w+\s*=\s*useTranslations\("([^"]+)"\)/g)].length;
+  if (ambiguous || bound !== declared.length) return { keys: [], analysable: false };
+
   const keys: string[] = [];
-  for (const call of src.matchAll(/\bt\(([^;]*?)\)/g)) {
-    // Only the first argument names the key; the second is the interpolation
-    // object, whose quoted values are not keys.
-    const firstArg = call[1].split(/,\s*\{/)[0];
-    for (const lit of firstArg.matchAll(/(={2,3}\s*|!={1,2}\s*)?"([a-zA-Z][a-zA-Z0-9_.]*)"/g)) {
-      // Skip comparison operands: `t(choice === "today" ? "a" : "b")` names two
-      // keys, not three.
-      if (lit[1]) continue;
-      keys.push(`${ns[0]}.${lit[2]}`);
+  for (const [name, ns] of byVar) {
+    for (const call of src.matchAll(new RegExp(`\\b${name}\\(([^;]*?)\\)`, "g"))) {
+      // Only the first argument names the key; the second is the interpolation
+      // object, whose quoted values are not keys.
+      const firstArg = call[1].split(/,\s*\{/)[0];
+      for (const lit of firstArg.matchAll(/(={2,3}\s*|!={1,2}\s*)?"([a-zA-Z][a-zA-Z0-9_.]*)"/g)) {
+        // Skip comparison operands: `t(choice === "today" ? "a" : "b")` names two
+        // keys, not three.
+        if (lit[1]) continue;
+        keys.push(`${ns}.${lit[2]}`);
+      }
     }
   }
-  return keys;
+  return { keys, analysable: true };
 }
 
 describe("translation keys", () => {
@@ -71,12 +94,25 @@ describe("translation keys", () => {
     const missing: Record<string, string[]> = {};
     for (const file of walk(SRC)) {
       if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
-      const bad = [...new Set(usedKeys(readFileSync(file, "utf8")))].filter(
+      const bad = [...new Set(usedKeys(readFileSync(file, "utf8")).keys)].filter(
         (k) => !enKeys.has(k),
       );
       if (bad.length) missing[file.slice(SRC.length + 1)] = bad;
     }
     expect(missing).toEqual({});
+  });
+
+  it("no file opts itself out by being unreadable", () => {
+    // The check above can only fail for files it can parse. A file it cannot
+    // parse looks identical to a file with no mistakes, which is how the
+    // previous version exempted six files without anyone noticing. Make that
+    // state loud instead: if this fails, either name the translator or teach
+    // usedKeys the new shape — do not let it pass silently.
+    const unreadable = walk(SRC)
+      .filter((f) => !f.endsWith(".test.ts") && !f.endsWith(".test.tsx"))
+      .filter((f) => !usedKeys(readFileSync(f, "utf8")).analysable)
+      .map((f) => f.slice(SRC.length + 1));
+    expect(unreadable).toEqual([]);
   });
 
   it("en and zh hold the same keys", () => {

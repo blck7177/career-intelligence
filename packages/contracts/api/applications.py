@@ -133,7 +133,12 @@ class ActionCreate(BaseModel):
 
 
 class ActionUpdate(BaseModel):
-    op: Literal["complete", "snooze", "dismiss"]
+    # "reopen" undoes a completion. It is a distinct op rather than a snooze
+    # because a snooze cannot restore an UNDATED to-do (there is no way to write
+    # due_at back to NULL), would count the restoration as a postponement, and
+    # would leave completed_at set. The route only allows it inside the current
+    # local day, before that day is closed — see update_action.
+    op: Literal["complete", "snooze", "dismiss", "reopen"]
     snooze_days: int = Field(1, ge=1, le=90)
     # Absolute snooze target (overrides snooze_days) — "Rest until Monday" sets
     # this so overdue actions land ON Monday, not merely +N days from a past due.

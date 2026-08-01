@@ -60,6 +60,13 @@ EMPLOYER_RESPONSE_EVENTS = frozenset({"interview_scheduled"})
 # action every day.
 _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
 
+# Status written when an application closes and its outstanding to-dos are
+# retired (JobApplicationRepository._cancel_pending_actions). It is defined here,
+# next to the set it must stay out of, because that is the whole point of it
+# being a separate word: retiring them as "dismissed" would make force-reopening
+# a mis-closed application permanently silent for every rule that had a row.
+RETIRED_STATUS = "cancelled"
+
 # Effort estimate per action type, in minutes. Coarse on purpose — the point is
 # a believable day total to check against the daily cap, not precision (an exact
 # estimate would only lend false confidence to the planning fallacy). Keyed by
@@ -115,7 +122,7 @@ class EventView:
 @dataclass
 class ActionView:
     type: str
-    status: str  # pending | done | snoozed | dismissed
+    status: str  # pending | done | dismissed | cancelled (see _SUPPRESSING_STATUSES)
     auto_generated: bool = True
     completed_at: Optional[datetime] = None  # UTC
     created_at: Optional[datetime] = None  # UTC (for global per-week dedup)

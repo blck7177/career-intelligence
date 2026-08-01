@@ -1704,6 +1704,44 @@ class JobApplicationRepository:
         self._s.flush()
         return row
 
+    def delete_planned(self, application_id: str, workspace_id: str) -> bool:
+        """Remove an application that was never applied to, with its rows.
+
+        Scoped to `planned` on purpose. A mis-add is always a fresh row — wrong
+        URL, duplicate, something typed to try the box — so this line covers
+        every mistake worth erasing. Past that point the record is history: the
+        funnel, the interview rate and the frozen weekly snapshots are all
+        counted from it, and deleting one would move numbers the user reads to
+        judge how the search is going, silently and with nothing left to point
+        at. Those close out (`rejected` / `withdrawn` / `ghosted`) instead.
+
+        Children go first and explicitly: application_events.application_id is
+        NOT NULL with no ON DELETE, and neither relationship declares a cascade,
+        so the FK would reject the delete (postgres) or orphan the rows
+        (sqlite). Returns False when there is nothing to delete or the status
+        does not allow it, so the route can tell 404 from 409.
+        """
+        from sqlalchemy import delete as sa_delete
+
+        row = self.get(application_id, workspace_id)
+        if row is None or row.status != "planned":
+            return False
+        self._s.execute(
+            sa_delete(ApplicationEvent).where(
+                ApplicationEvent.application_id == row.id,
+                ApplicationEvent.workspace_id == workspace_id,
+            )
+        )
+        self._s.execute(
+            sa_delete(ApplicationAction).where(
+                ApplicationAction.application_id == row.id,
+                ApplicationAction.workspace_id == workspace_id,
+            )
+        )
+        self._s.delete(row)
+        self._s.flush()
+        return True
+
     def transition_status(
         self,
         application_id: str,
@@ -1713,7 +1751,7 @@ class JobApplicationRepository:
         note: str | None = None,
         force: bool = False,
     ) -> Optional[JobApplication]:
-        from packages.domain.applications.transitions import assert_transition
+        from packages.domain.applications.transitions import CLOSED_STATUSES, assert_transition
 
         row = self.get(application_id, workspace_id)
         if row is None:
@@ -1725,6 +1763,14 @@ class JobApplicationRepository:
         # TaskRepository.mark_running stamping started_at).
         if new_status == "applied" and row.applied_at is None:
             row.applied_at = datetime.now(timezone.utc)
+        # Closing the application retires its outstanding to-dos in the same
+        # transaction; the count rides along in the audit event so the timeline
+        # can say how much work the close took off the list.
+        cancelled = (
+            self._cancel_pending_actions(row.id, workspace_id)
+            if new_status in CLOSED_STATUSES
+            else 0
+        )
         # Same-transaction audit event (append-only timeline).
         self._s.add(
             ApplicationEvent(
@@ -1732,11 +1778,47 @@ class JobApplicationRepository:
                 workspace_id=workspace_id,
                 event_type="status_changed",
                 message=note,
-                payload_json={"from": old_status, "to": new_status, "forced": force},
+                payload_json={
+                    "from": old_status,
+                    "to": new_status,
+                    "forced": force,
+                    "cancelled_actions": cancelled,
+                },
             )
         )
         self._s.flush()
         return row
+
+    def _cancel_pending_actions(self, application_id: str, workspace_id: str) -> int:
+        """Retire this application's outstanding to-dos. Returns how many.
+
+        Nothing else does. The rules engine only ever creates rows
+        (planner_run.run_daily_rules_once never prunes) and `list_due` filters
+        on (workspace, status, due_at) without joining the application — so a
+        follow-up raised the day before a rejection keeps surfacing on Today
+        for a company that is no longer in play, indefinitely.
+
+        The retired status is RETIRED_STATUS ("cancelled"), NOT "dismissed".
+        `_suppressed()` treats *dismissed* as a lifetime veto per
+        (application, type), so reusing it here would leave a force-reopened
+        application permanently silent — the correction path would quietly
+        break the engine for that row. The constant is imported from the rules
+        module rather than spelled here so the two sides cannot drift; the
+        invariant that ties them is asserted in test_planner_rules.py.
+        """
+        from sqlalchemy import select
+
+        from packages.domain.planner.rules import RETIRED_STATUS
+
+        stmt = select(ApplicationAction).where(
+            ApplicationAction.application_id == application_id,
+            ApplicationAction.workspace_id == workspace_id,
+            ApplicationAction.status == "pending",
+        )
+        rows = list(self._s.scalars(stmt))
+        for action in rows:
+            action.status = RETIRED_STATUS
+        return len(rows)
 
     def count_by_status(self, workspace_id: str) -> dict[str, int]:
         from sqlalchemy import func, select
@@ -2081,6 +2163,12 @@ class ApplicationActionRepository:
         row = self.get(action_id, workspace_id)
         if row is None:
             return None
+        # Idempotent. Two tabs, or a retried PATCH, used to move completed_at and
+        # append a SECOND action_completed event — which then outlived a reopen,
+        # because that deletes the completion it undoes, not every one ever
+        # written for the row.
+        if row.status == "done":
+            return row
         row.status = "done"
         row.completed_at = datetime.now(timezone.utc)
         # Completing an action worth a timeline entry on its application.
@@ -2094,6 +2182,55 @@ class ApplicationActionRepository:
                     payload_json={"action_id": row.id, "type": row.type},
                 )
             )
+        self._s.flush()
+        return row
+
+    def reopen(self, action_id: str, workspace_id: str) -> Optional[ApplicationAction]:
+        """Undo a completion — back to pending, exactly as it was.
+
+        Deliberately not expressible as a snooze, which is the shape it first
+        looks like: snooze() cannot restore an UNDATED to-do (there is no way to
+        write due_at back to NULL), it would count the restoration as a
+        postponement for that row (was_due is None -> snooze_count += 1), and it
+        leaves completed_at pointing at a completion that no longer happened.
+
+        The `action_completed` event goes with it, and this is the one place
+        where the append-only convention argues FOR removal. That event is not a
+        record of something that happened and was later reversed — it is the
+        record of a mis-click the user retracted the same day. Leaving it would
+        also leave `_check_in` (rules.py) and the check-in alert (funnel.py)
+        measuring staleness from it, so the nudge the user just restored would
+        stay suppressed for days by the click they undid.
+
+        Idempotent: reopening a row that is not done changes nothing.
+        """
+        from sqlalchemy import select
+
+        row = self.get(action_id, workspace_id)
+        if row is None:
+            return None
+        if row.status != "done":
+            return row
+        row.status = "pending"
+        row.completed_at = None
+        if row.application_id:
+            stmt = (
+                select(ApplicationEvent)
+                .where(
+                    ApplicationEvent.application_id == row.application_id,
+                    ApplicationEvent.workspace_id == workspace_id,
+                    ApplicationEvent.event_type == "action_completed",
+                )
+                .order_by(ApplicationEvent.created_at.desc())
+            )
+            # payload_json is filtered here rather than in SQL: JSON predicates
+            # differ across backends and this list is one application's events.
+            # Every one of them, not the newest: complete() is idempotent now,
+            # but rows completed twice before that fix still carry duplicates,
+            # and leaving one behind is the same lie in a quieter font.
+            for event in self._s.execute(stmt).scalars():
+                if (event.payload_json or {}).get("action_id") == row.id:
+                    self._s.delete(event)
         self._s.flush()
         return row
 

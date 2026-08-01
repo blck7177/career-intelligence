@@ -112,6 +112,21 @@ async function req<T>(path: string, init?: RequestInit, token?: string | null): 
   return res.json() as Promise<T>;
 }
 
+/** For endpoints that answer 204. `req` parses the body unconditionally, which
+ *  throws on an empty one — the same shape that makes a plain <a download> fail
+ *  against this client. Kept separate rather than teaching `req` to return null,
+ *  so no caller silently receives a null it does not check. */
+async function reqNoContent(path: string, init: RequestInit, token?: string | null): Promise<void> {
+  const resolvedToken = await resolveToken(token);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (resolvedToken) headers["Authorization"] = `Bearer ${resolvedToken}`;
+  const res = await fetch(`${BASE}${path}`, { headers: { ...headers, ...(init.headers as Record<string, string>) }, ...init });
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    throw Object.assign(new Error(text), { status: res.status });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runs  (/api/app/runs/*)
 // ---------------------------------------------------------------------------
@@ -337,6 +352,10 @@ export async function updateApplication(
     { method: "PATCH", body: JSON.stringify(body) },
     token,
   );
+}
+
+export async function deleteApplication(applicationId: string, token?: string | null): Promise<void> {
+  return reqNoContent(`/api/app/applications/${applicationId}`, { method: "DELETE" }, token);
 }
 
 export async function transitionApplication(
