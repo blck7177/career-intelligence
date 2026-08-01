@@ -9,6 +9,7 @@ import {
 } from "@/api/client";
 import type { FunnelResponse, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { ZoneHead } from "@/components/ui/zone-head";
 
@@ -18,10 +19,10 @@ const ACTIVE_STAGES = ["applied", "in_review", "interviewing", "offer"];
 
 /**
  * Plan · Pipeline zone. Funnel (horizontal, onsite target line) + advisory
- * alerts (ghosted suggestions confirm before applying — the audit-D gate) + the
- * planned-to-apply queue as a table: Fit · excitement · lane cycle · age
- * (posted/seen + fresh / apply-or-drop) · Apply now / Drop. Sorted by
- * freshness × fit × excitement.
+ * alerts (read-only: a ghosted suggestion links to the application, it does not
+ * apply itself) + the planned-to-apply queue as a table: Fit · excitement ·
+ * lane cycle · age (posted/seen + fresh / apply-or-drop) · Apply now / Drop.
+ * Sorted by freshness × fit × excitement.
  */
 export function PipelineZone() {
   const t = useTranslations("tracker");
@@ -54,20 +55,14 @@ export function PipelineZone() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function confirmGhost(id: string) {
-    setBusyId(id);
-    try {
-      const token = await getToken();
-      await transitionApplication(id, { status: "ghosted", force: false }, token);
-      await load();
-    } finally { setBusyId(null); }
-  }
-
   async function drop(id: string) {
     setBusyId(id);
     try {
       const token = await getToken();
-      await transitionApplication(id, { status: "withdrawn", force: false }, token);
+      // The note is what the timeline shows instead of a bare "status changed";
+      // six months on, "dropped from the queue" is the difference between a
+      // decision and an unexplained state change.
+      await transitionApplication(id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
       await load();
     } finally { setBusyId(null); }
   }
@@ -136,10 +131,20 @@ export function PipelineZone() {
               style={{ borderColor: al.severity === "warn" ? "#f59e0b55" : "var(--border)", background: al.severity === "warn" ? "#fffbeb" : "transparent" }}
             >
               <span style={{ color: "var(--ink-secondary)" }}>{t(al.message_key, al.context as Record<string, string | number>)}</span>
+              {/* An advisory line does not get to fire an irreversible mutation.
+                  Marking ghosted is terminal — every move out of it needs
+                  force — so this hands off to the application's own page, where
+                  the timeline, the last contact and the close buttons are all
+                  in view. (planner_ux_research_0726.html:596 offers exactly two
+                  remedies for an irreversible action in a list: move it to L3,
+                  or gate it. This is the first.) */}
               {al.kind === "ghosted_suggestion" && al.application_id && (
-                <Button size="sm" variant="outline" loading={busyId === al.application_id} onClick={() => confirmGhost(al.application_id!)}>
-                  {t("confirmGhosted")}
-                </Button>
+                <Link
+                  href={`/tracker/${al.application_id}`}
+                  className={buttonVariants({ size: "sm", variant: "outline" })}
+                >
+                  {t("alertReview")}
+                </Link>
               )}
             </li>
           ))}

@@ -29,6 +29,40 @@ export const FORWARD_NEXT: Record<string, string[]> = {
 export const CLOSE_STATUSES = ["rejected", "withdrawn", "ghosted"];
 export const LIVE_STATUSES = ["planned", "applied", "in_review", "interviewing", "offer"];
 
+/** Minimum shape restoreTargetOf needs — a subset of ApplicationDetail, so the
+ *  pure module stays free of the API client. */
+type ClosedApplication = {
+  status: string;
+  events?: { event_type: string; payload_json?: Record<string, unknown> | null; created_at: string }[] | null;
+};
+
+/** Where a reopen should land: the status this application held immediately
+ *  before it closed, read off the audit event that recorded the close.
+ *
+ *  Picked by max(created_at) rather than by position, so it does not depend on
+ *  the endpoint's ordering (the events endpoint sorts ascending today; nothing
+ *  in this file should care if that changes). A `from` that is itself a closed
+ *  status is skipped — a forced ghosted -> rejected correction says nothing
+ *  about where the application was actually alive.
+ *
+ *  Falls back to "applied" when no such event exists (rows closed before the
+ *  events table, or an import that arrived closed). The button always names its
+ *  target, so the fallback is something the user reads before clicking rather
+ *  than a stage invented on their behalf. */
+export function restoreTargetOf(app: ClosedApplication): string {
+  let best: { at: number; from: string } | null = null;
+  for (const e of app.events ?? []) {
+    if (e.event_type !== "status_changed") continue;
+    const p = (e.payload_json ?? {}) as { from?: unknown; to?: unknown };
+    const from = typeof p.from === "string" ? p.from : null;
+    if (p.to !== app.status || from === null || !LIVE_STATUSES.includes(from)) continue;
+    const at = new Date(e.created_at).getTime();
+    if (!Number.isFinite(at)) continue;
+    if (best === null || at > best.at) best = { at, from };
+  }
+  return best?.from ?? "applied";
+}
+
 // A/B/C effort-tier lane chip styling. The b tier used to carry inline var()
 // fallbacks because --warn-* did not exist yet, so only the fallback ever
 // painted; the token is now defined in globals.css at those same values.

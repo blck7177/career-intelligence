@@ -141,6 +141,25 @@ def test_closing_only_touches_this_application_in_this_workspace(db_session: Ses
     assert foreign.status == "pending"
 
 
+def test_reopening_a_closed_application_leaves_retired_todos_retired(db_session: Session):
+    # The detail pane's reopen button (a forced correction out of a closed
+    # status) must not un-retire yesterday's work: the rules engine regenerates
+    # whatever still applies on the next beat, which is the right answer for a
+    # reopen for the same reason it is on any other day. Pinned because
+    # "reopen restores everything" is the tempting reading of the button.
+    repo = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="applied")
+    row = actions.create(workspace_id=WS, application_id=app.id, type="follow_up", title="follow up")
+    repo.transition_status(app.id, WS, "ghosted")
+    assert row.status == "cancelled"
+
+    reopened = repo.transition_status(app.id, WS, "applied", force=True, note="closed by mistake")
+
+    assert reopened.status == "applied"
+    assert row.status == "cancelled"
+
+
 def test_moving_forward_retires_nothing(db_session: Session):
     repo = JobApplicationRepository(db_session)
     actions = ApplicationActionRepository(db_session)

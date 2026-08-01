@@ -645,7 +645,12 @@
       "checkIn": "面试后 {days} 天无消息——去跟进。",
       "onsiteLow": "现场面 {onsite}/{target}——争取更多。"
     },
-    "confirmGhosted": "标记杳无音讯",
+    "alertReview": "去处理",
+    "dropNote": "从待投队列放弃",
+    "reopenAs": "恢复为{status}",
+    "reopenHint": "会在时间线上记为一次更正；规则引擎重新为它生成待办。",
+    "reopenNote": "重新打开——之前那次关闭是误记",
+    "statusChangedFromTo": "{from} → {to}",
     "plannedQueue": "计划投递",
     "plannedQueueSort": "· 按 新鲜度 × 匹配 × 心动",
     "plannedEmpty": "队列为空——去加岗位。",

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { parseQuickAdd } from "@/lib/quickParse";
-import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE } from "./status";
+import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE, restoreTargetOf } from "./status";
 
 interface Props {
   applicationId: string | null;
@@ -337,13 +337,19 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
   const [err, setErr] = useState<string | null>(null);
   const forward = FORWARD_NEXT[app.status] ?? [];
   const closable = LIVE_STATUSES.includes(app.status);
+  const closed = CLOSE_STATUSES.includes(app.status);
+  const reopenTarget = restoreTargetOf(app);
 
-  async function move(status: string) {
+  async function move(status: string, opts?: { force?: boolean; note?: string }) {
     setBusy(status);
     setErr(null);
     try {
       const token = await getToken();
-      await transitionApplication(app.id, { status: status as StatusTransition["status"], force: false }, token);
+      await transitionApplication(
+        app.id,
+        { status: status as StatusTransition["status"], force: opts?.force ?? false, note: opts?.note },
+        token,
+      );
       onMutated();
     } catch (e) {
       setErr(t("transitionFailed", { msg: e instanceof Error ? e.message : "error" }));
@@ -352,7 +358,15 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
     }
   }
 
-  if (forward.length === 0 && !closable) return null;
+  // A closed application used to render nothing here: FORWARD_NEXT has no exit
+  // from a closed status and LIVE_STATUSES excludes it, so the whole section
+  // returned null and a mis-marked row could only be corrected with curl or
+  // SQL. Every close on this page is one click and unconfirmed, and the
+  // ghosted one is raised by a heuristic that says out loud it cannot see the
+  // user's inbox — so the recoverable half is the half that has to exist.
+  // (mockup_final_0726.html:1088/:1090 promised exactly this: "之后若对方回来，
+  // 可 force 恢复".)
+  if (forward.length === 0 && !closable && !closed) return null;
 
   return (
     <section className="space-y-2">
@@ -374,6 +388,20 @@ function StatusSection({ app, onMutated, getToken, t }: { app: ApplicationDetail
               {t(`status.${s}`)}
             </Button>
           ))}
+        </div>
+      )}
+      {closed && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="outline"
+            loading={busy === reopenTarget}
+            disabled={busy !== null}
+            onClick={() => move(reopenTarget, { force: true, note: t("reopenNote") })}
+          >
+            {t("reopenAs", { status: t(`status.${reopenTarget}`) })}
+          </Button>
+          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>{t("reopenHint")}</span>
         </div>
       )}
       {err && <p className="text-xs text-rose-600">{err}</p>}
@@ -539,8 +567,22 @@ export function eventLabel(e: ApplicationEventRead, t: T): string {
     const round = p.round_type ? t(`round.${p.round_type}`) : t("interviewGeneric");
     return t("interviewLogged", { round, date: p.at ? fmtTs(p.at) : "" });
   }
+  // Every status change since P0 has recorded from/to; the timeline was
+  // throwing it away and printing "Status changed" for all of them. Reading it
+  // back costs nothing and fixes the existing history too, not just new rows.
+  // A note (why) is shown alongside the move (what), never instead of it.
+  if (e.event_type === "status_changed") {
+    const p = (e.payload_json ?? {}) as { from?: string; to?: string };
+    // Only translate statuses we have labels for: next-intl renders a missing
+    // key as the key itself, so an unrecognised status would print
+    // "tracker.status.whatever" into the timeline (V6's lesson).
+    const known = (s?: string) => !!s && (LIVE_STATUSES.includes(s) || CLOSE_STATUSES.includes(s));
+    const label = known(p.from) && known(p.to)
+      ? t("statusChangedFromTo", { from: t(`status.${p.from}`), to: t(`status.${p.to}`) })
+      : t("statusChanged");
+    return e.message ? `${label} — ${e.message}` : label;
+  }
   if (e.message) return e.message;
-  if (e.event_type === "status_changed") return t("statusChanged");
   return e.event_type;
 }
 

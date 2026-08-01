@@ -645,7 +645,12 @@
       "checkIn": "No word for {days} days since the interview — check in.",
       "onsiteLow": "{onsite}/{target} onsites in play — aim higher."
     },
-    "confirmGhosted": "Mark ghosted",
+    "alertReview": "Review",
+    "dropNote": "Dropped from the plan-to-apply queue",
+    "reopenAs": "Reopen as {status}",
+    "reopenHint": "Recorded as a correction on the timeline; the planner starts raising to-dos for it again.",
+    "reopenNote": "Reopened — the close was recorded in error",
+    "statusChangedFromTo": "{from} → {to}",
     "plannedQueue": "Plan to apply",
     "plannedQueueSort": "· by freshness × fit × excitement",
     "plannedEmpty": "Nothing queued — add jobs to plan.",
