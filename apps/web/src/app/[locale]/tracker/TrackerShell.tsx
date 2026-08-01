@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
 import { ApplicationsMasterDetail, type AppRow, type AppCounts } from "./ApplicationsMasterDetail";
 import { PlanView } from "./PlanView";
+import { ScheduleView } from "./ScheduleView";
 import { SettingsView } from "./SettingsView";
 import { PageHeader } from "./PageHeader";
 
@@ -18,12 +19,13 @@ interface Props {
   counts: AppCounts | null;
 }
 
-/** Tracker tab: three sub-views (Applications | Plan | Settings). Default is
- *  Plan — "open to what to do today". Settings edits the planner config. */
+/** Tracker tab: four sub-views (Applications | Plan | Week | Settings). Default
+ *  is Plan — "open to what to do today". Week is the schedule grid; Settings
+ *  edits the planner config. */
 export function TrackerShell(props: Props) {
   const t = useTranslations("tracker");
   // Default to Plan — "open to what to do today" (decision point 2).
-  const [view, setView] = useState<"applications" | "plan" | "settings">("plan");
+  const [view, setView] = useState<"applications" | "plan" | "schedule" | "settings">("plan");
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -45,6 +47,12 @@ export function TrackerShell(props: Props) {
           {t("viewPlan")}
         </button>
         <button
+          className={optionPillVariants({ selected: view === "schedule", className: "!h-7 !px-3 !text-xs" })}
+          onClick={() => setView("schedule")}
+        >
+          {t("viewSchedule")}
+        </button>
+        <button
           className={optionPillVariants({ selected: view === "settings", className: "!h-7 !px-3 !text-xs" })}
           onClick={() => setView("settings")}
         >
@@ -56,6 +64,8 @@ export function TrackerShell(props: Props) {
         <ApplicationsMasterDetail {...props} />
       ) : view === "plan" ? (
         <PlanView />
+      ) : view === "schedule" ? (
+        <ScheduleView />
       ) : (
         <SettingsView />
       )}

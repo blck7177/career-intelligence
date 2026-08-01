@@ -32,6 +32,10 @@
   --muted: oklch(95% 0.007 285);
   --muted-foreground: oklch(50% 0.01 275);
   --border: oklch(91.5% 0.01 280);
+  /* One step lighter than --border, for rules that subdivide a surface rather
+     than bound it — the week grid's half-hour lines, where the full --border
+     at 34px intervals reads as a hatch rather than a grid. */
+  --border-subtle: oklch(94.5% 0.008 280);
   --card: #ffffff;
   --card-foreground: oklch(18% 0.015 275);
   --primary: oklch(52% 0.2 285);

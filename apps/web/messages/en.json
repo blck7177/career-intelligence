@@ -795,6 +795,23 @@
     "rowNoteSaved": "Added to the timeline.",
     "rowRescheduled": "Moved to tomorrow.",
     "rowNoAction": "Nothing scheduled to move.",
-    "rowActionFailed": "That didn't go through — try again."
+    "rowActionFailed": "That didn't go through — try again.",
+    "viewSchedule": "Week",
+    "scheduleEyebrow": "Week",
+    "scheduleTitle": "This week · {week}",
+    "scheduleHint": "Interviews are the fixed skeleton of each day.",
+    "trayTitle": "Unscheduled",
+    "trayCount": "{count} waiting",
+    "trayEmpty": "Tray is clear — everything this week has a time.",
+    "trayHint": "📌 marks a calendar event (an interview) — read-only.",
+    "blockTimeUnknownEnd": "{start} · length not known",
+    "weekdayMon": "Mon",
+    "weekdayTue": "Tue",
+    "weekdayWed": "Wed",
+    "weekdayThu": "Thu",
+    "weekdayFri": "Fri",
+    "weekdaySat": "Sat",
+    "weekdaySun": "Sun",
+    "scheduleUnavailable": "The week could not be loaded."
   }
 }

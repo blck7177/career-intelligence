@@ -795,6 +795,23 @@
     "rowNoteSaved": "已记入时间线。",
     "rowRescheduled": "已改到明天。",
     "rowNoAction": "没有可改期的待办。",
-    "rowActionFailed": "没成功 —— 请重试。"
+    "rowActionFailed": "没成功 —— 请重试。",
+    "viewSchedule": "本周排程",
+    "scheduleEyebrow": "本周",
+    "scheduleTitle": "本周排程 · {week}",
+    "scheduleHint": "面试是每天的硬骨架。",
+    "trayTitle": "未排期",
+    "trayCount": "{count} 件",
+    "trayEmpty": "托盘清空了——本周任务全部有了时间位。",
+    "trayHint": "📌 是日历事件（面试），只读。",
+    "blockTimeUnknownEnd": "{start} · 时长未知",
+    "weekdayMon": "一",
+    "weekdayTue": "二",
+    "weekdayWed": "三",
+    "weekdayThu": "四",
+    "weekdayFri": "五",
+    "weekdaySat": "六",
+    "weekdaySun": "日",
+    "scheduleUnavailable": "本周数据没能加载。"
   }
 }

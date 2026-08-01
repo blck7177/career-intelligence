@@ -49,6 +49,7 @@ export type FunnelResponse = components["schemas"]["FunnelResponse"];
 export type PlannerStats = components["schemas"]["PlannerStats"];
 export type PlannerWeek = components["schemas"]["PlannerWeek"];
 export type PlannerWeekDay = components["schemas"]["PlannerWeekDay"];
+export type PlannerWeekInterview = components["schemas"]["PlannerWeekInterview"];
 export type WeeklyReviewRead = components["schemas"]["WeeklyReviewRead"];
 export type PlannerDayLogRead = components["schemas"]["PlannerDayLogRead"];
 export type PlannerDayRead = components["schemas"]["PlannerDayRead"];
@@ -397,12 +398,24 @@ export async function addApplicationEvent(
 }
 
 export async function listActions(
-  params?: { due_on_or_before?: string; include_undated?: boolean },
+  params?: {
+    due_on_or_before?: string;
+    include_undated?: boolean;
+    /** Blocks placed in [from, to). Mutually exclusive with the due cutoff and
+     *  with `unscheduled` — the server rejects a mix rather than picking one. */
+    scheduled_from?: string;
+    scheduled_to?: string;
+    /** Pending to-dos with no slot yet: the week grid's tray. */
+    unscheduled?: boolean;
+  },
   token?: string | null,
 ): Promise<ActionList> {
   const qs = new URLSearchParams();
   if (params?.due_on_or_before) qs.set("due_on_or_before", params.due_on_or_before);
   if (params?.include_undated === false) qs.set("include_undated", "false");
+  if (params?.scheduled_from) qs.set("scheduled_from", params.scheduled_from);
+  if (params?.scheduled_to) qs.set("scheduled_to", params.scheduled_to);
+  if (params?.unscheduled) qs.set("unscheduled", "true");
   const query = qs.toString();
   return req<ActionList>(`/api/app/actions${query ? `?${query}` : ""}`, undefined, token);
 }
