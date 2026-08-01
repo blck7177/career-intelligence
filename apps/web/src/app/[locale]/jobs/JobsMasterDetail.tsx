@@ -666,16 +666,15 @@ function JobRow({
   const thumbVisible = notInterested || isViewed;
 
   return (
+    // Container + a real button on the title, not role="button" on the row: the
+    // row used to own Enter/Space, and keydown bubbles, so pressing space on
+    // the checkbox below reached the row's preventDefault() — which cancels the
+    // checkbox's own default action. Keyboard users could not tick a row, and
+    // the attempt opened the job instead. (Found by the guard test written for
+    // the same bug in the Applications list; the mouse path was always fine,
+    // which is why it survived.)
     <div
-      role="button"
-      tabIndex={0}
       onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen();
-        }
-      }}
       className="group flex items-center gap-2.5 px-[var(--space-row-edge)] py-2.5 cursor-pointer transition-colors border-l-2 border-b"
       style={{
         borderLeftColor: isViewed ? "var(--primary)" : "transparent",
@@ -694,8 +693,8 @@ function JobRow({
         />
       </span>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
+      <button type="button" className="flex-1 min-w-0 text-left">
+        <span className="flex items-center gap-1.5">
           <span
             className="text-sm font-medium truncate group-hover:underline"
             style={{ color: isDiscovered ? "var(--ink-secondary)" : "var(--ink-primary)" }}
@@ -716,8 +715,8 @@ function JobRow({
               {appliedLabel}
             </span>
           )}
-        </div>
-        <div className="text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
+        </span>
+        <span className="block text-xs truncate mt-0.5" style={{ color: "var(--ink-muted)" }}>
           {job.company}
           {job.location && (
             <>
@@ -725,8 +724,8 @@ function JobRow({
               {job.location}
             </>
           )}
-        </div>
-      </div>
+        </span>
+      </button>
 
       <div className="shrink-0 flex items-center gap-2">
         {isAnalyzing ? (

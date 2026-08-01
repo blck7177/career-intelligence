@@ -731,6 +731,28 @@
       "rejected": "Rejected",
       "withdrawn": "Withdrawn",
       "ghosted": "Ghosted"
-    }
+    },
+    "peekOpenHint": "Open details",
+    "peekCurrentAction": "Current to-do",
+    "peekOverview": "Overview",
+    "peekChannel": "Channel",
+    "peekDismiss": "Not needed",
+    "peekDismissToast": "Dismissed — the planner won't raise this one again.",
+    "peekAllEvents": "All {n} →",
+    "peekOpenFull": "Open full page ↗",
+    "peekManualAction": "Manual to-do · not linked to an application",
+    "statusLabel": "Status",
+    "untitledRole": "(untitled role)",
+    "digestTitle": "Today",
+    "digestCounts": "{due} due · {overdue} overdue",
+    "pipelineSnapshot": "Pipeline",
+    "pipelineSnapshotMore": "Details →",
+    "pipelineSnapshotMoreAlerts": "+{n} more",
+    "rowNote": "Note",
+    "rowReschedule": "Reschedule",
+    "rowNoteSaved": "Added to the timeline.",
+    "rowRescheduled": "Moved to tomorrow.",
+    "rowNoAction": "Nothing scheduled to move.",
+    "rowActionFailed": "That didn't go through — try again."
   }
 }

@@ -164,3 +164,49 @@ def test_count_due(db_session: Session):
     repo.create(workspace_id=WS, type="apply", title="b")  # undated -> counts
     repo.create(workspace_id=WS, type="apply", title="c", due_at=now + timedelta(days=5))
     assert repo.count_due(WS, now) == 2
+
+
+def test_earliest_pending_action_map_breaks_ties_on_id(db_session: Session):
+    """Two to-dos due the same day must resolve to the same one every time.
+
+    Due dates are local midnights, so a follow-up and a thank-you both landing on
+    Tuesday is ordinary rather than exotic. With `order_by(due_at)` alone the
+    winner was whatever the database returned first — and the Applications row's
+    "Reschedule" button re-derives this same choice client-side in order to move
+    the to-do the row is *showing*, so an undefined tie makes that a coin flip.
+    """
+    apps = JobApplicationRepository(db_session)
+    actions = ApplicationActionRepository(db_session)
+    app = apps.create(workspace_id=WS, job_id="j-tie")
+    same_day = _now() + timedelta(days=2)
+    types = ("follow_up", "thank_you", "networking", "apply", "custom")
+
+    # Ids are random, so keep adding same-day rows until the smallest id is NOT
+    # the row created first. Without that the database's natural (insertion)
+    # order would satisfy the assertion on its own and the test could not fail
+    # if the tie-break were removed.
+    made: list = []
+    while not made or min(made, key=lambda a: a.id) is made[0]:
+        made.append(
+            actions.create(
+                workspace_id=WS,
+                application_id=app.id,
+                type=types[len(made) % len(types)],
+                title=f"tie-{len(made)}",
+                due_at=same_day,
+            )
+        )
+    expected = min(made, key=lambda a: a.id)
+
+    for _ in range(3):
+        assert actions.earliest_pending_action_map(WS, [app.id])[app.id][1] == expected.type
+
+    # An earlier due date still wins outright — the tie-break is secondary.
+    sooner = actions.create(
+        workspace_id=WS,
+        application_id=app.id,
+        type="global",
+        title="sooner",
+        due_at=same_day - timedelta(days=1),
+    )
+    assert actions.earliest_pending_action_map(WS, [app.id])[app.id][1] == sooner.type

@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useApiToken } from "@/hooks/useApiToken";
-import { listActions, createAction, updateAction, getPlannerStats, getPlannerSettings, getPlannerWeek, getPlannerDay, commitPlannerDay, closePlannerDay } from "@/api/client";
-import type { ActionRead, PlannerStats, PlannerSettings, PlannerWeek, PlannerWeekDay, PlannerDayRead } from "@/api/client";
+import { createAction, updateAction, commitPlannerDay, closePlannerDay } from "@/api/client";
+import type { ActionRead, PlannerWeek, PlannerWeekDay, FunnelResponse } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
 import { RitualWizard, type RitualResult } from "./RitualWizard";
 import { ShutdownWizard, type ShutdownResult } from "./ShutdownWizard";
 import { ZoneHead } from "@/components/ui/zone-head";
+import { toast } from "@/components/ui/toaster";
+import { usePlannerData, type PlannerSource } from "./usePlannerData";
+import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
-
-const HORIZON_DAYS = 14;
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
 const GROUP_OF: Record<string, string> = {
@@ -52,7 +53,7 @@ function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
-function reasonOf(a: ActionRead, t: (k: string, v?: Record<string, string | number>) => string): string | null {
+export function reasonOf(a: ActionRead, t: (k: string, v?: Record<string, string | number>) => string): string | null {
   const p = a.payload;
   if (!p) return null;
   switch (p.rule) {
@@ -102,23 +103,22 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * the action list (left) + the This-week triplet rail (right). Rows carry a
  * ✓ checkbox, a per-item estimate, one semantic due pill, and a recede-on-hover
  * snooze; a "Rest until Monday" batch-snooze and a done bar close it out.
- * Optimistic mutations are guarded exactly as in P0 (removingRef + add guard).
+ *
+ * All server state lives in usePlannerData; this component owns only what is
+ * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday() {
+export function PlanToday({ onShowPipeline }: { onShowPipeline?: () => void }) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const [actions, setActions] = useState<ActionRead[] | null>(null);
-  const [stats, setStats] = useState<PlannerStats | null>(null);
-  const [settings, setSettings] = useState<PlannerSettings | null>(null);
-  const [week, setWeek] = useState<PlannerWeek | null>(null);
-  const [error, setError] = useState(false);
+  // Every server-side source the view reads, plus the two ways to write to the
+  // list. Which sources a mutation dirties is declared at each call site rather
+  // than remembered — see usePlannerData for why.
+  const { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog } =
+    usePlannerData();
   const [title, setTitle] = useState("");
   const [adding, setAdding] = useState(false);
   const [resting, setResting] = useState(false);
   const [deferring, setDeferring] = useState(false);
-  // undefined = still loading. `day.log` null = no row today (ritual not run);
-  // day.done_* are measured live and arrive either way.
-  const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
   const [shutdownOpen, setShutdownOpen] = useState(false);
   const [shutdownBusy, setShutdownBusy] = useState(false);
   const [ritualError, setRitualError] = useState(false);
@@ -136,7 +136,17 @@ export function PlanToday() {
   // parsing dates — the same silent failure this feature exists to avoid, just
   // pointing the other way.
   const [rejected, setRejected] = useState<{ date?: string; duration?: string; type?: string }>({});
-  const removingRef = useRef<Set<string>>(new Set());
+  // The to-do whose application is showing in the side panel. Holding the whole
+  // action (not just an id) keeps the panel's header and reason line rendering
+  // from the same row the user clicked, even after the list refetches.
+  const [peek, setPeek] = useState<ActionRead | null>(null);
+  // Where focus goes when the panel closes after an action. A dialog normally
+  // returns focus to what opened it, but acting from the peek removes that row
+  // optimistically, so there is nothing to return to and the keyboard user
+  // lands on <body>. Closing WITHOUT acting (Esc, ×, overlay) leaves the row in
+  // place and is left alone. Verified by reading, not by executing: there is no
+  // jsdom in this repo.
+  const listRef = useRef<HTMLDivElement>(null);
 
   // Dates resolve against the WORKSPACE's timezone, not the browser's, matching
   // the encoding the rules engine writes. Until settings arrive we know no zone,
@@ -157,32 +167,6 @@ export function PlanToday() {
     });
   }, [title, tz, rejected]);
 
-  const load = useCallback(async () => {
-    try {
-      const token = await getToken();
-      const horizon = new Date(Date.now() + HORIZON_DAYS * 86400_000).toISOString();
-      // The strip is context, not the list itself — it degrades to absent
-      // rather than failing the view.
-      const [res, st, cfg, wk, dayState] = await Promise.all([
-        listActions({ due_on_or_before: horizon, include_undated: true }, token),
-        getPlannerStats(undefined, token).catch(() => null),
-        getPlannerSettings(token).catch(() => null),
-        getPlannerWeek(undefined, token).catch(() => null),
-        getPlannerDay(token).catch(() => undefined),
-      ]);
-      setActions(res.items.filter((a) => !removingRef.current.has(a.id)));
-      setStats(st);
-      setSettings(cfg);
-      setWeek(wk);
-      setDay(dayState);
-      setError(false);
-    } catch {
-      setError(true);
-    }
-  }, [getToken]);
-
-  useEffect(() => { load(); }, [load]);
-
   // The list updates optimistically, but the strip's per-day counts come from
   // the server (they fold in overdue and undated work, and that arithmetic
   // belongs in one place). Without this, clearing the last to-do left "today's
@@ -190,36 +174,41 @@ export function PlanToday() {
   // The done bar and the shutdown summary are server-measured, so any mutation
   // that could change what is complete has to re-read them. Without this the
   // bar sits at its page-load value all day — the one thing it exists to avoid.
-  const refreshDay = useCallback(async () => {
-    try {
-      const token = await getToken();
-      setDay(await getPlannerDay(token));
-    } catch {
-      // Keep the last good reading rather than blanking the bar.
-    }
-  }, [getToken]);
+  //
+  // What each op dirties, and why it is not just "everything":
+  //   week  — every op changes what is open on some day.
+  //   day   — the done bar counts completions; snooze/dismiss change what is
+  //           still owed against the day's commitment.
+  //   stats — ONLY completing: the triplet counts *completed* networking and
+  //           follow-up actions (count_completed_by_type_in_range).
+  //   funnel— ONLY completing: repo.complete() writes an `action_completed`
+  //           event, which is what the check-in alert measures staleness from.
+  //           snooze() and dismiss() write no event, so the funnel is untouched.
+  async function mutate(id: string, op: "complete" | "snooze" | "dismiss"): Promise<boolean> {
+    const dirties: PlannerSource[] =
+      op === "complete" ? ["week", "day", "stats", "funnel"] : ["week", "day"];
+    // Snooze sends an ABSOLUTE target. The repository measures a relative
+    // snooze from due_at, so an overdue to-do "moved to tomorrow" lands the day
+    // after its ORIGINAL due date — still in the past, and the button reads as
+    // doing nothing. V6-C5 fixed this for the three wizard defers and V7-C2 for
+    // the Applications row; the Today row's own snooze and the peek's
+    // "Tomorrow" button were the two that still went out relative.
+    const tomorrow = op === "snooze" ? dayShift(1) : undefined;
+    return mutateActions(
+      [id],
+      (token) => updateAction(id, { op, snooze_days: 1, ...(tomorrow ? { snooze_until: tomorrow } : {}) }, token),
+      dirties,
+    );
+  }
 
-  const refreshWeek = useCallback(async () => {
-    try {
-      const token = await getToken();
-      setWeek(await getPlannerWeek(undefined, token));
-    } catch {
-      // Context, not content: keep the last good strip rather than blanking it.
-    }
-  }, [getToken]);
-
-  async function mutate(id: string, op: "complete" | "snooze") {
-    removingRef.current.add(id);
-    setActions((prev) => prev?.filter((a) => a.id !== id) ?? null);
-    try {
-      const token = await getToken();
-      await updateAction(id, { op, snooze_days: 1 }, token);
-      await Promise.all([refreshWeek(), refreshDay()]);
-    } catch {
-      load();
-    } finally {
-      removingRef.current.delete(id);
-    }
+  /** "Not needed" is the one row action with a consequence worth stating: the
+   *  suppression set remembers it, so the rule will not raise it again. Said
+   *  only after the call lands — announcing it optimistically would promise
+   *  something that a failed request did not do. */
+  async function dismissFromPeek(a: ActionRead): Promise<boolean> {
+    const ok = await mutate(a.id, "dismiss");
+    if (ok) toast(t("peekDismissToast"));
+    return ok;
   }
 
   async function add() {
@@ -242,7 +231,7 @@ export function PlanToday() {
       );
       setTitle("");
       setRejected({});
-      await load();
+      await reload();
     } catch {
       // keep the typed title for retry
     } finally {
@@ -267,16 +256,18 @@ export function PlanToday() {
     if (!until) return;
     setResting(true);
     const ids = actions.map((a) => a.id);
-    ids.forEach((id) => removingRef.current.add(id));
-    setActions([]);
     try {
-      const token = await getToken();
-      await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: until }, token)));
-      await refreshWeek();
-    } catch {
-      load();
+      // Nothing is completed here, only moved, so the done bar cannot change:
+      // the strip is the only source this dirties.
+      await mutateActions(
+        ids,
+        (token) =>
+          Promise.all(
+            ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1, snooze_until: until }, token)),
+          ),
+        ["week"],
+      );
     } finally {
-      ids.forEach((id) => removingRef.current.delete(id));
       setResting(false);
     }
   }
@@ -288,16 +279,26 @@ export function PlanToday() {
     if (deferring || !candidates.length) return;
     setDeferring(true);
     const ids = pickToDefer(candidates, excess).map((a) => a.id);
-    ids.forEach((id) => removingRef.current.add(id));
-    setActions((prev) => prev?.filter((a) => !ids.includes(a.id)) ?? null);
+    // Absolute target, like every other defer. "Anytime" is a grouping by TYPE,
+    // not by date (groupOf), so this pool routinely holds dated — including
+    // OVERDUE — work: a custom or networking to-do keeps its due date and still
+    // lands here. A relative snooze on one of those moves it to the day after
+    // its ORIGINAL due date, leaving it overdue, still counted against today,
+    // and the capacity bar unmoved — which is the one thing this button exists
+    // to do. Missed when V7-C5 fixed the other three call sites.
+    const tomorrow = dayShift(1);
     try {
-      const token = await getToken();
-      await Promise.all(ids.map((id) => updateAction(id, { op: "snooze", snooze_days: 1 }, token)));
-      await Promise.all([refreshWeek(), refreshDay()]);
-    } catch {
-      load();
+      await mutateActions(
+        ids,
+        (token) =>
+          Promise.all(
+            ids.map((id) =>
+              updateAction(id, { op: "snooze", snooze_days: 1, ...(tomorrow ? { snooze_until: tomorrow } : {}) }, token),
+            ),
+          ),
+        ["week", "day"],
+      );
     } finally {
-      ids.forEach((id) => removingRef.current.delete(id));
       setDeferring(false);
     }
   }
@@ -311,7 +312,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       const log = await commitPlannerDay(keptIds, token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
       // Absolute target, not snooze_days: a relative snooze is measured from
       // due_at, so an overdue item moved "to tomorrow" would land on the day
       // after its ORIGINAL due date — still in the past, and straight back into
@@ -331,8 +332,10 @@ export function PlanToday() {
         ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
       ]);
       setRitualOpen(false);
-      await load();
-      await refreshWeek();
+      // reload() already re-reads the strip; the extra refresh is carried over
+      // verbatim from before this hook existed so the refactor stays a refactor.
+      await reload();
+      await refresh("week");
     } catch {
       // Leave the wizard open so the user can retry without redoing three steps,
       // and say so — setError only renders while the list is still loading, so
@@ -367,10 +370,11 @@ export function PlanToday() {
       // measured at close, and moving the leftovers first means the number is
       // taken against the day's final state rather than a half-tidied one.
       const log = await closePlannerDay(reflection, closingDate, token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
       setShutdownOpen(false);
-      await load();
-      await refreshWeek();
+      // Same carried-over double read of the strip as the morning ritual.
+      await reload();
+      await refresh("week");
     } catch {
       setShutdownError(true);
     } finally {
@@ -404,7 +408,7 @@ export function PlanToday() {
     try {
       const token = await getToken();
       const log = await commitPlannerDay(todayItems.map((a) => a.id), token);
-      setDay((prev) => (prev ? { ...prev, log } : prev));
+      patchDayLog(log);
     } catch {
       setRitualError(true);
     } finally {
@@ -530,9 +534,25 @@ export function PlanToday() {
         applying={ritualBusy}
       />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_216px] lg:gap-6">
+      {/* The application behind whichever to-do you clicked. Ticking a row is a
+          decision; this is the context for it, without leaving the day. */}
+      <ApplicationPeek
+        action={peek}
+        onClose={() => {
+          const rowGone = peek !== null && !(actions ?? []).some((a) => a.id === peek.id);
+          setPeek(null);
+          if (rowGone) requestAnimationFrame(() => listRef.current?.focus());
+        }}
+        onComplete={(a) => mutate(a.id, "complete")}
+        onSnooze={(a) => mutate(a.id, "snooze")}
+        onDismiss={dismissFromPeek}
+        reason={(a) => reasonOf(a, t)}
+        onApplicationChanged={() => refresh("funnel")}
+      />
+
+      <div className="grid gap-5 min-[900px]:grid-cols-[minmax(0,1fr)_300px] min-[900px]:gap-5">
         {/* MAIN — action list */}
-        <div className="min-w-0 space-y-5 order-2 lg:order-1">
+        <div ref={listRef} tabIndex={-1} className="min-w-0 space-y-5 order-2 min-[900px]:order-1 outline-none">
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}
@@ -629,7 +649,7 @@ export function PlanToday() {
             error ? (
               <div className="text-center py-8">
                 <p className="text-sm mb-3" style={{ color: "var(--ink-muted)" }}>{t("loadFailed")}</p>
-                <Button size="sm" variant="outline" onClick={load}>{t("retry")}</Button>
+                <Button size="sm" variant="outline" onClick={reload}>{t("retry")}</Button>
               </div>
             ) : (
               <div className="animate-pulse h-24" aria-hidden />
@@ -656,7 +676,13 @@ export function PlanToday() {
                   </h3>
                   <ul>
                     {grouped[g].map((a) => (
-                      <ActionItem key={a.id} a={a} onComplete={() => mutate(a.id, "complete")} onSnooze={() => mutate(a.id, "snooze")} />
+                      <ActionItem
+                        key={a.id}
+                        a={a}
+                        onComplete={() => mutate(a.id, "complete")}
+                        onSnooze={() => mutate(a.id, "snooze")}
+                        onOpen={() => setPeek(a)}
+                      />
                     ))}
                   </ul>
                 </section>
@@ -665,16 +691,26 @@ export function PlanToday() {
           )}
         </div>
 
-        {/* RAIL — This week */}
-        {stats && (
-          <aside className="order-1 lg:order-2">
-            <div className="lg:sticky lg:top-2">
-              <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
-              <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5">
-                <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
-                <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
-                <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
-              </div>
+        {/* RAIL — This week + today's digest + pipeline snapshot */}
+        {(stats || funnel) && (
+          <aside className="order-1 min-[900px]:order-2 space-y-4">
+            <div className="min-[900px]:sticky min-[900px]:top-2 space-y-4">
+              {stats && (
+                <div>
+                  <div className="text-2xs font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--ink-faint)" }}>{t("thisWeek")}</div>
+                  <div className="grid grid-cols-3 min-[900px]:grid-cols-1 gap-2.5">
+                    <Meter label={t("weekApplied")} value={stats.applied} target={stats.weekly_target.apply} />
+                    <Meter label={t("weekOutreach")} value={stats.outreach} target={stats.weekly_target.outreach} />
+                    <Meter label={t("weekFollowUps")} value={stats.follow_ups} target={stats.weekly_target.follow_up} />
+                  </div>
+                </div>
+              )}
+              {/* `due` excludes the overdue ones: countsTowardToday is
+                  (undated ∪ due today ∪ overdue), so passing its size beside an
+                  overdue count printed the late work twice, in a line that
+                  reads as two disjoint sets. */}
+              <Digest due={todayItems.length - overdue.length} overdue={overdue.length} week={week} tz={tz} t={t} />
+              <PipelineSnapshot funnel={funnel} onShowPipeline={onShowPipeline} t={t} />
             </div>
           </aside>
         )}
@@ -870,7 +906,12 @@ function dueInfo(a: ActionRead): DueInfo | null {
   return { today: false, days, warn: days <= 1 };
 }
 
-function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: () => void; onSnooze: () => void }) {
+function ActionItem({ a, onComplete, onSnooze, onOpen }: {
+  a: ActionRead;
+  onComplete: () => void;
+  onSnooze: () => void;
+  onOpen: () => void;
+}) {
   const t = useTranslations("tracker");
   const info = dueInfo(a);
   const est = estOf(a);
@@ -879,9 +920,18 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
   // pushed, which is a decision to surface rather than a number to hide.
   const deferred = a.snooze_count >= 2;
   return (
-    <li className="group flex items-center gap-2.5 py-2 border-b" style={{ borderColor: "var(--border)" }}>
+    // Clicking the row opens the peek; the two buttons that DO something stop
+    // the event so a tick never also opens a panel. The title is itself a
+    // button with no handler of its own — its click bubbles to this one, which
+    // is what makes the row reachable by keyboard (Tab, Enter) without a second
+    // code path or a nested-interactive double fire.
+    <li
+      onClick={onOpen}
+      className="group flex items-center gap-2.5 py-2 border-b cursor-pointer"
+      style={{ borderColor: "var(--border)" }}
+    >
       <button
-        onClick={onComplete}
+        onClick={(e) => { e.stopPropagation(); onComplete(); }}
         aria-label={t("complete")}
         title={t("complete")}
         className="shrink-0 w-[18px] h-[18px] rounded-[5px] border grid place-items-center text-[11px] leading-none hover:bg-[var(--match-good-bg)]"
@@ -889,7 +939,7 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
       >
         <span className="opacity-0 group-hover:opacity-80 transition-opacity">✓</span>
       </button>
-      <span className="flex-1 min-w-0">
+      <button type="button" className="flex-1 min-w-0 text-left" title={t("peekOpenHint")}>
         <span className="block truncate text-sm" style={{ color: "var(--ink-secondary)" }}>
           {a.auto_generated && (
             <span
@@ -910,7 +960,7 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
           )}
           {t("estMinutes", { minutes: est })}
         </span>
-      </span>
+      </button>
       <span className="shrink-0 w-[62px] flex justify-end">
         {info && (
           <span
@@ -924,13 +974,129 @@ function ActionItem({ a, onComplete, onSnooze }: { a: ActionRead; onComplete: ()
         )}
       </span>
       <button
-        onClick={onSnooze}
+        onClick={(e) => { e.stopPropagation(); onSnooze(); }}
         className="shrink-0 text-2xs px-2 py-1 rounded-md opacity-40 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         style={{ color: "var(--ink-muted)" }}
       >
         {t("snoozeShort")}
       </button>
     </li>
+  );
+}
+
+const DIGEST_INTERVIEWS = 2;
+const SNAPSHOT_ALERTS = 2;
+
+/**
+ * Today in one line: what is due, what is late, and the next hard commitments.
+ *
+ * The digest principle — lead with what cannot move. Counts come from the same
+ * two sets the capacity bar uses, so the rail and the bar can never disagree
+ * about how much today holds.
+ *
+ * Times are formatted in the WORKSPACE's timezone, not the browser's. Without a
+ * timezone we print the day and company but no clock time: a 10:00 that is
+ * really 13:00 is worse than no time at all, and this is the one place a
+ * traveller would be misled.
+ */
+function Digest({ due, overdue, week, tz, t }: {
+  due: number;
+  overdue: number;
+  week: PlannerWeek | null;
+  /** The workspace timezone, from settings — PlannerWeek does not carry one. */
+  tz: string | null;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  const upcoming: string[] = [];
+  // Start at the day the SERVER labelled today, not at Monday. Scanning the
+  // whole week printed Monday's finished screen as a "next commitment" and let
+  // it consume one of the two slots, so on Friday the onsite six hours away did
+  // not appear at all — in the card whose whole job is to lead with what cannot
+  // move. Past days are dropped by index (no clock involved); today's own
+  // earlier rounds are dropped by comparing instants, which is zone-independent.
+  const todayIdx = week?.days.findIndex((d) => d.is_today) ?? -1;
+  const from = todayIdx >= 0 ? todayIdx : 0;
+  const now = Date.now();
+  for (let i = from; i < (week?.days.length ?? 0) && upcoming.length < DIGEST_INTERVIEWS; i++) {
+    const d = week!.days[i];
+    // Days arrive Monday-first, so the index IS the weekday — no date parsing.
+    const label = t(`weekdayShort.${WEEKDAY_KEYS[i]}`);
+    for (const iv of d.interviews ?? []) {
+      if (upcoming.length >= DIGEST_INTERVIEWS) break;
+      const at = new Date(iv.at);
+      if (!isNaN(at.getTime()) && at.getTime() < now) continue;
+      const clock = tz && !isNaN(at.getTime())
+        ? at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", timeZone: tz })
+        : null;
+      upcoming.push(clock ? `${label} ${clock} ${iv.company}` : `${label} ${iv.company}`);
+    }
+  }
+
+  if (due === 0 && overdue === 0 && upcoming.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border px-3 py-2.5 text-2xs leading-relaxed" style={{ borderColor: "var(--border)" }}>
+      <b style={{ color: "var(--ink-primary)" }}>{t("digestTitle")}</b>
+      <span style={{ color: "var(--ink-muted)" }}>
+        {" · "}
+        {t("digestCounts", { due, overdue })}
+        {upcoming.map((s) => (
+          <span key={s}>{" · "}{s}</span>
+        ))}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Pipeline health beside today's work, so a day of ticking to-dos cannot hide
+ * an empty funnel. Read-only — acting on an alert (confirming a ghosting) stays
+ * in the Pipeline zone, one click away, where the consequence is spelled out.
+ */
+function PipelineSnapshot({ funnel, onShowPipeline, t }: {
+  funnel: FunnelResponse | null;
+  onShowPipeline?: () => void;
+  t: (k: string, v?: Record<string, string | number>) => string;
+}) {
+  if (!funnel) return null;
+  const alerts = funnel.alerts ?? [];
+  return (
+    <div className="rounded-lg border px-3 py-2.5" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <span className="text-2xs font-semibold uppercase tracking-wide" style={{ color: "var(--ink-faint)" }}>
+          {t("pipelineSnapshot")}
+        </span>
+        {onShowPipeline && (
+          <button type="button" onClick={onShowPipeline} className="ml-auto text-2xs hover:underline" style={{ color: "var(--primary)" }}>
+            {t("pipelineSnapshotMore")}
+          </button>
+        )}
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-2xs" style={{ color: "var(--ink-muted)" }}>
+        {(funnel.stages ?? []).map((s, i) => (
+          <span key={s.key} className="whitespace-nowrap">
+            {i > 0 && <span style={{ color: "var(--border)" }}>› </span>}
+            {t(`funnelStage.${s.key}`)}{" "}
+            <b className="tabular-nums" style={{ color: "var(--ink-primary)" }}>{s.count}</b>
+          </span>
+        ))}
+      </div>
+      {alerts.length > 0 && (
+        <ul className="mt-2 pt-2 space-y-1 text-2xs" style={{ borderTop: "1px dashed var(--border)", color: "var(--ink-muted)" }}>
+          {alerts.slice(0, SNAPSHOT_ALERTS).map((al, i) => (
+            <li key={i}>
+              <span style={{ color: al.severity === "warn" ? "var(--match-partial-fg)" : "var(--ink-faint)" }}>
+                {al.severity === "warn" ? "⚠ " : "◦ "}
+              </span>
+              {t(al.message_key, al.context as Record<string, string | number>)}
+            </li>
+          ))}
+          {alerts.length > SNAPSHOT_ALERTS && (
+            <li style={{ color: "var(--ink-faint)" }}>{t("pipelineSnapshotMoreAlerts", { n: alerts.length - SNAPSHOT_ALERTS })}</li>
+          )}
+        </ul>
+      )}
+    </div>
   );
 }
 

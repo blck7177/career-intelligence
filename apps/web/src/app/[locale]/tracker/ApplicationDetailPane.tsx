@@ -24,9 +24,14 @@ interface Props {
   applicationId: string | null;
   /** Nudge the server-rendered list to re-fetch after a mutation here. */
   onListChanged?: () => void;
+  /** Bumped by the LIST when something outside this pane mutated the same
+   *  application. The pane's own data is client-fetched, so `router.refresh()`
+   *  — which is all a row action can do to the server-rendered list — leaves it
+   *  showing pre-mutation state right next to a toast saying it happened. */
+  refreshKey?: number;
 }
 
-export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
+export function ApplicationDetailPane({ applicationId, onListChanged, refreshKey = 0 }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [data, setData] = useState<ApplicationDetail | null>(null);
@@ -62,7 +67,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged }: Props) {
     return () => {
       active = false;
     };
-  }, [applicationId, getToken, refetchNonce]);
+  }, [applicationId, getToken, refetchNonce, refreshKey]);
 
   const mutated = () => {
     setRefetchNonce((n) => n + 1);
@@ -206,7 +211,10 @@ function currentStep(app: ApplicationDetail): number {
 
 /** Visual status progression (mockup dhead stepper): Planned → … → Offer.
  *  Closed applications grey the chain and show a closed badge. */
-function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
+/** Shared with ApplicationPeek — the same chain has to read identically in the
+ *  side panel and the full pane, or the two disagree about where an
+ *  application stands. */
+export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   const cur = currentStep(app);
   const closed = cur === -1;
   return (
@@ -523,8 +531,9 @@ function TimelineSection({ app, onMutated, getToken, t }: { app: ApplicationDeta
 }
 
 /** Friendly timeline label. Interview events carry {round_type, at} in payload;
- *  everything else shows its note (or a humanized event_type fallback). */
-function eventLabel(e: ApplicationEventRead, t: T): string {
+ *  everything else shows its note (or a humanized event_type fallback).
+ *  Shared with ApplicationPeek, which shows the most recent few. */
+export function eventLabel(e: ApplicationEventRead, t: T): string {
   if (e.event_type === "interview_scheduled") {
     const p = (e.payload_json ?? {}) as { round_type?: string; at?: string };
     const round = p.round_type ? t(`round.${p.round_type}`) : t("interviewGeneric");

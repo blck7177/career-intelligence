@@ -34,6 +34,7 @@ export function PlanView() {
   const [error, setError] = useState(false);
   const [dismissed, setDismissed] = useState<string | null>(dismissedReview);
   const reviewRef = useRef<HTMLDivElement>(null);
+  const pipelineRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -75,12 +76,19 @@ export function PlanView() {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-3xl mx-auto px-[var(--space-row-edge)] py-6 space-y-10">
+      <div className="max-w-[1160px] mx-auto px-[var(--space-row-edge)] py-6 space-y-10">
         {unread && review && (
           <ReviewBanner review={review} onOpen={openReview} onLater={later} />
         )}
-        <PlanToday />
-        <PipelineZone />
+        {/* The three zones share one scroll container, so "details →" on the
+            rail's pipeline snapshot scrolls rather than navigates — same move
+            the review banner makes. */}
+        <PlanToday
+          onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        />
+        <div ref={pipelineRef} className="scroll-mt-4">
+          <PipelineZone />
+        </div>
         <div ref={reviewRef} className="scroll-mt-4">
           <ReviewZone review={review} error={error} onRetry={load} />
         </div>

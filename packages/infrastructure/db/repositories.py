@@ -2162,7 +2162,15 @@ class ApplicationActionRepository:
     ) -> dict[str, tuple[datetime, str]]:
         """Per application, the soonest pending dated action as (due_at, type).
         Powers the list row's next-action column (due date + semantic type, e.g.
-        "follow-up due") in one query (avoids per-row N+1)."""
+        "follow-up due") in one query (avoids per-row N+1).
+
+        Ties break on id. Due dates are local midnights, so two to-dos falling on
+        the same day is ordinary (a follow-up and a thank-you both landing
+        Tuesday), and with due_at alone the winner was whatever the database
+        happened to return first. The row's "Reschedule" action re-derives this
+        same choice client-side to move the to-do the row is showing — an
+        undefined tie makes that a coin flip between the shown one and another.
+        """
         if not application_ids:
             return {}
         from sqlalchemy import select
@@ -2175,11 +2183,11 @@ class ApplicationActionRepository:
                 ApplicationAction.status == "pending",
                 ApplicationAction.due_at.is_not(None),
             )
-            .order_by(ApplicationAction.due_at)
+            .order_by(ApplicationAction.due_at, ApplicationAction.id)
         )
         result: dict[str, tuple[datetime, str]] = {}
         for a in self._s.execute(stmt).scalars().all():
-            # ordered by due_at → first seen per app is the earliest.
+            # ordered by (due_at, id) → first seen per app is the earliest.
             if a.application_id not in result:
                 result[a.application_id] = (a.due_at, a.type)
         return result
