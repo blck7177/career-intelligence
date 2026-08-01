@@ -119,6 +119,11 @@ class ApplicationEventCreate(BaseModel):
     message: Optional[str] = Field(None, max_length=2000)
     round_type: Optional[InterviewRound] = None
     at: Optional[datetime] = None
+    # How long the round runs. Optional because rows written before this existed
+    # have no value and the user may not have been told one; the week grid draws
+    # an unknown-length block rather than inventing a duration from round_type,
+    # since a block's height IS the claim "this much of your day is taken".
+    duration_minutes: Optional[int] = Field(None, ge=5, le=480)
 
 
 class ActionCreate(BaseModel):
@@ -291,6 +296,9 @@ class PlannerWeekInterview(BaseModel):
     company: str
     round_type: Optional[str] = None
     at: datetime
+    # None on rounds logged before durations were captured. The grid renders
+    # those as a single slot marked unknown rather than guessing.
+    duration_minutes: Optional[int] = None
 
 
 class PlannerWeekDay(BaseModel):

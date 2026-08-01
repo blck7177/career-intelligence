@@ -692,6 +692,54 @@ class TestActionsMore:
         assert resp.json()["status"] == "pending"
         MockAct.return_value.reopen.assert_called_once_with("act-1", WS_ID)
 
+    def test_interview_duration_is_stored_when_given(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, patch(
+            "apps.api.routes.applications.ApplicationEventRepository"
+        ) as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = SimpleNamespace(
+                id="ev-1", event_type="interview_scheduled", message=None,
+                payload_json={}, created_at=_NOW,
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={
+                    "event_type": "interview_scheduled",
+                    "round_type": "onsite",
+                    "at": "2026-08-06T18:00:00+00:00",
+                    "duration_minutes": 120,
+                },
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["payload_json"]["duration_minutes"] == 120
+
+    def test_an_interview_without_a_duration_is_still_accepted(self, make_client):
+        # The user may simply not have been told how long the round runs; that
+        # is different from it being zero-length, and refusing the round would
+        # lose the one fact they DO have.
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, patch(
+            "apps.api.routes.applications.ApplicationEventRepository"
+        ) as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = SimpleNamespace(
+                id="ev-1", event_type="interview_scheduled", message=None,
+                payload_json={}, created_at=_NOW,
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={
+                    "event_type": "interview_scheduled",
+                    "round_type": "phone",
+                    "at": "2026-08-06T18:00:00+00:00",
+                },
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["payload_json"]["duration_minutes"] is None
+
     # --- scheduling (V8) ---------------------------------------------------
 
     def test_schedule_stores_the_instant_and_is_not_a_snooze(self, make_client):

@@ -108,6 +108,18 @@ router = APIRouter(prefix="/api/app", tags=["applications"])
 # ---------------------------------------------------------------------------
 
 
+def _int_or_none(value: object) -> Optional[int]:
+    """Read an integer out of an event payload, or nothing.
+
+    A payload is whatever was written into JSON, and rows predating a field have
+    no key at all. A malformed value must degrade to "unknown" rather than 500
+    the week endpoint — the same reason ActionRead validates its payload in
+    before-mode. bool is excluded explicitly: it is a subclass of int, and
+    `True` minutes is not a duration.
+    """
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def _assert_owned(app: Optional[JobApplication], workspace: Workspace) -> JobApplication:
     """404 (enumeration-safe) if the application is missing or not in this workspace."""
     if app is None or app.workspace_id != workspace.id:
@@ -445,7 +457,11 @@ def add_application_event(
             workspace_id=workspace.id,
             event_type="interview_scheduled",
             message=body.message,
-            payload_json={"round_type": body.round_type, "at": body.at.isoformat()},
+            payload_json={
+                "round_type": body.round_type,
+                "at": body.at.isoformat(),
+                "duration_minutes": body.duration_minutes,
+            },
         )
     db.commit()
     return ApplicationEventRead.model_validate(event)
@@ -730,6 +746,7 @@ def get_planner_week(
                 company=job.company if job else "",
                 at=at,
                 round_type=(e.payload_json or {}).get("round_type"),
+                duration_minutes=_int_or_none((e.payload_json or {}).get("duration_minutes")),
             )
         )
 

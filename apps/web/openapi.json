@@ -4443,6 +4443,19 @@
               }
             ],
             "title": "At"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 480.0,
+                "minimum": 5.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
           }
         },
         "type": "object",
@@ -6771,6 +6784,17 @@
             "type": "string",
             "format": "date-time",
             "title": "At"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
           }
         },
         "type": "object",
