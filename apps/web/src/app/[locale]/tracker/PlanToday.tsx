@@ -99,7 +99,9 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday({ data, onShowPipeline, onOpenSchedule, selectedApplicationId, onClearSelected }: {
+export function PlanToday({
+  data, onShowPipeline, onOpenSchedule, selectedApplicationId, onClearSelected, onApplicationsChanged,
+}: {
   data: PlannerData;
   onShowPipeline?: () => void;
   /** An application picked in the sidebar. The panel is shared: a to-do opened
@@ -107,6 +109,10 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule, selectedApplic
    *  surface, so only one can be showing. */
   selectedApplicationId?: string | null;
   onClearSelected?: () => void;
+  /** The panel changed which list an application belongs in (a drop moves it
+   *  from the queue to closed). The sidebar's list is not part of the planner
+   *  store — see useApplicationsList — so it is re-read by its owner. */
+  onApplicationsChanged?: () => void;
   /** Switch the shell to the Week sub-view. The strip has promised this jump
    *  since V3 ("V8 落地后改为跳周排程") — the schedule view now exists, so a
    *  cell click finally goes where the cell points. */
@@ -598,6 +604,10 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule, selectedApplic
         onDismiss={dismissFromPeek}
         reason={(a) => reasonOf(a, t)}
         onApplicationChanged={() => refresh("funnel")}
+        // Dropping or rescheduling from the panel changes rows, not just
+        // readings: `reload()` is the only path that re-reads the action list,
+        // and the sidebar keeps its own list that has to be told separately.
+        onActionsChanged={() => { void reload(); onApplicationsChanged?.(); }}
       />
 
       <div className="grid gap-5 min-[900px]:grid-cols-[minmax(0,1fr)_300px] min-[900px]:gap-5">

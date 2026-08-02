@@ -14,9 +14,9 @@ import { PipelineZone } from "./PipelineZone";
 import { ReviewZone } from "./ReviewZone";
 import { usePlannerData } from "./usePlannerData";
 
-// "Later" has to survive a tab switch: Plan unmounts when you go to Applications,
-// and a banner that returns every time you come back is one you learn to swat
-// without reading. Module scope rather than storage on purpose — this is a
+// "Later" has to survive a tab switch: Plan unmounts when you go to Week or
+// Settings, and a banner that returns every time you come back is one you learn
+// to swat without reading. Module scope rather than storage on purpose — this is a
 // decision about this sitting, not a preference worth remembering forever.
 // Keyed by user + review (see reviewKey): the module survives a client-side
 // account switch, so without the user component one person's dismissal mutes the
@@ -33,11 +33,24 @@ let dismissedReview: string | null = null;
  *  zone render the same funnel and the same alert list, and each used to fetch
  *  its own — so confirming from either left the other showing the reading it
  *  had at page load, in both directions. */
-export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
+export function PlanView({
+  onOpenSchedule,
+  initialSelectedId,
+}: {
+  onOpenSchedule: () => void;
+  /** Open showing this application — the one just added from the first-run
+   *  state, so the plan does not appear empty right after filling it.
+   *
+   *  A mount-time seed, not a controlled value: it is read once, by the state
+   *  initialiser below. Passing a new id to a mounted PlanView does nothing,
+   *  and passing the same id to a REMOUNTED one re-opens the panel — which is
+   *  why the shell clears it when you leave this sub-view. */
+  initialSelectedId?: string | null;
+}) {
   const applications = useApplicationsList();
   // Which application the panel is showing. Local to this view: a reading
   // position, not something another tab should inherit.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const getToken = useApiToken();
   const userId = useApiUserId();
   const planner = usePlannerData();
@@ -109,6 +122,7 @@ export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
           onOpenSchedule={onOpenSchedule}
           selectedApplicationId={selectedId}
           onClearSelected={() => setSelectedId(null)}
+          onApplicationsChanged={() => { void applications.reload(); }}
           data={planner}
           onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />

@@ -43,6 +43,15 @@ interface Props {
    *  check-in alert measures staleness from — so the panel has to tell the day
    *  view that its pipeline snapshot is now out of date. */
   onApplicationChanged: () => void;
+  /** The verbs move work, not just records: Drop makes the server retire this
+   *  application's pending to-dos and takes it out of the queue, Reschedule
+   *  changes the day one of them is owed on. Both leave stale rows on screen —
+   *  in Today's list and in the sidebar — unless the lists themselves are
+   *  re-read, which no amount of context refreshing does (usePlannerData keeps
+   *  the action list out of PlannerSource on purpose). The queue table this
+   *  panel replaced knew that: its Drop reloaded the planner and its own list
+   *  together. */
+  onActionsChanged: () => void;
   /** Workspace zone and the server's today, for Reschedule. Passed in rather
    *  than fetched: plannerSources.test.ts allows getPlannerWeek in exactly two
    *  files, and a panel quietly opening a third copy of the week is the shape
@@ -56,13 +65,13 @@ interface Props {
  *
  * Ticking a row is a decision, and a decision needs context: what this company
  * is, how far along it is, what was said last. Before this, getting that meant
- * leaving the day's list for the Applications view and finding your way back.
+ * leaving the day's list for a separate tab and finding your way back.
  *
  * The rule here was "read-only apart from the to-do buttons and a note", so
  * that a panel opened to answer a question could not also be where a stray
  * click changed your data. That still holds, but it is now stated as what it
  * actually protects: NO UNCONFIRMED MUTATION. The queue table that used to own
- * Apply / Tailor / Drop is being removed, and those verbs have to live
+ * Apply / Tailor / Drop is gone, and those verbs had to live
  * somewhere — Apply opens the employer's page in a new tab and Tailor
  * navigates, neither of which changes anything, and Drop is the one real
  * mutation and asks first. Editing lane, excitement and status still stays in
@@ -70,7 +79,7 @@ interface Props {
  */
 export function ApplicationPeek({
   action, applicationId, onClose, onComplete, onSnooze, onDismiss, reason,
-  onApplicationChanged, tz, serverToday,
+  onApplicationChanged, onActionsChanged, tz, serverToday,
 }: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
@@ -170,7 +179,11 @@ export function ApplicationPeek({
                     app={app}
                     tz={tz ?? null}
                     serverToday={serverToday ?? null}
-                    onChanged={() => { setNonce((n) => n + 1); onApplicationChanged(); }}
+                    // Only the wider of the two: the reload behind
+                    // onActionsChanged re-reads the funnel on its way past, so
+                    // firing both would put two reads of the same endpoint in
+                    // the air for one click.
+                    onChanged={() => { setNonce((n) => n + 1); onActionsChanged(); }}
                     t={t}
                   />
 
@@ -396,7 +409,7 @@ function NoteBox({ app, onLogged, t }: { app: ApplicationDetail; onLogged: () =>
 /**
  * What you can do to an application from here.
  *
- * These are the queue table's verbs, arriving because the table is going away.
+ * These are the queue table's verbs, which arrived here when the table went.
  * The panel's rule is no UNCONFIRMED mutation, and each of them clears it a
  * different way: Apply opens the employer's page in a new tab and changes
  * nothing here, Tailor navigates, Reschedule moves one to-do by one day and is

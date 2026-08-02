@@ -30,14 +30,15 @@ const TRACKER = join(__dirname, "..", "app", "[locale]", "tracker");
  *  owns its own copy while editing it. */
 const MEASURED = ["getFunnel", "getPlannerStats", "getPlannerWeek", "getPlannerDay"];
 
-/** file (relative to the tracker dir) -> endpoints it may call, and why. */
+/** file (relative to the tracker dir) -> endpoints it may call, and why.
+ *
+ *  Down to one. The exception used to be the Applications sub-view, which never
+ *  mounted the Plan store and so fetched the week itself for the server's idea
+ *  of "today" (V7-C5). That view is gone, and its Reschedule lives in a panel
+ *  that takes the date as a prop instead — which is the shape this guard is
+ *  arguing for, so the list shrinking is the point rather than a side effect. */
 const ALLOWED: Record<string, string[]> = {
   "usePlannerData.ts": MEASURED, // the store itself
-  // The Applications sub-view never mounts the Plan store, and needs the
-  // server's idea of "today" (plus the workspace timezone) to resolve the
-  // row-level Reschedule target rather than reading the browser clock — see
-  // V7-C5. It renders no number from the week.
-  "ApplicationsMasterDetail.tsx": ["getPlannerWeek"],
 };
 
 function walk(dir: string): string[] {

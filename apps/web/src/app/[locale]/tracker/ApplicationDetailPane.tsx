@@ -115,8 +115,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted,
               {/* The title links to the job's own page — the JD, the
                   intelligence report and the fit analysis all live there, and
                   from here they were only reachable by going back to the job
-                  library and searching for it again. The planned queue has had
-                  this link since Wave 8; the master-detail never got it. */}
+                  library and searching for it again. */}
               <h1 className="text-base font-semibold leading-tight" style={{ color: "var(--ink-primary)" }}>
                 <Link href={`/jobs/${app.job_id}`} className="hover:underline">
                   {app.job?.title ?? "(untitled role)"}
