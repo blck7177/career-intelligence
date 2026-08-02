@@ -68,6 +68,26 @@ _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
 # split cannot drift from the set it partitions (asserted in the rules tests).
 OPEN_STATUS = "pending"
 
+# Rule types where a to-do the USER wrote means the same work the rule would
+# create, so an open one stands in for it. The other two do not qualify, and the
+# reasons are specific rather than cautious:
+#
+#   prep  — is the emitted type for the check_in rule ("Check in — no word since
+#           the interview"), a naming artifact noted in DEFAULT_EST_MINUTES
+#           below. To a user, "prep" is preparing for a round that has not
+#           happened yet. Those are different work, and ActionCreate accepts the
+#           type, so a hand-written "prep for the onsite" left open would
+#           silence the chase-them reminder for the life of the application.
+#   thank_you — is the one perishable rule, and this predicate has no time
+#           bound: it is consulted before the 24h window check. One stale open
+#           row would suppress the note for every FUTURE interview on that
+#           application, not just the one it was written for.
+#
+# Both are unreachable from today's quick-add, which only ever produces
+# follow_up / networking / apply / custom — but POST /actions takes the whole
+# ActionType literal, so this is an open API surface, not a hypothetical.
+_USER_ROWS_STAND_IN_FOR = frozenset({"apply", "follow_up"})
+
 # Status written when an application closes and its outstanding to-dos are
 # retired (JobApplicationRepository._cancel_pending_actions). It is defined here,
 # next to the set it must stay out of, because that is the whole point of it
@@ -229,13 +249,17 @@ def _suppressed(actions: list[ActionView], type_: str) -> bool:
     only matters to one of them.
 
     OPEN (pending) — the work is on the plate. Whether the engine queued it or
-    the user typed it changes nothing about whether it exists, so this half
-    ignores `auto_generated`. It used to require it, which made the engine blind
-    to the user's own rows: the morning ritual creates "apply" to-dos through
-    POST /actions (auto_generated=False by construction — no client can set it),
-    so a to-do the user had just pulled into today sat beside an identical
-    "Apply now or drop this one" the next beat generated, and neither side
-    deduplicated.
+    the user typed it changes nothing about whether it exists, so for the types
+    in _USER_ROWS_STAND_IN_FOR this half ignores `auto_generated`. It used to
+    require it for everything, which made the engine blind to the user's own
+    rows: the morning ritual creates "apply" to-dos through POST /actions
+    (auto_generated=False by construction — no client can set it), so a to-do
+    the user had just pulled into today sat beside an identical "Apply now or
+    drop this one" the next beat generated, and neither side deduplicated.
+
+    The two types NOT in that set are excluded for reasons written where the set
+    is defined; both come down to the same thing — a user row of that type is
+    not evidence that the rule's work exists.
 
     DISMISSED — the work was refused, and models.py calls this a LIFETIME veto
     for that (application, type). That is a large thing to infer, and it is only
@@ -250,10 +274,11 @@ def _suppressed(actions: list[ActionView], type_: str) -> bool:
     Only the four rule types reach here, so a `custom` to-do ("call Sarah")
     still suppresses nothing.
     """
+    user_row_counts = type_ in _USER_ROWS_STAND_IN_FOR
     return any(
         a.type == type_
         and (
-            a.status == OPEN_STATUS
+            (user_row_counts and a.status == OPEN_STATUS)
             or (a.auto_generated and a.status in _SUPPRESSING_STATUSES)
         )
         for a in actions

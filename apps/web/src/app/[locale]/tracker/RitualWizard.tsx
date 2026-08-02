@@ -87,6 +87,13 @@ export function RitualWizard({
   // impossible and `setStep(step + 1)` a type error — the confirm step exists,
   // it just is not somewhere the wizard opens.
   const [step, setStep] = useState<number>(startAtStep);
+  // The opening step is LATCHED at open, not read live. `startAtStep` is derived
+  // from data that keeps arriving: a leftover moved to tomorrow makes the plate
+  // stop being "carry", and the prop drops 1 → 2 underneath an open dialog. Read
+  // live, that would relabel Back as Cancel — one click from discarding every
+  // answer — redraw three dots as two mid-flow, and claim "step 1 skipped" on a
+  // step the user had just filled in.
+  const [firstStep, setFirstStep] = useState<1 | 2>(startAtStep);
   const [carry, setCarry] = useState<Record<string, CarryChoice>>({});
   const [kept, setKept] = useState<Set<string> | null>(null);
   const [ackDrop, setAckDrop] = useState(false);
@@ -116,13 +123,20 @@ export function RitualWizard({
   // the server will reach for the same row: create sends no est_minutes, so
   // effective_est_minutes() fills it from the table this one is asserted equal
   // to. One number, two tables that a test keeps in step; not a third literal.
-  const pulledMinutes = pulled.size * EST_FALLBACK.apply;
+  // Derived from the CURRENT offer, not from the raw ticked set. `queue` shrinks
+  // when the caller re-reads after a failure — the rows it just created stop
+  // being offerable — and `pulled` does not shrink with it. Sizing the meter off
+  // `pulled` while apply() submits the filtered set made the two disagree by
+  // exactly the rows that had already been created: counted once as a new pull
+  // and once again as a to-do that had appeared on the list.
+  const pulledRows = queue.filter((a) => pulled.has(a.id));
+  const pulledMinutes = pulledRows.length * EST_FALLBACK.apply;
   const committed = keptList.reduce((sum, a) => sum + estOf(a), 0) + pulledMinutes;
   const pct = cap > 0 ? Math.round((committed / cap) * 100) : 0;
   const dropCount = Object.values(carry).filter((c) => c === "drop").length;
 
   function reset() {
-    setStep(startAtStep);
+    setStep(firstStep);
     setCarry({});
     setAckDrop(false);
     setKept(null);
@@ -143,7 +157,19 @@ export function RitualWizard({
   // mid-answer if a background refresh changed the plate under them.
   const wasOpen = useRef(false);
   useEffect(() => {
-    if (open && !wasOpen.current) setStep(startAtStep);
+    if (open && !wasOpen.current) {
+      // A full reset, not just the step. reset() runs from close(), which fires
+      // on ×/Esc/backdrop and NOT when the parent sets `open` to false — which
+      // is how both the success path and the failure path close it. Without
+      // this, yesterday's ticks, carry choices and pulls are still loaded the
+      // next time the dialog opens.
+      setStep(startAtStep);
+      setFirstStep(startAtStep);
+      setCarry({});
+      setAckDrop(false);
+      setKept(null);
+      setPulled(new Set());
+    }
     wasOpen.current = open;
   }, [open, startAtStep]);
 
@@ -162,11 +188,11 @@ export function RitualWizard({
       dropIds,
       // Only what is still on offer: a row the caller has since deduplicated
       // away must not be pulled twice because it was ticked before a refresh.
-      queueApplicationIds: queue.filter((a) => pulled.has(a.id)).map((a) => a.id),
+      queueApplicationIds: pulledRows.map((a) => a.id),
     });
   }
 
-  const steps = ritualSteps(startAtStep);
+  const steps = ritualSteps(firstStep);
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -246,7 +272,7 @@ export function RitualWizard({
             <>
               {/* Why this morning has two steps and not three. A flow that
                   silently drops a step reads as a flow that lost one. */}
-              {startAtStep === 2 && (
+              {firstStep === 2 && (
                 <p className="text-2xs mb-2" style={{ color: "var(--ink-faint)" }}>
                   {t("ritualStepSkipped")}
                 </p>
@@ -348,7 +374,7 @@ export function RitualWizard({
                     would print a count and a duration that describe different
                     sets — "3 to-dos · 4h" for five. */}
                 {t("ritualConfirmCount", {
-                  n: keptList.length + pulled.size,
+                  n: keptList.length + pulledRows.length,
                   minutes: fmtMinutes(committed),
                 })}
               </div>
@@ -388,9 +414,9 @@ export function RitualWizard({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => (step === startAtStep ? close(false) : setStep(step - 1))}
+            onClick={() => (step === firstStep ? close(false) : setStep(step - 1))}
           >
-            {t(step === startAtStep ? "ritualCancel" : "ritualBack")}
+            {t(step === firstStep ? "ritualCancel" : "ritualBack")}
           </Button>
           <span className="flex-1" />
           {step < 3 ? (

@@ -153,6 +153,18 @@ export function PlanToday({
   const [closingDate, setClosingDate] = useState<string | null>(null);
   const [ritualOpen, setRitualOpen] = useState(false);
   const [ritualBusy, setRitualBusy] = useState(false);
+  /** application id → the apply to-do already created for it, this sitting.
+   *
+   *  POST /actions has no idempotency key, so nothing on the server stops a
+   *  second attempt writing a second identical row. Re-deriving the offer from a
+   *  refetch was the first answer and it is not good enough: reload() resolves
+   *  even when it fails (it catches internally and leaves the previous list in
+   *  place), so the one failure most likely to be correlated with a failed
+   *  create — the network, the token, the backend — is exactly the one where the
+   *  refresh silently does nothing and the row gets written twice. This is a
+   *  record of what THIS client actually created, which is the only thing it can
+   *  be sure of. Cleared when a ritual completes. */
+  const createdApplyIds = useRef<Map<string, string>>(new Map());
   // "Skip" is a decision about this sitting, not a preference. Module scope so
   // it survives leaving and re-entering the Plan tab (see reviewBanner.ts for
   // the same call), keyed by day so tomorrow still asks.
@@ -403,6 +415,14 @@ export function PlanToday({
       const byId = new Map(applications.planned.map((a) => [a.id, a]));
       const createdIds: string[] = [];
       for (const applicationId of queueApplicationIds) {
+        // Already written on an earlier attempt: reuse the id rather than
+        // creating a twin. This is what makes a retry safe, and it does not
+        // depend on any refetch having succeeded.
+        const already = createdApplyIds.current.get(applicationId);
+        if (already) {
+          createdIds.push(already);
+          continue;
+        }
         const app = byId.get(applicationId);
         const created = await createAction(
           {
@@ -421,6 +441,7 @@ export function PlanToday({
           },
           token,
         );
+        createdApplyIds.current.set(applicationId, created.id);
         createdIds.push(created.id);
       }
       const log = await commitPlannerDay(mergeCommitIds(keptIds, createdIds), token);
@@ -443,6 +464,7 @@ export function PlanToday({
         ),
         ...dropIds.map((id) => updateAction(id, { op: "dismiss", snooze_days: 1 }, token)),
       ]);
+      createdApplyIds.current.clear();
       setRitualOpen(false);
       // reload() already re-reads the strip; the extra refresh is carried over
       // verbatim from before this hook existed so the refactor stays a refactor.
@@ -458,15 +480,21 @@ export function PlanToday({
       // and say so — setError only renders while the list is still loading, so
       // on a loaded page it would have failed in complete silence.
       setRitualError(true);
-      // Then re-read, which the old version did only on the success path. Two
-      // things depend on it. The visible one: a failure partway used to leave
-      // Today showing the pre-ritual list while the server already held new
-      // rows, so "something failed" sat next to a list that looked untouched.
-      // The load-bearing one: POST /actions has no idempotency key, and the
-      // Commit button re-arms, so pressing it again would create every pulled
-      // application a second time — unless the offer has been re-derived from a
-      // list that now contains the first attempt's to-dos, which is exactly what
-      // deduplicates them away. The refresh IS the idempotency.
+      // And CLOSE. The old behaviour kept the wizard up so a retry would not
+      // mean redoing three steps, and that was right while every step was
+      // idempotent. It stopped being right once the ritual creates rows: the
+      // dialog holds a snapshot of a world that has just changed underneath it,
+      // and re-submitting that snapshot is wrong in ways the user cannot see —
+      // a to-do created by the first attempt is not in the wizard's ticked set,
+      // so the second Commit would file it as declined and snooze it to
+      // tomorrow, the opposite of the thing just asked for.
+      //
+      // Closing also puts the failure where it can be read. The alert lives in
+      // the page body, and DialogContent renders a backdrop over the whole page
+      // with the popup above it, so with the wizard open the message sits
+      // behind both — and under an aria-modal surface it is not announced
+      // either. What retried was a button in a dialog that looked unchanged.
+      setRitualOpen(false);
       await reload().catch(() => {});
       onApplicationsChanged?.();
     } finally {
@@ -637,7 +665,14 @@ export function PlanToday({
               : plate === "today"
                 ? t("ritualBannerSummaryToday", { count: todayItems.length })
                 : plate === "empty"
-                  ? t("ritualBannerSummaryEmpty")
+                  // A rest day states the position and stops there. The engine's
+                  // rule is that nothing NEW comes due on a day off while
+                  // anything already due still stands; an invitation to pull
+                  // fresh work in is the system proposing exactly what the day
+                  // off switches off. The queue is still in the wizard for
+                  // anyone who opens it — the user choosing to work is not the
+                  // same act as the planner asking them to.
+                  ? t(isRestToday ? "ritualBannerSummaryEmptyRest" : "ritualBannerSummaryEmpty")
                   : t("ritualBannerSummaryUnknown", { count: items.length })}
             {nextInterview && (
               <> {t("ritualBannerInterview", { company: nextInterview.company, day: nextInterview.day })}</>

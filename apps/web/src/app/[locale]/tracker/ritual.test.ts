@@ -125,6 +125,20 @@ describe("offerableQueue", () => {
     const rows = [app("a")];
     expect(offerableQueue(rows, [{ type: "apply", application_id: "a" }], rank)).toEqual([]);
   });
+
+  it("drops an id the ranker returns that is not in the list it was given", () => {
+    // The case the type-narrowing filter is actually for, which the test above
+    // does NOT reach: every other case here ranks with rankedIds, which returns
+    // exactly the ids of the rows handed to it, so byId.get() never misses and
+    // widening the filter to `() => true` left the whole file green. A ranker
+    // working from a stale snapshot is the real shape of this — and an undefined
+    // in the offer renders as a row with no company and crashes on .id.
+    const rows = [app("a")];
+    const staleRank = () => ["a", "deleted-since"];
+    const out = offerableQueue(rows, [], staleRank);
+    expect(out).toEqual([rows[0]]);
+    expect(out.every((r) => r !== undefined)).toBe(true);
+  });
 });
 
 describe("mergeCommitIds", () => {

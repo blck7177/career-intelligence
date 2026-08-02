@@ -13,6 +13,7 @@ from packages.contracts.api.applications import (
 )
 from packages.domain.planner.rules import (
     OPEN_STATUS,
+    _USER_ROWS_STAND_IN_FOR,
     RETIRED_STATUS,
     _SUPPRESSING_STATUSES,
     ActionView,
@@ -191,12 +192,23 @@ def test_apply_or_drop_idempotent():
 # two statuses and not the other.
 
 # (fixture app id, the to-do type the rule dedupes on, the rule's payload name)
-_DEDUPING_RULES = [
+#
+# Split by whether a to-do the USER wrote means the same work the rule would
+# create. It does for these two: "follow up with Stripe" is a follow-up, and the
+# morning ritual's queue pull writes a literal apply to-do.
+_STANDS_IN_RULES = [
     ("fu", "follow_up", "follow_up"),
-    ("ty", "thank_you", "thank_you"),
-    ("ci", "prep", "check_in"),
     ("ad", "apply", "apply_or_drop"),
 ]
+# And it does not for these two. `prep` is the type the check_in rule emits
+# ("Check in — no word since the interview") while meaning, to a user, preparing
+# for a round that has not happened; thank_you is perishable and this predicate
+# has no time bound, so one stale row would cover every future interview.
+_ENGINE_ONLY_RULES = [
+    ("ty", "thank_you", "thank_you"),
+    ("ci", "prep", "check_in"),
+]
+_DEDUPING_RULES = _STANDS_IN_RULES + _ENGINE_ONLY_RULES
 
 
 def _rules_fired(apps):
@@ -216,17 +228,21 @@ def test_the_open_status_is_one_of_the_suppressing_ones():
     assert OPEN_STATUS in _SUPPRESSING_STATUSES
 
 
-@pytest.mark.parametrize("app_id,todo_type,rule", _DEDUPING_RULES)
+def test_the_stand_in_set_covers_exactly_the_types_whose_name_means_one_thing():
+    """A guard on the LIST, not on behaviour. Adding a type here silently widens
+    what a hand-written row can suppress, and the two exclusions each have a
+    concrete failure behind them — so growing the set should be a decision
+    somebody makes, not a line somebody edits."""
+    assert _USER_ROWS_STAND_IN_FOR == {"apply", "follow_up"}
+
+
+@pytest.mark.parametrize("app_id,todo_type,rule", _STANDS_IN_RULES)
 def test_a_hand_written_todo_suppresses_its_rule(app_id, todo_type, rule):
     """A pending to-do the user typed counts as the work already existing.
 
     The morning ritual creates "apply" to-dos through POST /actions, which
     records auto_generated=False; before this, the next beat generated a second
     to-do for the same application and both sat in the same group.
-
-    Parametrised across ALL four deduping rules on purpose: fixing this for
-    "apply" alone would leave three rules disagreeing about whether your own
-    to-do counts, for no reason a later reader could recover.
     """
     apps = _all_rules_firing()
     # The rule fires without the hand-written to-do — otherwise the assertion
@@ -235,6 +251,42 @@ def test_a_hand_written_todo_suppresses_its_rule(app_id, todo_type, rule):
     assert rule not in _rules_fired(
         _with_action(app_id, type=todo_type, status=OPEN_STATUS, auto_generated=False)
     )
+
+
+@pytest.mark.parametrize("app_id,todo_type,rule", _ENGINE_ONLY_RULES)
+def test_a_hand_written_todo_does_not_stand_in_when_the_type_means_two_things(
+    app_id, todo_type, rule
+):
+    """The other half of the same decision, and the more valuable half.
+
+    These two types are shared between the engine and the user without meaning
+    the same thing, so a user row must NOT cover the rule — while the engine's
+    own row still does, which is the second assertion.
+    """
+    assert rule in _rules_fired(
+        _with_action(app_id, type=todo_type, status=OPEN_STATUS, auto_generated=False)
+    )
+    assert rule not in _rules_fired(
+        _with_action(app_id, type=todo_type, status=OPEN_STATUS, auto_generated=True)
+    )
+
+
+def test_preparing_for_an_interview_does_not_silence_chasing_one():
+    """The collision, spelled out as the scenario it comes from.
+
+    An interview was logged 8 days ago and nothing has happened since, so the
+    check_in rule owes a "no word since the interview" nag. The user has an open
+    to-do they wrote before that interview — "prep for the onsite" — which
+    ActionCreate accepts as type "prep", the same literal check_in emits. That
+    row is about a round in the future; it is not evidence that anyone has
+    chased the employer.
+    """
+    app = _app(
+        id="ci", status="interviewing",
+        events=[EventView("interview_scheduled", _d(8), at=_d(8))],
+        actions=[ActionView(type="prep", status="pending", auto_generated=False)],
+    )
+    assert [s for s in _gen([app]) if s.type == "prep"] != []
 
 
 @pytest.mark.parametrize("app_id,todo_type,rule", _DEDUPING_RULES)
