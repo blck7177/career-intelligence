@@ -14,6 +14,7 @@ import { toast } from "@/components/ui/toaster";
 import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
+import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
 const GROUP_OF: Record<string, string> = {
@@ -27,16 +28,6 @@ const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
   return GROUP_OF[a.type] ?? "anytime";
-}
-
-// What counts against TODAY's capacity. The list itself spans a 14-day horizon
-// so upcoming deadlines stay visible, but the cap is a per-day number: summing
-// the whole horizon against it would compare two weeks of work to one day of
-// room. Undated work counts (Anytime is "today if there's room"); work due later
-// does not.
-function countsTowardToday(a: ActionRead): boolean {
-  const info = dueInfo(a);
-  return info === null || info.today;
 }
 
 // The engine records the facts each auto to-do fired on (the payload contract in
@@ -161,6 +152,9 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // so nothing is parsed as a date rather than guessing one and filing the to-do
   // a day off.
   const tz = settings?.timezone ?? null;
+  // The server's idea of today, which is the only authority on the day
+  // boundary. Null until the week arrives, and never guessed from the browser.
+  const serverToday = week?.days.find((d) => d.is_today)?.date ?? null;
   const parsed = useMemo(() => {
     // Parse once to see what is there, then again honouring only the matches
     // whose text has not been rejected — so a rejection applies to that phrase
@@ -468,7 +462,7 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // Two different totals: the whole visible horizon (informational) vs what is
   // actually on the hook for today (what the cap governs).
   const estTotal = items.reduce((sum, a) => sum + estOf(a), 0);
-  const todayItems = items.filter(countsTowardToday);
+  const todayItems = items.filter((a) => countsTowardToday(a, tz, serverToday));
   const estToday = todayItems.reduce((sum, a) => sum + estOf(a), 0);
   const cap = settings?.daily_cap_minutes ?? 0;
   const isEmpty = actions !== null && actions.length === 0;
@@ -481,11 +475,11 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // Yesterday's leftovers: due before today and still open. dueInfo folds
   // everything past into today (that is what the capacity bar counts), so
   // "overdue" is read off due_at directly.
-  const overdue = items.filter((a) => {
-    if (!a.due_at) return false;
-    const info = dueInfo(a);
-    return info !== null && info.today && new Date(a.due_at) < startOfToday();
-  });
+  // Overdue = its workspace-local due date is before the server's today. The
+  // old form asked dueInfo whether it counted as today and then re-derived the
+  // boundary from the browser clock to see if it was actually earlier — two
+  // different calendars deciding one question.
+  const overdue = items.filter((a) => isOverdue(a, tz, serverToday));
   // Ask only once the day is actually known and the list has loaded: a banner
   // that flashes before the data arrives is a banner that gets clicked away.
   // The question is "has the morning ritual run today", and committed_est is
@@ -723,6 +717,8 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
                       <ActionItem
                         key={a.id}
                         a={a}
+                        tz={tz}
+                        serverToday={serverToday}
                         onComplete={() => mutate(a.id, "complete")}
                         onSnooze={() => mutate(a.id, "snooze")}
                         onOpen={() => setPeek(a)}
@@ -938,35 +934,17 @@ function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
   );
 }
 
-type DueInfo = { today: boolean; days: number; warn: boolean };
 
-function startOfToday(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-// Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
-// (warn within a day). Undated actions get no pill (they read as "anytime").
-function dueInfo(a: ActionRead): DueInfo | null {
-  if (!a.due_at) return null;
-  const due = new Date(a.due_at);
-  if (isNaN(due.getTime())) return null;
-  const now = new Date();
-  const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const d1 = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  const days = Math.round((d1.getTime() - d0.getTime()) / 86400_000);
-  if (days <= 0) return { today: true, days: 0, warn: true };
-  return { today: false, days, warn: days <= 1 };
-}
-
-function ActionItem({ a, onComplete, onSnooze, onOpen }: {
+function ActionItem({ a, tz, serverToday, onComplete, onSnooze, onOpen }: {
   a: ActionRead;
+  tz: string | null;
+  serverToday: string | null;
   onComplete: () => void;
   onSnooze: () => void;
   onOpen: () => void;
 }) {
   const t = useTranslations("tracker");
-  const info = dueInfo(a);
+  const info = dueInfo(a, tz, serverToday);
   const est = estOf(a);
   const reason = reasonOf(a, t);
   // Deferring once is ordinary rescheduling; twice means the item keeps getting

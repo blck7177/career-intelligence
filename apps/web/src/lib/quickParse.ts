@@ -72,6 +72,22 @@ export function localDateOf(iso: string, tz: string): string {
   }).format(new Date(iso));
 }
 
+/**
+ * Whole calendar days from `from` to `to`, both bare YYYY-MM-DD.
+ *
+ * UTC arithmetic on dates that carry no zone, so the subtraction is exact.
+ * Parsing them into local time instead puts the two ends in different offsets
+ * across a DST boundary and yields 23 or 25 hours; Math.round happens to
+ * absorb that, so both forms agree on every realistic input — which is the
+ * reason to be explicit here rather than to rely on the rounding staying
+ * generous if this ever grows a fractional case.
+ */
+export function daysBetween(from: string, to: string): number {
+  const [y1, m1, d1] = from.split("-").map(Number);
+  const [y2, m2, d2] = to.split("-").map(Number);
+  return Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400_000);
+}
+
 export function addDays(isoDate: string, days: number): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   // UTC arithmetic on a bare calendar date: no zone involved, so no DST skew.
