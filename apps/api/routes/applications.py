@@ -546,6 +546,29 @@ def list_actions(
     return ActionList(items=actions, total=len(actions))
 
 
+# Which statuses each op will act on. Absent = unrestricted (reopen carries its
+# own undo window; schedule states its own rule below; unschedule only clears a
+# calendar slot and revives nothing).
+#
+# The status that matters is "cancelled": the system retires a to-do when its
+# application closes, and nothing retires it a second time — so a client holding
+# a stale row could snooze one back to "pending" and leave a live to-do on Today
+# for a closed application, permanently. A dropped application's panel is
+# exactly that client. "done" and "dismissed" are here for the same reason in
+# the other direction: the way back from done is `reopen`, which restores an
+# undated to-do and clears completed_at, none of which a snooze can do.
+#
+# Same-status repeats stay allowed, because they are not revivals: complete() is
+# deliberately idempotent for two tabs and a retried PATCH, and dismissing an
+# already-dismissed row asks for nothing new.
+_ACTIONABLE_FROM: dict[str, frozenset[str]] = {
+    "complete": frozenset({"pending", "done"}),
+    "snooze": frozenset({"pending"}),
+    "dismiss": frozenset({"pending", "dismissed"}),
+}
+_PAST_TENSE = {"complete": "completed", "snooze": "snoozed", "dismiss": "dismissed"}
+
+
 @router.patch("/actions/{action_id}", response_model=ActionRead)
 def update_action(
     action_id: str,
@@ -557,6 +580,12 @@ def update_action(
     row = repo.get(action_id, workspace.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Action not found.")
+    allowed = _ACTIONABLE_FROM.get(body.op)
+    if allowed is not None and row.status not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {row.status} to-do cannot be {_PAST_TENSE[body.op]}.",
+        )
     if body.op == "complete":
         action = repo.complete(action_id, workspace.id)
     elif body.op == "snooze":
@@ -693,9 +722,11 @@ def get_planner_week(
     An interview's time lives in the event's payload (`at`), not in a column, so
     the rounds are filtered in Python; only those landing inside the week get
     their company resolved, which keeps that to a handful of lookups."""
-    from packages.domain.planner.rules import local_today
+    from packages.domain.planner.rules import effective_est_minutes, local_today
     from packages.domain.planner.week import (
+        DueItem,
         InterviewSlot,
+        ScheduledBlock,
         build_week,
         contains,
         due_query_start_utc,
@@ -756,24 +787,49 @@ def get_planner_week(
     # it on its original day too would show two dots for one to-do.
     today = local_today(now, tz)
     due_from = due_query_start_utc(start_date, today, tz)
-    due_ats = [
-        a.due_at
+    due_items = [
+        DueItem(at=a.due_at, type=a.type, est_minutes=a.est_minutes)
         for a in action_repo.list_due_between(workspace.id, due_from, end)
         if a.due_at is not None
     ]
-    carried = (
-        action_repo.count_pending_carried_into_today(workspace.id, due_from)
+    # One row set answers both "how many" and "how long", so the count and the
+    # minutes cannot drift apart.
+    carried_rows = (
+        action_repo.list_pending_carried_into_today(workspace.id, due_from)
         if contains(start_date, today)
-        else 0
+        else []
     )
+    carried = len(carried_rows)
+    carried_est = sum(effective_est_minutes(type_, est) for type_, est in carried_rows)
+    placed = [
+        ScheduledBlock(
+            action_id=a.id,
+            title=a.title,
+            # Normalised like the interview path above: a SQLite round-trip
+            # drops tzinfo, and a naive instant serialises without an offset —
+            # the browser would then read it in ITS zone and draw the block on a
+            # different day than the bucket it was filed under.
+            at=a.scheduled_at if a.scheduled_at.tzinfo else a.scheduled_at.replace(tzinfo=timezone.utc),
+            type=a.type,
+            est_minutes=a.est_minutes,
+            status=a.status,
+        )
+        # `start`, not `due_from`: due counting begins at today for the current
+        # week (overdue work is owed today), but a block placed on Monday is a
+        # fact about Monday and must stay there.
+        for a in action_repo.list_scheduled_between(workspace.id, start, end)
+        if a.scheduled_at is not None
+    ]
     return PlannerWeek(
         **build_week(
             interviews=slots,
-            due_ats=due_ats,
+            due_items=due_items,
             settings=settings,
             now_utc=now,
             week_start=start_date,
             carried_into_today=carried,
+            carried_est_minutes=carried_est,
+            blocks=placed,
         )
     )
 

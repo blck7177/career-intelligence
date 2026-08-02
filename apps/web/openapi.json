@@ -6724,6 +6724,41 @@
         "title": "PlannerWeek",
         "description": "The week's shape for the Today card's strip: where the hard commitments\nalready are, so the day gets planned around them rather than over them."
       },
+      "PlannerWeekBlock": {
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "title": "Action Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          },
+          "est_minutes": {
+            "type": "integer",
+            "title": "Est Minutes"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "action_id",
+          "title",
+          "at",
+          "est_minutes"
+        ],
+        "title": "PlannerWeekBlock",
+        "description": "A to-do given a time slot on this day (V8 scheduling)."
+      },
       "PlannerWeekDay": {
         "properties": {
           "date": {
@@ -6733,6 +6768,23 @@
           "due_count": {
             "type": "integer",
             "title": "Due Count"
+          },
+          "due_est_minutes": {
+            "type": "integer",
+            "title": "Due Est Minutes",
+            "default": 0
+          },
+          "scheduled_est_minutes": {
+            "type": "integer",
+            "title": "Scheduled Est Minutes",
+            "default": 0
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/PlannerWeekBlock"
+            },
+            "type": "array",
+            "title": "Blocks"
           },
           "interviews": {
             "items": {

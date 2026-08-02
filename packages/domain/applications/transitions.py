@@ -37,7 +37,8 @@ CLOSED_STATUSES = frozenset({"rejected", "withdrawn", "ghosted"})
 ACTIVE_STATUSES = frozenset({"applied", "in_review", "interviewing", "offer"})
 PLANNED_STATUSES = frozenset({"planned"})
 
-# The three list filters in the Applications view. Their union is every status.
+# The three groups the sidebar lists, and the `status_group` list filter behind
+# them. Their union is every status.
 STATUS_GROUPS: dict[str, frozenset[str]] = {
     "planned": PLANNED_STATUSES,
     "active": ACTIVE_STATUSES,

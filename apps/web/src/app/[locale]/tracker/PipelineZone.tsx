@@ -1,121 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
-import { useApiToken } from "@/hooks/useApiToken";
-import { listApplications, transitionApplication, updateApplication } from "@/api/client";
-import type { ApplicationRead } from "@/api/client";
 import type { PlannerData } from "./usePlannerData";
-import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
-import { bandOf, BAND } from "@/lib/matchBand";
 import { ZoneHead } from "@/components/ui/zone-head";
 
-const DEFAULT_FRESH_DAYS = 3;
-const DEFAULT_APPLY_OR_DROP = 14;
 const ACTIVE_STAGES = ["applied", "in_review", "interviewing", "offer"];
 
 /**
  * Plan · Pipeline zone. Funnel (horizontal, onsite target line) + advisory
  * alerts (read-only: a ghosted suggestion links to the application, it does not
- * apply itself) + the planned-to-apply queue as a table: Fit · excitement ·
- * lane cycle · age (posted/seen + fresh / apply-or-drop) · Apply now / Drop.
- * Sorted by freshness × fit × excitement.
+ * apply itself).
+ *
+ * It used to carry the planned-to-apply queue as a table as well. The sidebar
+ * now lists that queue in the same ranked order beside the day being planned,
+ * so this zone is what it always claimed to be in its title: how the pipeline
+ * is doing, not what to do next. Health reads; the sidebar acts.
  */
 export function PipelineZone({ data }: { data: PlannerData }) {
   const t = useTranslations("tracker");
-  const getToken = useApiToken();
   // The funnel and the settings come from the Plan view's single store. This
   // zone used to fetch its own copy of both, which meant the alerts it renders
   // and the identical alerts in Today's rail were two independent readings:
   // acting in either place left the other showing the old one, in both
-  // directions. The planned queue stays local — nothing else renders it.
-  const { funnel, settings, refresh, reload } = data;
-  const [planned, setPlanned] = useState<ApplicationRead[] | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [orderEpoch, setOrderEpoch] = useState(0);
+  // directions.
+  const { funnel, settings } = data;
 
-  const freshDays = settings?.fresh_window_days ?? DEFAULT_FRESH_DAYS;
   const onsiteTarget = settings?.onsite_target ?? 4;
-  const applyOrDropDays = settings?.apply_or_drop_days ?? DEFAULT_APPLY_OR_DROP;
-
-  const loadPlanned = useCallback(async () => {
-    const token = await getToken();
-    const p = await listApplications(
-      { status_group: "planned", include_fit: true, limit: 100 },
-      token,
-    ).catch(() => ({ items: [], total: 0 }));
-    setPlanned(p.items);
-    setOrderEpoch((n) => n + 1);
-  }, [getToken]);
-
-  useEffect(() => { loadPlanned(); }, [loadPlanned]);
-
-  // Sort by freshness × fit × excitement (mockup order): fresh dominates, then
-  // fit, then excitement.
-  //
-  // Recomputed when the list is FETCHED or when the freshness window first
-  // arrives — not on every write to `planned`. The window comes from a source
-  // this component does not fetch, so sorting inside loadPlanned would freeze
-  // whichever of the two landed first; but sorting on every render moved rows
-  // under the cursor, because rating a row optimistically rewrites `planned`
-  // and a third star can lift it past its neighbour mid-gesture, so the next
-  // click lands on a different application. The order is therefore a snapshot,
-  // and edits change what a row says without changing where it is.
-  const order = useMemo(() => {
-    if (planned === null) return null;
-    const score = (a: ApplicationRead) =>
-      (isFresh(a.job?.posted_at, freshDays) ? 1000 : 0) + (a.fit_score ?? 0) * 3 + (a.excitement ?? 0) * 25;
-    return [...planned].sort((a, b) => score(b) - score(a)).map((a) => a.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderEpoch, freshDays]);
-
-  const queue = useMemo(() => {
-    if (planned === null || order === null) return planned;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    // Rows added since the last ordering (there are none today, but a future
-    // optimistic insert would otherwise vanish) sort to the end rather than
-    // being dropped.
-    return [...planned].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9));
-  }, [planned, order]);
-
-  async function drop(id: string) {
-    setBusyId(id);
-    try {
-      const token = await getToken();
-      // The note is what the timeline shows instead of a bare "status changed";
-      // six months on, "dropped from the queue" is the difference between a
-      // decision and an unexplained state change.
-      await transitionApplication(id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
-      // Three things move, not one. The row leaves this queue; it leaves the
-      // funnel's planned stage; and — since V7.5-C1 — the server retires the
-      // application's pending to-dos, so the "apply or drop this one" item that
-      // put the amber badge on this very row disappears from Today, one scroll
-      // above. `reload()` is the only path that re-reads the action list (it is
-      // deliberately not a PlannerSource), and it re-reads week/day/stats/funnel
-      // on the way, which is why the funnel refresh is not also needed here.
-      await Promise.all([loadPlanned(), reload()]);
-    } finally { setBusyId(null); }
-  }
-
-  async function setStar(app: ApplicationRead, n: number) {
-    const next = app.excitement === n ? null : n;
-    setPlanned((prev) => prev?.map((a) => (a.id === app.id ? { ...a, excitement: next } : a)) ?? null);
-    try {
-      const token = await getToken();
-      await updateApplication(app.id, { excitement: next }, token);
-    } catch { loadPlanned(); }
-  }
-
-  async function cycleLane(app: ApplicationRead) {
-    const next = app.lane === "a" ? "b" : app.lane === "b" ? "c" : app.lane === "c" ? null : "a";
-    setPlanned((prev) => prev?.map((a) => (a.id === app.id ? { ...a, lane: next } : a)) ?? null);
-    try {
-      const token = await getToken();
-      await updateApplication(app.id, { lane: next }, token);
-    } catch { loadPlanned(); }
-  }
 
   const stages = funnel?.stages ?? [];
   const alerts = funnel?.alerts ?? [];
@@ -183,102 +95,6 @@ export function PipelineZone({ data }: { data: PlannerData }) {
         </ul>
       )}
 
-      {/* Planned queue — table: Job · Fit · Excite · Lane · Age · action */}
-      <div>
-        <h3 className="text-xs font-semibold uppercase tracking-wide mb-2 flex items-baseline gap-1.5" style={{ color: "var(--ink-muted)" }}>
-          {t("plannedQueue")}<span className="text-2xs normal-case font-normal" style={{ color: "var(--ink-faint)" }}>{t("plannedQueueSort")}</span>
-        </h3>
-        {queue === null ? (
-          <div className="animate-pulse h-16" aria-hidden />
-        ) : queue.length === 0 ? (
-          <p className="text-sm" style={{ color: "var(--ink-faint)" }}>{t("plannedEmpty")}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" style={{ borderCollapse: "collapse" }}>
-              <thead>
-                <tr className="text-2xs uppercase tracking-wide text-left" style={{ color: "var(--ink-faint)" }}>
-                  <th className="font-semibold py-1.5 pr-2">{t("colJob")}</th>
-                  <th className="font-semibold py-1.5 px-2">{t("colFit")}</th>
-                  <th className="font-semibold py-1.5 px-2">{t("colExcite")}</th>
-                  <th className="font-semibold py-1.5 px-2">{t("colLane")}</th>
-                  <th className="font-semibold py-1.5 px-2">{t("colAge")}</th>
-                  <th className="py-1.5 pl-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {queue.map((app) => {
-                  const posted = app.job?.posted_at;
-                  const ageIso = posted ?? app.created_at;
-                  const days = ageDays(ageIso);
-                  const fresh = isFresh(posted, freshDays);
-                  const stale = days >= applyOrDropDays;
-                  const lane = laneStyle(app.lane);
-                  const isHttp = (app.job?.canonical_url ?? "").startsWith("http");
-                  return (
-                    <tr key={app.id} className="border-t align-middle" style={{ borderColor: "var(--border)" }}>
-                      {/* Job */}
-                      <td className="py-2 pr-2 min-w-0" style={{ maxWidth: 240 }}>
-                        <Link href={`/jobs/${app.job_id}`} className="block truncate font-medium hover:underline" style={{ color: "var(--ink-primary)" }}>
-                          {app.job?.title ?? "(untitled)"}
-                        </Link>
-                        <span className="block truncate text-2xs" style={{ color: "var(--ink-muted)" }}>{app.job?.company}</span>
-                      </td>
-                      {/* Fit */}
-                      <td className="py-2 px-2 whitespace-nowrap">
-                        {typeof app.fit_score === "number" ? (
-                          <span className="text-2xs font-bold px-1.5 py-0.5 rounded tabular-nums" style={{ background: BAND[bandOf(app.fit_score)].bg, color: BAND[bandOf(app.fit_score)].fg }}>
-                            {app.fit_score}
-                          </span>
-                        ) : (
-                          <span className="text-2xs" style={{ color: "var(--ink-faint)" }}>—</span>
-                        )}
-                      </td>
-                      {/* Excitement */}
-                      <td className="py-2 px-2 whitespace-nowrap">
-                        <span className="flex items-center gap-0.5">
-                          {[1, 2, 3].map((n) => (
-                            <button key={n} onClick={() => setStar(app, n)} aria-label={`${t("excitementLabel")} ${n}`} className="text-sm leading-none" style={{ color: n <= (app.excitement ?? 0) ? "var(--primary)" : "var(--ink-faint)" }}>★</button>
-                          ))}
-                        </span>
-                      </td>
-                      {/* Lane cycle */}
-                      <td className="py-2 px-2 whitespace-nowrap">
-                        <button
-                          onClick={() => cycleLane(app)}
-                          aria-label={t("laneCycle")}
-                          title={t("laneCycle")}
-                          className="w-6 h-6 rounded-md text-2xs font-bold grid place-items-center"
-                          style={{ background: lane.bg, color: lane.fg, border: `1px solid ${lane.border}` }}
-                        >
-                          {lane.label}
-                        </button>
-                      </td>
-                      {/* Age */}
-                      <td className="py-2 px-2 whitespace-nowrap text-2xs" style={{ color: "var(--ink-muted)" }}>
-                        {posted ? t("postedOn", { date: `${days}d` }) : t("seenOn", { date: `${days}d` })}
-                        {fresh && <span className="ml-1.5 px-1 rounded-sm" style={{ background: "var(--match-good-bg)", color: "var(--match-good-fg)" }}>{t("fresh")}</span>}
-                        {!fresh && stale && <span className="ml-1.5 px-1 rounded-sm" style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }}>{t("applyOrDrop")}</span>}
-                      </td>
-                      {/* Actions */}
-                      <td className="py-2 pl-2 whitespace-nowrap text-right">
-                        <span className="inline-flex items-center gap-1">
-                          {isHttp && (
-                            <a href={app.job!.canonical_url} target="_blank" rel="noopener noreferrer" className="h-7 px-2 rounded-md text-xs font-medium inline-flex items-center" style={{ border: "1px solid var(--primary)", color: "var(--primary)" }}>
-                              {t("applyNow")}
-                            </a>
-                          )}
-                          <Button size="sm" variant="ghost" loading={busyId === app.id} onClick={() => drop(app.id)}>{t("drop")}</Button>
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       {/* Networking — deferred feature, placeholder (see exec_plan W2-C1 rule 4) */}
       <div className="rounded-lg border border-dashed p-3 opacity-60" style={{ borderColor: "var(--border)" }}>
         <div className="text-xs font-semibold" style={{ color: "var(--ink-muted)" }}>{t("networkingTitle")}</div>
@@ -286,26 +102,4 @@ export function PipelineZone({ data }: { data: PlannerData }) {
       </div>
     </section>
   );
-}
-
-function ageDays(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86400_000);
-}
-
-// A posting is "fresh" when its true posting date is within the window. Freshness
-// needs a real posting date — the application's own age can't stand in, so an
-// unknown posted_at is never fresh.
-function isFresh(posted: string | null | undefined, windowDays: number): boolean {
-  if (!posted) return false;
-  const days = Math.floor((Date.now() - new Date(posted).getTime()) / 86400_000);
-  return days >= 0 && days < windowDays;
-}
-
-function laneStyle(lane: string | null | undefined): { label: string; bg: string; fg: string; border: string } {
-  switch (lane) {
-    case "a": return { label: "A", bg: "var(--match-good-bg)", fg: "var(--match-good-fg)", border: "var(--match-good-fg)" };
-    case "b": return { label: "B", bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)", border: "var(--match-partial-fg)" };
-    case "c": return { label: "C", bg: "var(--muted)", fg: "var(--ink-secondary)", border: "var(--border)" };
-    default: return { label: "–", bg: "transparent", fg: "var(--ink-faint)", border: "var(--border)" };
-  }
 }

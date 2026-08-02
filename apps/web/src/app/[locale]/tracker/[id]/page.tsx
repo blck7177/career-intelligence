@@ -5,8 +5,10 @@ import { ApplicationDetailPane } from "../ApplicationDetailPane";
 
 export const dynamic = "force-dynamic";
 
-/** Mobile full-page detail view. On desktop the pane renders inline in the
- *  master-detail; on phones openRow() navigates here instead. */
+/** An application's own page: the full timeline, the status machine, the
+ *  interview form, and editing lane and excitement. The panel in the Plan view
+ *  answers the quick questions and links here — "Open full page" — for
+ *  everything it deliberately does not carry. */
 export default async function TrackerDetailPage({
   params,
 }: {

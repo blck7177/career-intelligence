@@ -301,9 +301,34 @@ class PlannerWeekInterview(BaseModel):
     duration_minutes: Optional[int] = None
 
 
+class PlannerWeekBlock(BaseModel):
+    """A to-do given a time slot on this day (V8 scheduling)."""
+
+    action_id: str
+    title: str
+    at: datetime
+    # Already resolved through the per-type default, so the strip does not need
+    # a second copy of that table to render a total.
+    est_minutes: int
+    # pending | done. Blocks deliberately outlive completion, so due_* (pending
+    # only) and scheduled_* (pending + done) shrink at different rates: a day
+    # finished reads "0 owed, 1h placed". Without this the renderer cannot
+    # explain that gap, and a cleared day looks like an untouched one.
+    status: str = "pending"
+
+
 class PlannerWeekDay(BaseModel):
     date: str  # ISO local date (settings.timezone)
     due_count: int
+    # What is OWED on this day, in minutes, resolved through the per-type
+    # default. Today's figure folds in the overdue/undated backlog exactly as
+    # due_count does, so the two never disagree about the same day.
+    due_est_minutes: int = 0
+    # What has been PLACED on this day (scheduled_at). Deliberately separate
+    # from due_est_minutes: a to-do due Friday and scheduled Wednesday belongs
+    # to both, counted once in each.
+    scheduled_est_minutes: int = 0
+    blocks: list[PlannerWeekBlock] = Field(default_factory=list)
     interviews: list[PlannerWeekInterview] = Field(default_factory=list)
     is_rest: bool
     is_today: bool

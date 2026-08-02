@@ -119,7 +119,7 @@ def test_snooze_does_not_count_when_it_pulls_earlier(db_session: Session):
     assert far.snooze_count == 0  # ...but earlier is not a deferral
 
 
-def test_count_pending_carried_into_today(db_session: Session):
+def test_list_pending_carried_into_today(db_session: Session):
     """What weighs on today without being due today: overdue and undated work.
     Today's own dues must NOT be included — the week-range query already has
     them, and counting both would double them on the strip."""
@@ -138,7 +138,16 @@ def test_count_pending_carried_into_today(db_session: Session):
     repo.create(workspace_id=OTHER_WS, type="apply", title="theirs",
                 due_at=today_start - timedelta(days=1))
 
-    assert repo.count_pending_carried_into_today(WS, today_start) == 2
+    rows = repo.list_pending_carried_into_today(WS, today_start)
+    # The strip reads both the count and the minutes off this one row set, which
+    # is why it returns rows at all: two queries could answer these separately
+    # and drift apart the first time one grew a condition the other did not.
+    # Only the two columns the caller reads come back.
+    from packages.domain.planner.rules import effective_est_minutes
+
+    assert len(rows) == 2
+    assert {t for t, _ in rows} == {"apply", "custom"}
+    assert sum(effective_est_minutes(t, e) for t, e in rows) == 80  # apply 60 + custom 20
 
 
 def test_snooze_counts_undated_work(db_session: Session):

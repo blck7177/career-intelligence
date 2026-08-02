@@ -14,6 +14,8 @@ import { toast } from "@/components/ui/toaster";
 import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
+import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
+import { fmtClock, minutesOfDay } from "./scheduleGrid";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
 const GROUP_OF: Record<string, string> = {
@@ -27,16 +29,6 @@ const GROUP_ORDER = ["deadlines", "followups", "apply", "wrapup", "anytime"];
 function groupOf(a: ActionRead): string {
   if (!a.due_at && a.type !== "apply" && a.type !== "follow_up") return "anytime";
   return GROUP_OF[a.type] ?? "anytime";
-}
-
-// What counts against TODAY's capacity. The list itself spans a 14-day horizon
-// so upcoming deadlines stay visible, but the cap is a per-day number: summing
-// the whole horizon against it would compare two weeks of work to one day of
-// room. Undated work counts (Anytime is "today if there's room"); work due later
-// does not.
-function countsTowardToday(a: ActionRead): boolean {
-  const info = dueInfo(a);
-  return info === null || info.today;
 }
 
 // The engine records the facts each auto to-do fired on (the payload contract in
@@ -107,9 +99,20 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
+export function PlanToday({
+  data, onShowPipeline, onOpenSchedule, selectedApplicationId, onClearSelected, onApplicationsChanged,
+}: {
   data: PlannerData;
   onShowPipeline?: () => void;
+  /** An application picked in the sidebar. The panel is shared: a to-do opened
+   *  from the list and an application opened from the sidebar are the same
+   *  surface, so only one can be showing. */
+  selectedApplicationId?: string | null;
+  onClearSelected?: () => void;
+  /** The panel changed which list an application belongs in (a drop moves it
+   *  from the queue to closed). The sidebar's list is not part of the planner
+   *  store — see useApplicationsList — so it is re-read by its owner. */
+  onApplicationsChanged?: () => void;
   /** Switch the shell to the Week sub-view. The strip has promised this jump
    *  since V3 ("V8 落地后改为跳周排程") — the schedule view now exists, so a
    *  cell click finally goes where the cell points. */
@@ -161,6 +164,9 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // so nothing is parsed as a date rather than guessing one and filing the to-do
   // a day off.
   const tz = settings?.timezone ?? null;
+  // The server's idea of today, which is the only authority on the day
+  // boundary. Null until the week arrives, and never guessed from the browser.
+  const serverToday = week?.days.find((d) => d.is_today)?.date ?? null;
   const parsed = useMemo(() => {
     // Parse once to see what is there, then again honouring only the matches
     // whose text has not been rejected — so a rejection applies to that phrase
@@ -468,7 +474,7 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // Two different totals: the whole visible horizon (informational) vs what is
   // actually on the hook for today (what the cap governs).
   const estTotal = items.reduce((sum, a) => sum + estOf(a), 0);
-  const todayItems = items.filter(countsTowardToday);
+  const todayItems = items.filter((a) => countsTowardToday(a, tz, serverToday));
   const estToday = todayItems.reduce((sum, a) => sum + estOf(a), 0);
   const cap = settings?.daily_cap_minutes ?? 0;
   const isEmpty = actions !== null && actions.length === 0;
@@ -481,11 +487,11 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
   // Yesterday's leftovers: due before today and still open. dueInfo folds
   // everything past into today (that is what the capacity bar counts), so
   // "overdue" is read off due_at directly.
-  const overdue = items.filter((a) => {
-    if (!a.due_at) return false;
-    const info = dueInfo(a);
-    return info !== null && info.today && new Date(a.due_at) < startOfToday();
-  });
+  // Overdue = its workspace-local due date is before the server's today. The
+  // old form asked dueInfo whether it counted as today and then re-derived the
+  // boundary from the browser clock to see if it was actually earlier — two
+  // different calendars deciding one question.
+  const overdue = items.filter((a) => isOverdue(a, tz, serverToday));
   // Ask only once the day is actually known and the list has loaded: a banner
   // that flashes before the data arrives is a banner that gets clicked away.
   // The question is "has the morning ritual run today", and committed_est is
@@ -582,9 +588,15 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
           decision; this is the context for it, without leaving the day. */}
       <ApplicationPeek
         action={peek}
+        // A to-do wins when both are set: it is the more specific subject, and
+        // clicking a row while the sidebar has a selection should show the row.
+        applicationId={peek ? null : selectedApplicationId ?? null}
+        tz={tz}
+        serverToday={serverToday}
         onClose={() => {
           const rowGone = peek !== null && !(actions ?? []).some((a) => a.id === peek.id);
           setPeek(null);
+          onClearSelected?.();
           if (rowGone) requestAnimationFrame(() => listRef.current?.focus());
         }}
         onComplete={(a) => mutate(a.id, "complete")}
@@ -592,6 +604,10 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
         onDismiss={dismissFromPeek}
         reason={(a) => reasonOf(a, t)}
         onApplicationChanged={() => refresh("funnel")}
+        // Dropping or rescheduling from the panel changes rows, not just
+        // readings: `reload()` is the only path that re-reads the action list,
+        // and the sidebar keeps its own list that has to be told separately.
+        onActionsChanged={() => { void reload(); onApplicationsChanged?.(); }}
       />
 
       <div className="grid gap-5 min-[900px]:grid-cols-[minmax(0,1fr)_300px] min-[900px]:gap-5">
@@ -600,7 +616,7 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}
-          {week && <WeekStrip week={week} onOpen={onOpenSchedule} />}
+          {week && <WeekStrip week={week} onOpen={onOpenSchedule} cap={cap} tz={tz} />}
           {!isEmpty && actions !== null && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -723,6 +739,8 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
                       <ActionItem
                         key={a.id}
                         a={a}
+                        tz={tz}
+                        serverToday={serverToday}
                         onComplete={() => mutate(a.id, "complete")}
                         onSnooze={() => mutate(a.id, "snooze")}
                         onOpen={() => setPeek(a)}
@@ -808,16 +826,15 @@ function ParseChip({ tone, onRevoke, t, children }: {
   );
 }
 
-const MAX_DUE_DOTS = 4;
 
-function WeekStrip({ week, onOpen }: { week: PlannerWeek; onOpen: () => void }) {
+function WeekStrip({ week, onOpen, cap, tz }: { week: PlannerWeek; onOpen: () => void; cap: number; tz: string | null }) {
   const t = useTranslations("tracker");
   // role="group", not "list": the cells are now buttons, and a button inside a
   // listitem role loses its button semantics for assistive tech.
   return (
     <div className="grid grid-cols-7 gap-1" role="group" aria-label={t("weekStripLabel")}>
       {week.days.map((d, i) => (
-        <WeekCell key={d.date} day={d} index={i} onOpen={onOpen} t={t} />
+        <WeekCell key={d.date} day={d} index={i} onOpen={onOpen} cap={cap} tz={tz} t={t} />
       ))}
     </div>
   );
@@ -825,23 +842,50 @@ function WeekStrip({ week, onOpen }: { week: PlannerWeek; onOpen: () => void }) 
 
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
-function WeekCell({ day, index, onOpen, t }: {
+/** "9:30" for an instant, read in the workspace zone. Empty when the zone is
+ *  unknown — the same refusal to guess the rest of Today now makes. Built on
+ *  the schedule grid's own two functions so the strip and the grid can never
+ *  print different times for one block. */
+function hhmm(iso: string, tz: string | null): string {
+  if (!tz) return "";
+  const m = minutesOfDay(iso, tz);
+  return m === null ? "" : fmtClock(m);
+}
+
+function WeekCell({ day, index, onOpen, cap, tz, t }: {
   day: PlannerWeekDay;
   index: number;
   onOpen: () => void;
+  /** Daily cap, for the load bar. 0 = not configured, so no bar is drawn. */
+  cap: number;
+  /** Workspace zone. Times are read in it, never in the browser's — the server
+   *  bucketed these instants with it, so any other zone could print an hour
+   *  belonging to the neighbouring day inside this cell. */
+  tz: string | null;
   t: (k: string, v?: Record<string, string | number>) => string;
 }) {
   // Days arrive Monday-first, so position IS the weekday — deriving it from the
   // date string would mean parsing a date the server already resolved for us.
   const label = t(`weekdayShort.${WEEKDAY_KEYS[index]}`);
   const dd = Number(day.date.slice(8, 10));
-  const dots = Math.min(day.due_count, MAX_DUE_DOTS);
   // interviews is optional in the generated type (server default), never absent in practice.
   const interviews = day.interviews ?? [];
+  const blocks = day.blocks ?? [];
+  const owed = day.due_est_minutes ?? 0;
+  // What the day HOLDS: placed to-dos plus interviews of known length. Kept in
+  // one place here rather than in each renderer — the schedule grid's day
+  // footer answers the same question and must not reach a different number.
+  const known = interviews.filter((iv) => typeof iv.duration_minutes === "number");
+  const held = (day.scheduled_est_minutes ?? 0)
+    + known.reduce((sum, iv) => sum + (iv.duration_minutes ?? 0), 0);
+  const unknownRounds = interviews.length - known.length;
+  const pct = cap > 0 ? Math.round((held / cap) * 100) : 0;
+
   const title = [
     day.date,
     day.due_count > 0 ? t("weekStripDue", { n: day.due_count }) : null,
     ...interviews.map((i) => `${i.company}${i.round_type ? ` · ${i.round_type}` : ""}`),
+    ...blocks.map((b) => b.title),
   ].filter(Boolean).join(" · ");
 
   return (
@@ -854,7 +898,7 @@ function WeekCell({ day, index, onOpen, t }: {
       onClick={onOpen}
       title={`${title} — ${t("stripOpenWeek")}`}
       aria-label={`${title} — ${t("stripOpenWeek")}`}
-      className="rounded-md border px-1.5 py-1 min-h-[46px] text-2xs text-left align-top"
+      className="flex flex-col gap-0.5 rounded-md border px-1.5 py-1.5 min-h-[82px] text-2xs text-left"
       style={{
         borderColor: day.is_today ? "var(--primary)" : "var(--border)",
         background: day.is_today
@@ -865,31 +909,67 @@ function WeekCell({ day, index, onOpen, t }: {
         color: day.is_rest ? "var(--ink-faint)" : "var(--ink-muted)",
       }}
     >
-      <div className="font-semibold" style={{ color: day.is_today ? "var(--ink-primary)" : undefined }}>
+      <span className="font-semibold" style={{ color: day.is_today ? "var(--ink-primary)" : undefined }}>
         {label} <span className="tabular-nums font-normal">{dd}</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-0.5 mt-0.5">
-        {interviews.slice(0, 2).map((iv, i) => (
+      </span>
+
+      {/* Interviews first: they are the day's fixed skeleton, and the same
+          amber the schedule grid uses for them. */}
+      {interviews.slice(0, 2).map((iv, i) => (
+        <span
+          key={`iv${i}`}
+          className="block truncate rounded-sm px-1 font-semibold"
+          style={{ background: "var(--warn-bg)", color: "var(--warn-fg)" }}
+        >
+          <span className="tabular-nums">{hhmm(iv.at, tz)}</span>{" "}
+          {iv.company.split(/\s+/)[0].slice(0, 8)}
+        </span>
+      ))}
+
+      {/* Then what you chose to put there — the grid's accent for placed work.
+          Done blocks are dimmed: a cleared day should not look untouched. */}
+      {blocks.slice(0, 2).map((b) => (
+        <span
+          key={b.action_id}
+          className="block truncate rounded-sm px-1 font-semibold"
+          style={{
+            background: day.is_today ? "var(--card)" : "var(--accent)",
+            color: "var(--accent-foreground)",
+            opacity: b.status === "done" ? 0.55 : 1,
+            textDecoration: b.status === "done" ? "line-through" : undefined,
+          }}
+        >
+          <span className="tabular-nums">{hhmm(b.at, tz)}</span> {b.title}
+        </span>
+      ))}
+
+      <span className="mt-auto tabular-nums">
+        {day.is_rest && day.due_count === 0 && blocks.length === 0
+          ? t("stripRest")
+          : [
+              day.due_count > 0 ? t("stripOwed", { n: day.due_count, minutes: fmtMinutes(owed) }) : null,
+              held > 0 ? t("stripHeld", { minutes: fmtMinutes(held) }) : null,
+              unknownRounds > 0 ? "+?" : null,
+            ].filter(Boolean).join(" · ") || t("stripClear")}
+      </span>
+
+      {cap > 0 && (
+        <span className="block h-1 rounded-full overflow-hidden" style={{ background: "var(--muted)" }} aria-hidden>
           <span
-            key={i}
-            className="px-1 rounded-sm font-semibold truncate max-w-full"
-            style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }}
-          >
-            {iv.company.split(/\s+/)[0].slice(0, 8)}
-          </span>
-        ))}
-        {Array.from({ length: dots }).map((_, i) => (
-          <span
-            key={`d${i}`}
-            className="inline-block w-1 h-1 rounded-full"
-            style={{ background: "var(--primary)", opacity: 0.7 }}
-            aria-hidden
+            className="block h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              // Over the cap is the one thing here worth an alarm colour; the
+              // 85% mark is where the capacity bar already starts warning.
+              background: pct > 100 ? "var(--danger-fg)" : pct > 85 ? "var(--warn-fg)" : "var(--primary)",
+            }}
           />
-        ))}
-      </div>
+        </span>
+      )}
     </button>
   );
 }
+
 
 /**
  * Today's load against the workspace's daily cap. Three states — under, past the
@@ -938,35 +1018,17 @@ function CapacityBar({ used, cap, deferrable, onDefer, deferring }: {
   );
 }
 
-type DueInfo = { today: boolean; days: number; warn: boolean };
 
-function startOfToday(): Date {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-// Semantic due label from due_at vs local today: "today" (warn) or "due Nd"
-// (warn within a day). Undated actions get no pill (they read as "anytime").
-function dueInfo(a: ActionRead): DueInfo | null {
-  if (!a.due_at) return null;
-  const due = new Date(a.due_at);
-  if (isNaN(due.getTime())) return null;
-  const now = new Date();
-  const d0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const d1 = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  const days = Math.round((d1.getTime() - d0.getTime()) / 86400_000);
-  if (days <= 0) return { today: true, days: 0, warn: true };
-  return { today: false, days, warn: days <= 1 };
-}
-
-function ActionItem({ a, onComplete, onSnooze, onOpen }: {
+function ActionItem({ a, tz, serverToday, onComplete, onSnooze, onOpen }: {
   a: ActionRead;
+  tz: string | null;
+  serverToday: string | null;
   onComplete: () => void;
   onSnooze: () => void;
   onOpen: () => void;
 }) {
   const t = useTranslations("tracker");
-  const info = dueInfo(a);
+  const info = dueInfo(a, tz, serverToday);
   const est = estOf(a);
   const reason = reasonOf(a, t);
   // Deferring once is ordinary rescheduling; twice means the item keeps getting

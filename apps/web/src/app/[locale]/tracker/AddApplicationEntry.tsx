@@ -11,8 +11,21 @@ import { useSlowHint } from "@/hooks/useSlowHint";
 
 /** "+ Add" entry for the tracker: two feed chutes into the same pipeline — a job
  *  URL (fetch+extract) or a pasted JD (company+title+text) — then create the
- *  application. The job you want to log isn't always in the discovery library. */
-export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: string) => void }) {
+ *  application. The job you want to log isn't always in the discovery library.
+ *
+ *  @param onAdded fires the moment the application exists, so the caller can
+ *    select it while the confirmation is still on screen.
+ *  @param onDone fires when the confirmation has had its turn and this closes.
+ *    A caller that unmounts on `onAdded` never lets the banner be read — which
+ *    is the whole reason it exists — so anything that replaces this component
+ *    on success waits for `onDone` instead. */
+export function AddApplicationEntry({
+  onAdded,
+  onDone,
+}: {
+  onAdded: (applicationId: string) => void;
+  onDone?: () => void;
+}) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [open, setOpen] = useState(false);
@@ -41,7 +54,7 @@ export function AddApplicationEntry({ onAdded }: { onAdded: (applicationId: stri
   // mid-countdown does not setState into a dead tree.
   useEffect(() => {
     if (added === null) return;
-    const id = setTimeout(() => { setAdded(null); close(); }, 2600);
+    const id = setTimeout(() => { setAdded(null); close(); onDone?.(); }, 2600);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [added]);

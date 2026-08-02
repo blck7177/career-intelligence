@@ -4,9 +4,12 @@ import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Link } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
-import { getApplication, addApplicationEvent } from "@/api/client";
+import { getApplication, addApplicationEvent, transitionApplication, updateAction } from "@/api/client";
+import { toast } from "@/components/ui/toaster";
+import { addDays, localDateOf, localMidnightUtc } from "@/lib/quickParse";
 import type { ActionRead, ApplicationDetail } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
@@ -21,10 +24,13 @@ const RECENT_EVENTS = 3;
 type T = ReturnType<typeof useTranslations>;
 
 interface Props {
-  /** The to-do this was opened from. null = closed. Its `application_id`
-   *  decides whether there is context to load at all: a global to-do
-   *  ("refill the queue") belongs to no application. */
+  /** The to-do this was opened from. null = closed, or opened from the sidebar
+   *  instead. Its `application_id` decides whether there is context to load at
+   *  all: a global to-do ("refill the queue") belongs to no application. */
   action: ActionRead | null;
+  /** Opened from the sidebar rather than from a to-do — the application IS the
+   *  subject, and there is no action to act on. Exactly one of these two is set. */
+  applicationId?: string | null;
   onClose: () => void;
   /** Each resolves true when the mutation landed, so the panel only claims
    *  something happened when it did. */
@@ -38,6 +44,21 @@ interface Props {
    *  check-in alert measures staleness from — so the panel has to tell the day
    *  view that its pipeline snapshot is now out of date. */
   onApplicationChanged: () => void;
+  /** The verbs move work, not just records: Drop makes the server retire this
+   *  application's pending to-dos and takes it out of the queue, Reschedule
+   *  changes the day one of them is owed on. Both leave stale rows on screen —
+   *  in Today's list and in the sidebar — unless the lists themselves are
+   *  re-read, which no amount of context refreshing does (usePlannerData keeps
+   *  the action list out of PlannerSource on purpose). The queue table this
+   *  panel replaced knew that: its Drop reloaded the planner and its own list
+   *  together. */
+  onActionsChanged: () => void;
+  /** Workspace zone and the server's today, for Reschedule. Passed in rather
+   *  than fetched: plannerSources.test.ts allows getPlannerWeek in exactly two
+   *  files, and a panel quietly opening a third copy of the week is the shape
+   *  that守卫 exists to stop. Missing either disables the button. */
+  tz?: string | null;
+  serverToday?: string | null;
 }
 
 /**
@@ -45,16 +66,28 @@ interface Props {
  *
  * Ticking a row is a decision, and a decision needs context: what this company
  * is, how far along it is, what was said last. Before this, getting that meant
- * leaving the day's list for the Applications view and finding your way back.
+ * leaving the day's list for a separate tab and finding your way back.
  *
- * Read-only by design apart from the to-do buttons and a note. Editing lane,
- * excitement or status stays in the full pane: a panel you opened to answer a
- * question should not also be a place where a stray click changes your data.
+ * The rule here was "read-only apart from the to-do buttons and a note", so
+ * that a panel opened to answer a question could not also be where a stray
+ * click changed your data. That still holds, but it is now stated as what it
+ * actually protects: NO UNCONFIRMED MUTATION. The queue table that used to own
+ * Apply / Tailor / Drop is gone, and those verbs had to live
+ * somewhere — Apply opens the employer's page in a new tab and Tailor
+ * navigates, neither of which changes anything, and Drop is the one real
+ * mutation and asks first. Editing lane, excitement and status still stays in
+ * the full pane.
  */
-export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismiss, reason, onApplicationChanged }: Props) {
+export function ApplicationPeek({
+  action, applicationId, onClose, onComplete, onSnooze, onDismiss, reason,
+  onApplicationChanged, onActionsChanged, tz, serverToday,
+}: Props) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const appId = action?.application_id ?? null;
+  // Whichever entry it was opened from. A to-do's application wins when both
+  // are somehow set, since the to-do is the more specific subject.
+  const appId = action?.application_id ?? applicationId ?? null;
+  const open = action !== null || !!applicationId;
   const [app, setApp] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -105,12 +138,12 @@ export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismi
   const style = app ? (STATUS_STYLE[app.status] ?? STATUS_STYLE.planned) : null;
 
   return (
-    <Sheet open={action !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <SheetContent className="max-w-[430px] flex flex-col gap-0 p-0">
-        {action && (
+        {(action || app || loading) && (
           <>
             <header className="shrink-0 px-5 pt-5 pb-3 pr-10" style={{ borderBottom: "1px solid var(--border)" }}>
-              <SheetTitle>{app?.job?.company || action.title}</SheetTitle>
+              <SheetTitle>{app?.job?.company || action?.title || t("peekLoading")}</SheetTitle>
               <div className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: "var(--ink-muted)" }}>
                 {app ? (
                   <>
@@ -137,10 +170,30 @@ export function ApplicationPeek({ action, onClose, onComplete, onSnooze, onDismi
             </header>
 
             <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5">
-              <CurrentAction action={action} reason={reason} busy={busy} onRun={run} t={t} />
+              {action && (
+                <CurrentAction action={action} reason={reason} busy={busy} onRun={run} t={t} />
+              )}
 
               {app && (
                 <>
+                  <ApplicationVerbs
+                    app={app}
+                    tz={tz ?? null}
+                    serverToday={serverToday ?? null}
+                    // Only the wider of the two: the reload behind
+                    // onActionsChanged re-reads the funnel on its way past, so
+                    // firing both would put two reads of the same endpoint in
+                    // the air for one click.
+                    onChanged={() => { setNonce((n) => n + 1); onActionsChanged(); }}
+                    // A drop ends the conversation: its to-dos are retired
+                    // server-side, so leaving the panel open would leave
+                    // Complete / Tomorrow / Not needed drawn over a row that no
+                    // longer exists — and "Tomorrow" on a retired to-do is a
+                    // request the server now refuses.
+                    onDropped={() => { onActionsChanged(); onClose(); }}
+                    t={t}
+                  />
+
                   <Section title={t("statusLabel")}>
                     <StatusStepper app={app} t={t} />
                   </Section>
@@ -356,6 +409,134 @@ function NoteBox({ app, onLogged, t }: { app: ApplicationDetail; onLogged: () =>
       <Button size="sm" variant="outline" onClick={add} disabled={!note.trim()} loading={adding}>
         {t("logNote")}
       </Button>
+    </div>
+  );
+}
+
+/**
+ * What you can do to an application from here.
+ *
+ * These are the queue table's verbs, which arrived here when the table went.
+ * The panel's rule is no UNCONFIRMED mutation, and each of them clears it a
+ * different way: Apply opens the employer's page in a new tab and changes
+ * nothing here, Tailor navigates, Reschedule moves one to-do by one day and is
+ * reversible from the row it moved, and Drop — the one irreversible thing —
+ * asks first.
+ *
+ * Apply only appears for a real http posting: a pasted JD has a synthesised
+ * `manual://` URL that would open to nothing.
+ */
+function ApplicationVerbs({
+  app, tz, serverToday, onChanged, onDropped, t,
+}: {
+  app: ApplicationDetail;
+  tz: string | null;
+  serverToday: string | null;
+  /** A to-do moved, but this application is still open and still the subject. */
+  onChanged: () => void;
+  /** This application is closed. Separate from onChanged because the panel has
+   *  to stop being a panel about actionable work: the server has just retired
+   *  every pending to-do here, and the buttons above them are still drawn from
+   *  the copy this panel loaded before that happened. */
+  onDropped: () => void;
+  t: T;
+}) {
+  const getToken = useApiToken();
+  const [busy, setBusy] = useState<"drop" | "defer" | null>(null);
+  const [confirmDrop, setConfirmDrop] = useState(false);
+  const url = app.job?.canonical_url ?? "";
+  const isHttp = url.startsWith("http");
+  const planned = app.status === "planned";
+
+  // The soonest pending to-do with a date — what "put this off a day" acts on.
+  const next = (app.actions ?? [])
+    .filter((a) => a.status === "pending" && a.due_at)
+    .sort((x, y) => new Date(x.due_at!).getTime() - new Date(y.due_at!).getTime() || x.id.localeCompare(y.id))[0];
+
+  async function drop() {
+    if (busy) return;
+    setBusy("drop");
+    try {
+      const token = await getToken();
+      await transitionApplication(app.id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
+      toast(t("dropNote"));
+      onDropped();
+    } catch {
+      toast.error(t("rowActionFailed"));
+    } finally {
+      setBusy(null);
+      setConfirmDrop(false);
+    }
+  }
+
+  async function defer() {
+    // Anchored on the LATER of today and the to-do's own due date, so this only
+    // ever pushes out — the first version of this in the list quietly pulled a
+    // to-do due next week FORWARD. Never computed from the browser clock.
+    if (busy || !next?.due_at || !tz || !serverToday) return;
+    setBusy("defer");
+    try {
+      const token = await getToken();
+      const dueDate = localDateOf(next.due_at, tz);
+      const anchor = dueDate > serverToday ? dueDate : serverToday;
+      await updateAction(
+        next.id,
+        { op: "snooze", snooze_days: 1, snooze_until: localMidnightUtc(addDays(anchor, 1), tz) },
+        token,
+      );
+      toast(t("rowRescheduled"));
+      onChanged();
+    } catch {
+      toast.error(t("rowActionFailed"));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* An anchor, not a button that calls window.open: this is a link to
+          somebody else's site, and middle-click, cmd-click and "copy link
+          address" are how people open a job posting. The queue table's version
+          was an anchor; keeping the verb meant keeping that too. */}
+      {planned && isHttp && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={buttonVariants({ size: "sm" })}
+        >
+          {t("applyNow")}
+        </a>
+      )}
+      {/* The job's own page — where the JD, the fit report and resume
+          tailoring live. Distinct from the footer's link, which opens this
+          APPLICATION's full page; they were briefly both labelled the same. */}
+      <Link href={`/jobs/${app.job_id}`} className="inline-flex">
+        <Button size="sm" variant="outline">{t("peekJobPage")}</Button>
+      </Link>
+      {next && tz && serverToday && (
+        <Button size="sm" variant="outline" onClick={defer} loading={busy === "defer"} disabled={!!busy}>
+          {t("rowReschedule")}
+        </Button>
+      )}
+      {planned && (
+        confirmDrop ? (
+          <span className="inline-flex items-center gap-1.5">
+            <span className="text-2xs" style={{ color: "var(--ink-muted)" }}>{t("dropConfirmAsk")}</span>
+            <Button size="sm" variant="outline" onClick={drop} loading={busy === "drop"} disabled={!!busy}>
+              {t("dropConfirmYes")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDrop(false)} disabled={!!busy}>
+              {t("cancelShort")}
+            </Button>
+          </span>
+        ) : (
+          <Button size="sm" variant="ghost" onClick={() => setConfirmDrop(true)} disabled={!!busy}>
+            {t("drop")}
+          </Button>
+        )
+      )}
     </div>
   );
 }

@@ -8,13 +8,15 @@ import type { WeeklyReviewRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { reviewKey, shouldAnnounceReview } from "@/lib/reviewBanner";
 import { PlanToday } from "./PlanToday";
+import { Sidebar } from "./Sidebar";
+import { useApplicationsList } from "./useApplicationsList";
 import { PipelineZone } from "./PipelineZone";
 import { ReviewZone } from "./ReviewZone";
 import { usePlannerData } from "./usePlannerData";
 
-// "Later" has to survive a tab switch: Plan unmounts when you go to Applications,
-// and a banner that returns every time you come back is one you learn to swat
-// without reading. Module scope rather than storage on purpose — this is a
+// "Later" has to survive a tab switch: Plan unmounts when you go to Week or
+// Settings, and a banner that returns every time you come back is one you learn
+// to swat without reading. Module scope rather than storage on purpose — this is a
 // decision about this sitting, not a preference worth remembering forever.
 // Keyed by user + review (see reviewKey): the module survives a client-side
 // account switch, so without the user component one person's dismissal mutes the
@@ -31,7 +33,24 @@ let dismissedReview: string | null = null;
  *  zone render the same funnel and the same alert list, and each used to fetch
  *  its own — so confirming from either left the other showing the reading it
  *  had at page load, in both directions. */
-export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
+export function PlanView({
+  onOpenSchedule,
+  initialSelectedId,
+}: {
+  onOpenSchedule: () => void;
+  /** Open showing this application — the one just added from the first-run
+   *  state, so the plan does not appear empty right after filling it.
+   *
+   *  A mount-time seed, not a controlled value: it is read once, by the state
+   *  initialiser below. Passing a new id to a mounted PlanView does nothing,
+   *  and passing the same id to a REMOUNTED one re-opens the panel — which is
+   *  why the shell clears it when you leave this sub-view. */
+  initialSelectedId?: string | null;
+}) {
+  const applications = useApplicationsList();
+  // Which application the panel is showing. Local to this view: a reading
+  // position, not something another tab should inherit.
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId ?? null);
   const getToken = useApiToken();
   const userId = useApiUserId();
   const planner = usePlannerData();
@@ -81,7 +100,18 @@ export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto">
-      <div className="max-w-[1160px] mx-auto px-[var(--space-row-edge)] py-6 space-y-10">
+      {/* Wider than the other views, and with the narrower page gutter: seven
+          day columns plus a 300px sidebar do not fit inside the site-wide 56px
+          one without pushing the strip into horizontal scrolling. */}
+      <div className="max-w-[1500px] mx-auto px-[var(--space-page-x)] py-6">
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
+          <Sidebar
+            data={applications}
+            freshDays={planner.settings?.fresh_window_days ?? 3}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+          />
+          <div className="min-w-0 space-y-10">
         {unread && review && (
           <ReviewBanner review={review} onOpen={openReview} onLater={later} />
         )}
@@ -90,6 +120,9 @@ export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
             the review banner makes. */}
         <PlanToday
           onOpenSchedule={onOpenSchedule}
+          selectedApplicationId={selectedId}
+          onClearSelected={() => setSelectedId(null)}
+          onApplicationsChanged={() => { void applications.reload(); }}
           data={planner}
           onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />
@@ -98,6 +131,8 @@ export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
         </div>
         <div ref={reviewRef} className="scroll-mt-4">
           <ReviewZone review={review} error={error} onRetry={load} />
+          </div>
+          </div>
         </div>
       </div>
     </div>

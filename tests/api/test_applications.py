@@ -393,17 +393,116 @@ def test_planner_week_returns_seven_days_with_interviews_and_due_counts(make_cli
             canonical_url="https://x/y", status="reportable", posted_at=None,
         )
         MockAct.return_value.list_due_between.return_value = [
-            SimpleNamespace(due_at=datetime(2026, 7, 16, 4, 0, tzinfo=timezone.utc)),
+            SimpleNamespace(
+                due_at=datetime(2026, 7, 16, 4, 0, tzinfo=timezone.utc),
+                type="apply", est_minutes=None,
+            ),
+        ]
+        MockAct.return_value.list_pending_carried_into_today.return_value = []
+        MockAct.return_value.list_scheduled_between.return_value = [
+            SimpleNamespace(
+                id="act-9", title="Apply · HRT", type="apply", est_minutes=45, status="pending",
+                scheduled_at=datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc),
+            ),
         ]
         resp = client.get("/api/app/planner-week?week=2026-07-15")
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["week_start"] == "2026-07-13"
     assert len(body["days"]) == 7
-    thu = {d["date"]: d for d in body["days"]}["2026-07-16"]
+    by_date = {d["date"]: d for d in body["days"]}
+    thu = by_date["2026-07-16"]
     assert thu["interviews"][0]["company"] == "Jane Street"
     assert thu["interviews"][0]["round_type"] == "onsite"
     assert thu["due_count"] == 1
+    # A NULL estimate resolves through the per-type default rather than zero.
+    assert thu["due_est_minutes"] == 60
+    wed = by_date["2026-07-15"]
+    assert [b["title"] for b in wed["blocks"]] == ["Apply · HRT"]
+    assert wed["scheduled_est_minutes"] == 45
+    # Owed and placed are different questions: Thursday owes, Wednesday holds.
+    assert thu["scheduled_est_minutes"] == 0
+    assert wed["due_est_minutes"] == 0
+
+
+def test_planner_week_folds_the_backlog_into_today_in_both_units(make_client):
+    """The count and the minutes come off ONE row set on purpose.
+
+    A strip whose today cell says "3 due" above a capacity bar reading 95m has
+    to have got both from the same rows; computing them separately is exactly
+    how the two drift. This asks for the CURRENT week, since a backlog has no
+    day to land on in any other one.
+    """
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockAct.return_value.list_due_between.return_value = []
+        MockAct.return_value.list_scheduled_between.return_value = []
+        MockAct.return_value.list_pending_carried_into_today.return_value = [
+            ("apply", None),      # -> per-type default 60
+            ("follow_up", 35),    # -> explicit 35
+        ]
+        resp = client.get("/api/app/planner-week")
+    assert resp.status_code == 200, resp.text
+    today = next(d for d in resp.json()["days"] if d["is_today"])
+    assert today["due_count"] == 2
+    assert today["due_est_minutes"] == 95
+    # Nowhere else: the backlog is today's alone.
+    assert sum(d["due_est_minutes"] for d in resp.json()["days"] if not d["is_today"]) == 0
+
+
+def test_planner_week_keeps_blocks_placed_earlier_this_week(make_client):
+    """Blocks are queried from the week's START, not from today.
+
+    Due counting deliberately begins at today for the current week (overdue work
+    is owed today, not on the day it slipped). A block is a different kind of
+    fact: one placed on Monday belongs to Monday whether or not Monday has
+    passed. Reusing the due cutoff here would blank out the first half of every
+    week in the strip while the schedule grid still drew those blocks.
+    """
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockAct.return_value.list_due_between.return_value = []
+        MockAct.return_value.list_pending_carried_into_today.return_value = []
+        MockAct.return_value.list_scheduled_between.return_value = []
+        resp = client.get("/api/app/planner-week")
+    assert resp.status_code == 200, resp.text
+    week_start = resp.json()["week_start"]
+    # The range handed to the repository must start at the week, not at today.
+    args, _ = MockAct.return_value.list_scheduled_between.call_args
+    assert args[1].date().isoformat() <= week_start
+    # ...and it is the same lower bound the schedule grid queries with.
+    due_args, _ = MockAct.return_value.list_due_between.call_args
+    assert args[1] <= due_args[1]
+
+
+def test_planner_week_stamps_utc_on_a_naive_block_instant(make_client):
+    """A SQLite round-trip drops tzinfo. Serialised without an offset, the
+    browser reads the instant in ITS zone and draws the block on a different day
+    than the bucket the server filed it under — the interview path already
+    guards this."""
+    client = make_client()
+    with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
+         patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockAct.return_value.list_due_between.return_value = []
+        MockAct.return_value.list_pending_carried_into_today.return_value = []
+        MockAct.return_value.list_scheduled_between.return_value = [
+            SimpleNamespace(
+                id="act-1", title="naive block", type="apply", est_minutes=30,
+                status="pending",
+                scheduled_at=datetime(2026, 7, 16, 1, 0),  # no tzinfo
+            ),
+        ]
+        resp = client.get("/api/app/planner-week?week=2026-07-15")
+    assert resp.status_code == 200, resp.text
+    blocks = [b for d in resp.json()["days"] for b in d["blocks"]]
+    assert len(blocks) == 1
+    # Carries an explicit offset, so it cannot be re-read as local wall time.
+    assert blocks[0]["at"].endswith("Z") or "+00:00" in blocks[0]["at"]
 
 
 def test_planner_week_skips_events_without_a_usable_time(make_client):
@@ -650,6 +749,57 @@ class TestActionsMore:
             resp = client.patch("/api/app/actions/act-1", json={"op": "dismiss"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "dismissed"
+
+    def test_patch_action_snooze_on_retired_returns_409(self, make_client):
+        # Dropping an application retires its pending to-dos as "cancelled", and
+        # nothing retires them a second time. A panel still showing the old row's
+        # buttons must not be able to put one back on Today for a closed
+        # application — snooze() writes status="pending" unconditionally, so the
+        # refusal has to happen here.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="cancelled")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "snooze"})
+        assert resp.status_code == 409, resp.text
+        assert "cancelled" in resp.json()["detail"]
+        MockAct.return_value.snooze.assert_not_called()
+
+    def test_patch_action_complete_on_retired_returns_409(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="cancelled")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "complete"})
+        assert resp.status_code == 409, resp.text
+        MockAct.return_value.complete.assert_not_called()
+
+    def test_patch_action_snooze_on_done_returns_409(self, make_client):
+        # The way back from "done" is reopen, which restores an undated to-do and
+        # clears completed_at. A snooze can do neither — see reopen()'s docstring.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="done")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "snooze"})
+        assert resp.status_code == 409, resp.text
+
+    def test_patch_action_complete_stays_idempotent_on_done(self, make_client):
+        # Deliberately NOT refused: complete() is idempotent by design, for two
+        # tabs and for a retried PATCH.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="done")
+            MockAct.return_value.complete.return_value = _action(status="done")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "complete"})
+        assert resp.status_code == 200, resp.text
+
+    def test_patch_action_reopen_still_reaches_a_done_row(self, make_client):
+        # The guard must not close the one legitimate path out of "done".
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, \
+             patch("apps.api.routes.applications._assert_within_undo_window"):
+            MockAct.return_value.get.return_value = _action(status="done")
+            MockAct.return_value.reopen.return_value = _action(status="pending")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 200, resp.text
 
     def test_delete_planned_application_returns_204(self, make_client):
         client = make_client()

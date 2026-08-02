@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ExternalLink } from "lucide-react";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
 import {
   getApplication,
@@ -23,19 +23,15 @@ import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, 
 
 interface Props {
   applicationId: string | null;
-  /** Nudge the server-rendered list to re-fetch after a mutation here. */
-  onListChanged?: () => void;
-  /** The application is gone. The list owns the selection, so it clears it —
-   *  a pane left pointing at a deleted id would refetch into a 404. */
-  onDeleted?: (id: string) => void;
-  /** Bumped by the LIST when something outside this pane mutated the same
-   *  application. The pane's own data is client-fetched, so `router.refresh()`
-   *  — which is all a row action can do to the server-rendered list — leaves it
-   *  showing pre-mutation state right next to a toast saying it happened. */
-  refreshKey?: number;
 }
 
-export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted, refreshKey = 0 }: Props) {
+/** Three props left with the master-detail that used to host this pane beside a
+ *  list: one to nudge that list to refetch, one to tell it a row was deleted so
+ *  it could clear its selection, and one for it to push a mutation made
+ *  elsewhere back in. The pane now has a page to itself, which owns none of
+ *  those things — so what used to be reported upward is handled here. */
+export function ApplicationDetailPane({ applicationId }: Props) {
+  const router = useRouter();
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   const [data, setData] = useState<ApplicationDetail | null>(null);
@@ -71,12 +67,13 @@ export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted,
     return () => {
       active = false;
     };
-  }, [applicationId, getToken, refetchNonce, refreshKey]);
+  }, [applicationId, getToken, refetchNonce]);
 
-  const mutated = () => {
-    setRefetchNonce((n) => n + 1);
-    onListChanged?.();
-  };
+  const mutated = () => setRefetchNonce((n) => n + 1);
+
+  // The record is gone, and this page is about that record. Staying would leave
+  // a pane whose next refetch is a 404 and whose buttons act on nothing.
+  const deleted = () => router.push("/tracker");
 
   if (!applicationId) {
     return (
@@ -115,8 +112,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted,
               {/* The title links to the job's own page — the JD, the
                   intelligence report and the fit analysis all live there, and
                   from here they were only reachable by going back to the job
-                  library and searching for it again. The planned queue has had
-                  this link since Wave 8; the master-detail never got it. */}
+                  library and searching for it again. */}
               <h1 className="text-base font-semibold leading-tight" style={{ color: "var(--ink-primary)" }}>
                 <Link href={`/jobs/${app.job_id}`} className="hover:underline">
                   {app.job?.title ?? "(untitled role)"}
@@ -191,7 +187,7 @@ export function ApplicationDetailPane({ applicationId, onListChanged, onDeleted,
         <MetaSection app={app} onMutated={mutated} getToken={getToken} t={t} />
 
         {/* Status transitions */}
-        <StatusSection app={app} onMutated={mutated} onDeleted={onDeleted} getToken={getToken} t={t} />
+        <StatusSection app={app} onMutated={mutated} onDeleted={deleted} getToken={getToken} t={t} />
 
         {/* Next actions */}
         <ActionsSection app={app} onMutated={mutated} getToken={getToken} t={t} />
@@ -357,7 +353,7 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
   );
 }
 
-function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted?: (id: string) => void; getToken: Getter; t: T }) {
+function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted: () => void; getToken: Getter; t: T }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -406,7 +402,7 @@ function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: Applic
       const token = await getToken();
       await deleteApplication(app.id, token);
       setConfirmRemove(false);
-      onDeleted?.(app.id);
+      onDeleted();
     } catch (e) {
       setErr(t("transitionFailed", { msg: e instanceof Error ? e.message : "error" }));
       setConfirmRemove(false);
