@@ -15,6 +15,7 @@ import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
+import { ritualFirstStep, ritualPlate } from "./ritual";
 import { fmtClock, minutesOfDay } from "./scheduleGrid";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
@@ -492,6 +493,12 @@ export function PlanToday({
   // boundary from the browser clock to see if it was actually earlier — two
   // different calendars deciding one question.
   const overdue = items.filter((a) => isOverdue(a, tz, serverToday));
+  // Which of the three mornings this is, and therefore where the wizard should
+  // open. `overdue` is only meaningful once the calendar is in — isOverdue
+  // reports false for everything without it — so the plate says so rather than
+  // reading an empty result as "nothing carried over". See ritual.ts.
+  const plate = ritualPlate(overdue.length, todayItems.length, tz !== null && serverToday !== null);
+  const ritualStart = ritualFirstStep(plate);
   // Ask only once the day is actually known and the list has loaded: a banner
   // that flashes before the data arrives is a banner that gets clicked away.
   // The question is "has the morning ritual run today", and committed_est is
@@ -535,7 +542,19 @@ export function PlanToday({
         >
           <b className="text-sm" style={{ color: "var(--ink-primary)" }}>{t("ritualBannerTitle")}</b>
           <span className="flex-1 min-w-0 text-xs" style={{ color: "var(--ink-secondary)" }}>
-            {t("ritualBannerSummary", { count: items.length, carry: overdue.length })}
+            {/* Spelled as a literal ternary on purpose. The parity guard reads
+                the key out of the t() call, so t(`ritualBanner${plate}`) would
+                stop it checking these four entirely — and next-intl renders a
+                missing key as its own path, in the banner, in production.
+                The count is the PLATE, not the 14-day horizon: it has to be the
+                same number the wizard then opens with. */}
+            {plate === "carry"
+              ? t("ritualBannerSummaryCarry", { count: todayItems.length, carry: overdue.length })
+              : plate === "today"
+                ? t("ritualBannerSummaryToday", { count: todayItems.length })
+                : plate === "empty"
+                  ? t("ritualBannerSummaryEmpty")
+                  : t("ritualBannerSummaryUnknown", { count: items.length })}
             {nextInterview && (
               <> {t("ritualBannerInterview", { company: nextInterview.company, day: nextInterview.day })}</>
             )}
@@ -579,6 +598,7 @@ export function PlanToday({
         onOpenChange={setRitualOpen}
         actions={todayItems}
         overdue={overdue}
+        startAtStep={ritualStart}
         cap={cap}
         onApply={applyRitual}
         applying={ritualBusy}

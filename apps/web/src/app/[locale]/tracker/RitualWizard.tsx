@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { ActionRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { DropAcknowledgement, dropGateBlocks } from "./DropAcknowledgement";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
+import { ritualSteps } from "./ritual";
 
 /** What the user decided about one piece of yesterday's leftover work. */
 export type CarryChoice = "today" | "tomorrow" | "drop";
@@ -33,6 +34,13 @@ export interface RitualResult {
  *  not after you have committed. Step three states the total back before it is
  *  filed, because the number that gets stored as "what I agreed to" should be
  *  one the user has actually read.
+ *
+ *  On a morning with no leftovers, step one is skipped rather than shown empty.
+ *  The decision it forces is the whole reason it goes first, and when there is
+ *  nothing to decide it degrades into a screen whose only content is the word
+ *  "Nothing" and a Next button — which is how a daily ritual becomes a thing
+ *  people click through instead of a thing they do. Nothing is lost by
+ *  skipping: with no leftovers there is nothing for step one to write.
  */
 export function RitualWizard({
   open,
@@ -40,6 +48,7 @@ export function RitualWizard({
   actions,
   cap,
   overdue,
+  startAtStep,
   onApply,
   applying,
 }: {
@@ -50,11 +59,18 @@ export function RitualWizard({
   cap: number;
   /** Work that came due before today and is still pending. */
   overdue: ActionRead[];
+  /** Where to open: 1 when there are leftovers to decide (or we cannot yet tell
+   *  whether there are), 2 when there are demonstrably none. See ritual.ts. */
+  startAtStep: 1 | 2;
   onApply: (result: RitualResult) => void;
   applying: boolean;
 }) {
   const t = useTranslations("tracker");
-  const [step, setStep] = useState(1);
+  // Widened deliberately: seeding from a `1 | 2` prop narrows the state to the
+  // steps it can START on, which makes `step === 3` a comparison tsc reports as
+  // impossible and `setStep(step + 1)` a type error — the confirm step exists,
+  // it just is not somewhere the wizard opens.
+  const [step, setStep] = useState<number>(startAtStep);
   const [carry, setCarry] = useState<Record<string, CarryChoice>>({});
   const [kept, setKept] = useState<Set<string> | null>(null);
   const [ackDrop, setAckDrop] = useState(false);
@@ -79,7 +95,7 @@ export function RitualWizard({
   const dropCount = Object.values(carry).filter((c) => c === "drop").length;
 
   function reset() {
-    setStep(1);
+    setStep(startAtStep);
     setCarry({});
     setAckDrop(false);
     setKept(null);
@@ -89,6 +105,19 @@ export function RitualWizard({
     if (!next) reset();
     onOpenChange(next);
   }
+
+  // The starting step is applied when the dialog OPENS, not when this component
+  // mounts. `open` is a prop and this wizard is rendered unconditionally, so it
+  // mounts with the Plan view — before actions, week or settings have arrived,
+  // when the plate always looks empty. useState(startAtStep) would therefore
+  // freeze it on step 2 for the whole session, and no later data could move it.
+  // Only on the closed→open edge: recomputing while open would yank someone
+  // mid-answer if a background refresh changed the plate under them.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) setStep(startAtStep);
+    wasOpen.current = open;
+  }, [open, startAtStep]);
 
   function apply() {
     const dropIds = Object.entries(carry).filter(([, c]) => c === "drop").map(([id]) => id);
@@ -106,7 +135,7 @@ export function RitualWizard({
     });
   }
 
-  const steps = [1, 2, 3];
+  const steps = ritualSteps(startAtStep);
 
   return (
     <Dialog open={open} onOpenChange={close}>
@@ -118,7 +147,12 @@ export function RitualWizard({
           {t(step === 1 ? "ritualStep1Sub" : step === 2 ? "ritualStep2Sub" : "ritualStep3Sub")}
         </DialogDescription>
 
-        {/* step dots */}
+        {/* Step dots, drawn from the steps that exist rather than from a
+            literal [1,2,3]: three dots above a two-step flow promise a screen
+            that never comes, and the first would sit unfillable. The titles
+            used to carry "1/3 · " and so on, which is the same claim in a place
+            the component cannot keep honest — the position is stated once, here,
+            computed from the same array that draws it. */}
         <div className="flex gap-1.5 mt-2 mb-3" aria-hidden>
           {steps.map((s) => (
             <span
@@ -128,6 +162,9 @@ export function RitualWizard({
             />
           ))}
         </div>
+        <span className="sr-only" role="status" aria-live="polite">
+          {t("ritualStepProgress", { n: steps.indexOf(step) + 1, total: steps.length })}
+        </span>
 
         <div className="max-h-[46vh] overflow-y-auto -mx-1 px-1 space-y-2">
           {step === 1 && (
@@ -176,6 +213,13 @@ export function RitualWizard({
 
           {step === 2 && (
             <>
+              {/* Why this morning has two steps and not three. A flow that
+                  silently drops a step reads as a flow that lost one. */}
+              {startAtStep === 2 && (
+                <p className="text-2xs mb-2" style={{ color: "var(--ink-faint)" }}>
+                  {t("ritualStepSkipped")}
+                </p>
+              )}
               {cap > 0 && (
                 <div className="rounded-lg border p-3 mb-2" style={{ borderColor: "var(--border)" }}>
                   <CapacityMeter used={committed} cap={cap} />
@@ -248,12 +292,16 @@ export function RitualWizard({
         </div>
 
         <div className="flex items-center gap-2 mt-4">
+          {/* Back leaves the wizard at the FIRST REACHABLE step, not at step 1.
+              Keyed to the literal it would walk backwards into a step this
+              morning skipped — one that renders "Nothing carried over" directly
+              after a chip said it was skipped for having nothing in it. */}
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => (step === 1 ? close(false) : setStep(step - 1))}
+            onClick={() => (step === startAtStep ? close(false) : setStep(step - 1))}
           >
-            {t(step === 1 ? "ritualCancel" : "ritualBack")}
+            {t(step === startAtStep ? "ritualCancel" : "ritualBack")}
           </Button>
           <span className="flex-1" />
           {step < 3 ? (
