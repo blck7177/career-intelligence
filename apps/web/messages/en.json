@@ -823,6 +823,7 @@
     "monthNext": "Next month",
     "openWeekOf": "Open the week of {date}",
     "backToThisWeek": "Back to this week",
-    "scheduleTitleOther": "Week of {week}"
+    "scheduleTitleOther": "Week of {week}",
+    "stripOpenWeek": "open the week schedule"
   }
 }

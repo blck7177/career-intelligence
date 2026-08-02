@@ -63,7 +63,7 @@ export function TrackerShell(props: Props) {
       {view === "applications" ? (
         <ApplicationsMasterDetail {...props} />
       ) : view === "plan" ? (
-        <PlanView />
+        <PlanView onOpenSchedule={() => setView("schedule")} />
       ) : view === "schedule" ? (
         <ScheduleView />
       ) : (

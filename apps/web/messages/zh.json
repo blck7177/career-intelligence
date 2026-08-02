@@ -823,6 +823,7 @@
     "monthNext": "下个月",
     "openWeekOf": "打开 {date} 所在的那周",
     "backToThisWeek": "回到本周",
-    "scheduleTitleOther": "{week} 那一周"
+    "scheduleTitleOther": "{week} 那一周",
+    "stripOpenWeek": "打开本周排程"
   }
 }
