@@ -99,9 +99,14 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
+export function PlanToday({ data, onShowPipeline, onOpenSchedule, selectedApplicationId, onClearSelected }: {
   data: PlannerData;
   onShowPipeline?: () => void;
+  /** An application picked in the sidebar. The panel is shared: a to-do opened
+   *  from the list and an application opened from the sidebar are the same
+   *  surface, so only one can be showing. */
+  selectedApplicationId?: string | null;
+  onClearSelected?: () => void;
   /** Switch the shell to the Week sub-view. The strip has promised this jump
    *  since V3 ("V8 落地后改为跳周排程") — the schedule view now exists, so a
    *  cell click finally goes where the cell points. */
@@ -577,9 +582,15 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
           decision; this is the context for it, without leaving the day. */}
       <ApplicationPeek
         action={peek}
+        // A to-do wins when both are set: it is the more specific subject, and
+        // clicking a row while the sidebar has a selection should show the row.
+        applicationId={peek ? null : selectedApplicationId ?? null}
+        tz={tz}
+        serverToday={serverToday}
         onClose={() => {
           const rowGone = peek !== null && !(actions ?? []).some((a) => a.id === peek.id);
           setPeek(null);
+          onClearSelected?.();
           if (rowGone) requestAnimationFrame(() => listRef.current?.focus());
         }}
         onComplete={(a) => mutate(a.id, "complete")}

@@ -107,6 +107,8 @@ export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
             the review banner makes. */}
         <PlanToday
           onOpenSchedule={onOpenSchedule}
+          selectedApplicationId={selectedId}
+          onClearSelected={() => setSelectedId(null)}
           data={planner}
           onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />

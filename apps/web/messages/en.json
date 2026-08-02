@@ -833,6 +833,11 @@
     "sidebarActive": "In flight",
     "sidebarQueue": "Queue",
     "sidebarClosed": "Closed",
-    "sidebarLoadFailed": "Could not load applications."
+    "sidebarLoadFailed": "Could not load applications.",
+    "peekLoading": "Loading…",
+    "dropConfirmAsk": "Drop it?",
+    "dropConfirmYes": "Drop",
+    "cancelShort": "Keep",
+    "peekJobPage": "Job page"
   }
 }

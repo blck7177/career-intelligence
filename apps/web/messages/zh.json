@@ -833,6 +833,11 @@
     "sidebarActive": "进行中",
     "sidebarQueue": "队列",
     "sidebarClosed": "已关闭",
-    "sidebarLoadFailed": "申请列表没能加载。"
+    "sidebarLoadFailed": "申请列表没能加载。",
+    "peekLoading": "加载中…",
+    "dropConfirmAsk": "确定放弃？",
+    "dropConfirmYes": "放弃",
+    "cancelShort": "保留",
+    "peekJobPage": "职位页"
   }
 }
