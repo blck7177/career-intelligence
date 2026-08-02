@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/toaster";
 import { addDays, localDateOf, localMidnightUtc } from "@/lib/quickParse";
 import type { ActionRead, ApplicationDetail } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button-variants";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
@@ -184,6 +185,12 @@ export function ApplicationPeek({
                     // firing both would put two reads of the same endpoint in
                     // the air for one click.
                     onChanged={() => { setNonce((n) => n + 1); onActionsChanged(); }}
+                    // A drop ends the conversation: its to-dos are retired
+                    // server-side, so leaving the panel open would leave
+                    // Complete / Tomorrow / Not needed drawn over a row that no
+                    // longer exists — and "Tomorrow" on a retired to-do is a
+                    // request the server now refuses.
+                    onDropped={() => { onActionsChanged(); onClose(); }}
                     t={t}
                   />
 
@@ -420,12 +427,18 @@ function NoteBox({ app, onLogged, t }: { app: ApplicationDetail; onLogged: () =>
  * `manual://` URL that would open to nothing.
  */
 function ApplicationVerbs({
-  app, tz, serverToday, onChanged, t,
+  app, tz, serverToday, onChanged, onDropped, t,
 }: {
   app: ApplicationDetail;
   tz: string | null;
   serverToday: string | null;
+  /** A to-do moved, but this application is still open and still the subject. */
   onChanged: () => void;
+  /** This application is closed. Separate from onChanged because the panel has
+   *  to stop being a panel about actionable work: the server has just retired
+   *  every pending to-do here, and the buttons above them are still drawn from
+   *  the copy this panel loaded before that happened. */
+  onDropped: () => void;
   t: T;
 }) {
   const getToken = useApiToken();
@@ -447,7 +460,7 @@ function ApplicationVerbs({
       const token = await getToken();
       await transitionApplication(app.id, { status: "withdrawn", force: false, note: t("dropNote") }, token);
       toast(t("dropNote"));
-      onChanged();
+      onDropped();
     } catch {
       toast.error(t("rowActionFailed"));
     } finally {
@@ -482,10 +495,19 @@ function ApplicationVerbs({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {/* An anchor, not a button that calls window.open: this is a link to
+          somebody else's site, and middle-click, cmd-click and "copy link
+          address" are how people open a job posting. The queue table's version
+          was an anchor; keeping the verb meant keeping that too. */}
       {planned && isHttp && (
-        <Button size="sm" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={buttonVariants({ size: "sm" })}
+        >
           {t("applyNow")}
-        </Button>
+        </a>
       )}
       {/* The job's own page — where the JD, the fit report and resume
           tailoring live. Distinct from the footer's link, which opens this

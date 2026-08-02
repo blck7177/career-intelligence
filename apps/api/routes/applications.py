@@ -546,6 +546,29 @@ def list_actions(
     return ActionList(items=actions, total=len(actions))
 
 
+# Which statuses each op will act on. Absent = unrestricted (reopen carries its
+# own undo window; schedule states its own rule below; unschedule only clears a
+# calendar slot and revives nothing).
+#
+# The status that matters is "cancelled": the system retires a to-do when its
+# application closes, and nothing retires it a second time — so a client holding
+# a stale row could snooze one back to "pending" and leave a live to-do on Today
+# for a closed application, permanently. A dropped application's panel is
+# exactly that client. "done" and "dismissed" are here for the same reason in
+# the other direction: the way back from done is `reopen`, which restores an
+# undated to-do and clears completed_at, none of which a snooze can do.
+#
+# Same-status repeats stay allowed, because they are not revivals: complete() is
+# deliberately idempotent for two tabs and a retried PATCH, and dismissing an
+# already-dismissed row asks for nothing new.
+_ACTIONABLE_FROM: dict[str, frozenset[str]] = {
+    "complete": frozenset({"pending", "done"}),
+    "snooze": frozenset({"pending"}),
+    "dismiss": frozenset({"pending", "dismissed"}),
+}
+_PAST_TENSE = {"complete": "completed", "snooze": "snoozed", "dismiss": "dismissed"}
+
+
 @router.patch("/actions/{action_id}", response_model=ActionRead)
 def update_action(
     action_id: str,
@@ -557,6 +580,12 @@ def update_action(
     row = repo.get(action_id, workspace.id)
     if row is None:
         raise HTTPException(status_code=404, detail="Action not found.")
+    allowed = _ACTIONABLE_FROM.get(body.op)
+    if allowed is not None and row.status not in allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A {row.status} to-do cannot be {_PAST_TENSE[body.op]}.",
+        )
     if body.op == "complete":
         action = repo.complete(action_id, workspace.id)
     elif body.op == "snooze":

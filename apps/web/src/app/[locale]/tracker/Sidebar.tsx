@@ -153,6 +153,11 @@ function Row({
   // What happens next, for rows where something is owed. The queue ranks by
   // fit and excitement instead — a row you have not applied to has no next step
   // beyond applying.
+  //
+  // The key is built from the type, so every member of ActionType (see
+  // contracts/api/applications.py) needs an entry under tracker.actionType —
+  // including "custom", which is what a hand-written to-do gets. next-intl
+  // renders a missing key as the key itself, and no test catches a dynamic one.
   const next = kind === "active" && a.next_action_type
     ? t(`actionType.${a.next_action_type}` as never)
     : null;

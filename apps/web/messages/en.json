@@ -516,7 +516,8 @@
       "prep": "Check-in",
       "apply": "Apply or drop",
       "networking": "Networking",
-      "global": "Discovery"
+      "global": "Discovery",
+      "custom": "To-do"
     },
     "interviews": "Interviews",
     "addInterview": "Log interview",

@@ -750,6 +750,57 @@ class TestActionsMore:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "dismissed"
 
+    def test_patch_action_snooze_on_retired_returns_409(self, make_client):
+        # Dropping an application retires its pending to-dos as "cancelled", and
+        # nothing retires them a second time. A panel still showing the old row's
+        # buttons must not be able to put one back on Today for a closed
+        # application — snooze() writes status="pending" unconditionally, so the
+        # refusal has to happen here.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="cancelled")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "snooze"})
+        assert resp.status_code == 409, resp.text
+        assert "cancelled" in resp.json()["detail"]
+        MockAct.return_value.snooze.assert_not_called()
+
+    def test_patch_action_complete_on_retired_returns_409(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="cancelled")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "complete"})
+        assert resp.status_code == 409, resp.text
+        MockAct.return_value.complete.assert_not_called()
+
+    def test_patch_action_snooze_on_done_returns_409(self, make_client):
+        # The way back from "done" is reopen, which restores an undated to-do and
+        # clears completed_at. A snooze can do neither — see reopen()'s docstring.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="done")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "snooze"})
+        assert resp.status_code == 409, resp.text
+
+    def test_patch_action_complete_stays_idempotent_on_done(self, make_client):
+        # Deliberately NOT refused: complete() is idempotent by design, for two
+        # tabs and for a retried PATCH.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action(status="done")
+            MockAct.return_value.complete.return_value = _action(status="done")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "complete"})
+        assert resp.status_code == 200, resp.text
+
+    def test_patch_action_reopen_still_reaches_a_done_row(self, make_client):
+        # The guard must not close the one legitimate path out of "done".
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct, \
+             patch("apps.api.routes.applications._assert_within_undo_window"):
+            MockAct.return_value.get.return_value = _action(status="done")
+            MockAct.return_value.reopen.return_value = _action(status="pending")
+            resp = client.patch("/api/app/actions/act-1", json={"op": "reopen"})
+        assert resp.status_code == 200, resp.text
+
     def test_delete_planned_application_returns_204(self, make_client):
         client = make_client()
         with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp:

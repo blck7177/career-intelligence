@@ -516,7 +516,8 @@
       "prep": "跟进确认",
       "apply": "投递或放弃",
       "networking": "人脉触达",
-      "global": "补货发现"
+      "global": "补货发现",
+      "custom": "待办"
     },
     "interviews": "面试",
     "addInterview": "记录面试",
