@@ -828,6 +828,11 @@
     "stripOwed": "{n} due · {minutes}",
     "stripHeld": "{minutes} placed",
     "stripRest": "Rest",
-    "stripClear": "Clear"
+    "stripClear": "Clear",
+    "sidebarSearch": "Search company or role",
+    "sidebarActive": "In flight",
+    "sidebarQueue": "Queue",
+    "sidebarClosed": "Closed",
+    "sidebarLoadFailed": "Could not load applications."
   }
 }

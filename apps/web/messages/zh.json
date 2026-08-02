@@ -828,6 +828,11 @@
     "stripOwed": "{n} 到期 · {minutes}",
     "stripHeld": "已排 {minutes}",
     "stripRest": "休息",
-    "stripClear": "空"
+    "stripClear": "空",
+    "sidebarSearch": "搜索公司或职位",
+    "sidebarActive": "进行中",
+    "sidebarQueue": "队列",
+    "sidebarClosed": "已关闭",
+    "sidebarLoadFailed": "申请列表没能加载。"
   }
 }
