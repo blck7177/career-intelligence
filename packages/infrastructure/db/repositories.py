@@ -2041,7 +2041,9 @@ class ApplicationActionRepository:
         )
         return list(self._s.execute(stmt).scalars().all())
 
-    def count_pending_carried_into_today(self, workspace_id: str, today_start: datetime) -> int:
+    def list_pending_carried_into_today(
+        self, workspace_id: str, today_start: datetime
+    ) -> list[tuple[str, Optional[int]]]:
         """Pending to-dos that weigh on today without being due today: those
         whose due date has already passed, plus undated ones.
 
@@ -2050,10 +2052,17 @@ class ApplicationActionRepository:
         load (they are what you actually owe today), and a strip showing zero
         against a bar showing three is a self-contradiction on one screen.
         `today_start` is exclusive, so work due today is not double-counted with
-        the week-range query."""
-        from sqlalchemy import func, or_, select
+        the week-range query.
 
-        stmt = select(func.count()).select_from(ApplicationAction).where(
+        Returns one row per to-do rather than a count, because the strip needs
+        both how MANY and how LONG. Two queries could answer that separately and
+        would be free to drift apart the first time one grew a condition the
+        other did not; one row set cannot. Only the two columns the caller reads
+        are selected — hydrating whole ORM objects to discard them would make a
+        large backlog expensive on every Plan load."""
+        from sqlalchemy import or_, select
+
+        stmt = select(ApplicationAction.type, ApplicationAction.est_minutes).where(
             ApplicationAction.workspace_id == workspace_id,
             ApplicationAction.status == "pending",
             or_(
@@ -2061,7 +2070,7 @@ class ApplicationActionRepository:
                 ApplicationAction.due_at.is_(None),
             ),
         )
-        return int(self._s.execute(stmt).scalar() or 0)
+        return list(self._s.execute(stmt).all())
 
     def list_global_for_workspace(self, workspace_id: str) -> list[ApplicationAction]:
         """Workspace-global actions (application_id IS NULL) in any status — the

@@ -21,7 +21,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from packages.contracts.api.applications import WEEKDAYS, PlannerSettings
-from packages.domain.planner.rules import local_day_start_utc, local_today
+from packages.domain.planner.rules import (
+    effective_est_minutes,
+    local_day_start_utc,
+    local_today,
+)
 
 
 @dataclass
@@ -33,6 +37,37 @@ class InterviewSlot:
     at: datetime  # UTC
     round_type: Optional[str] = None
     duration_minutes: Optional[int] = None
+
+
+@dataclass
+class DueItem:
+    """A pending to-do's due instant and what it costs.
+
+    Carries the type alongside est_minutes because est_minutes is nullable and
+    the per-type default is the only honest fill — see effective_est_minutes.
+    The strip used to receive bare instants, which was enough to COUNT to-dos
+    but not to total them.
+    """
+
+    at: datetime
+    type: str
+    est_minutes: Optional[int] = None
+
+
+@dataclass
+class ScheduledBlock:
+    """A to-do the user placed at a time of day (V8's scheduled_at)."""
+
+    action_id: str
+    title: str
+    at: datetime  # UTC
+    type: str
+    est_minutes: Optional[int] = None
+    # Blocks survive completion on purpose (a finished block is still a true
+    # record of how the day was spent), so the renderer needs to tell a done one
+    # from an outstanding one — otherwise a cleared day draws identically to an
+    # untouched one.
+    status: str = "pending"
 
 
 def week_start_for(ref: date) -> date:
@@ -79,16 +114,23 @@ def _local_date(dt: datetime, tz: str) -> date:
 def build_week(
     *,
     interviews: list[InterviewSlot],
-    due_ats: list[datetime],
+    due_items: list[DueItem],
     settings: PlannerSettings,
     now_utc: datetime,
     week_start: Optional[date] = None,
     carried_into_today: int = 0,
+    carried_est_minutes: int = 0,
+    blocks: Optional[list[ScheduledBlock]] = None,
 ) -> dict:
-    """Seven days, Monday first. `due_ats` are the due instants of pending
-    to-dos; only their count per day matters here — the Today list is where the
-    to-dos themselves live. Anything outside the week is ignored rather than
-    clamped into an edge day, which would overstate that day's load.
+    """Seven days, Monday first. Anything outside the week is ignored rather
+    than clamped into an edge day, which would overstate that day's load.
+
+    Each day reports two different quantities and they must not be confused.
+    `due_est_minutes` is what is OWED that day; `scheduled_est_minutes` is what
+    has been given a time slot on it (V8). A to-do due Friday but scheduled for
+    Wednesday contributes to Friday's owed total and Wednesday's scheduled one —
+    that is the point of having both, and averaging them into one number would
+    describe neither.
 
     `carried_into_today` is work that weighs on today without being due today:
     overdue and undated to-dos. It is added to today's count so the strip agrees
@@ -96,7 +138,10 @@ def build_week(
     today's number "what today owes" while other days read "what falls due
     then" — asymmetric, but honest: today is the only day that inherits a
     backlog. When the requested week doesn't contain today it is ignored, since
-    there is no day for it to land on."""
+    there is no day for it to land on. `carried_est_minutes` is the same work
+    measured in minutes and is folded into today the same way: a strip whose
+    count included the backlog but whose minutes did not would put two
+    contradictory readings of today on one row."""
     tz = settings.timezone
     today = local_today(now_utc, tz)
     start = week_start or week_start_for(today)
@@ -114,12 +159,28 @@ def build_week(
         slots.sort(key=lambda s: s.at)
 
     counts: dict[date, int] = {d: 0 for d in days}
-    for due in due_ats:
-        d = _local_date(due, tz)
+    due_est: dict[date, int] = {d: 0 for d in days}
+    for item in due_items:
+        d = _local_date(item.at, tz)
         if d in in_week:
             counts[d] += 1
+            # effective_est_minutes, never a raw column sum: est_minutes is
+            # nullable by design, and treating NULL as zero would file a
+            # 90-minute day as a 60-minute one.
+            due_est[d] += effective_est_minutes(item.type, item.est_minutes)
     if today in in_week:
         counts[today] += carried_into_today
+        due_est[today] += carried_est_minutes
+
+    blocks_by_day: dict[date, list[ScheduledBlock]] = {d: [] for d in days}
+    sched_est: dict[date, int] = {d: 0 for d in days}
+    for b in blocks or []:
+        d = _local_date(b.at, tz)
+        if d in in_week:
+            blocks_by_day[d].append(b)
+            sched_est[d] += effective_est_minutes(b.type, b.est_minutes)
+    for placed in blocks_by_day.values():
+        placed.sort(key=lambda b: (b.at, b.action_id))
 
     return {
         "week_start": start.isoformat(),
@@ -127,6 +188,8 @@ def build_week(
             {
                 "date": d.isoformat(),
                 "due_count": counts[d],
+                "due_est_minutes": due_est[d],
+                "scheduled_est_minutes": sched_est[d],
                 "interviews": [
                     {
                         "application_id": s.application_id,
@@ -136,6 +199,18 @@ def build_week(
                         "duration_minutes": s.duration_minutes,
                     }
                     for s in by_day[d]
+                ],
+                "blocks": [
+                    {
+                        "action_id": b.action_id,
+                        "title": b.title,
+                        "at": b.at,
+                        # Resolved here, so the strip never needs its own copy
+                        # of the per-type default table.
+                        "est_minutes": effective_est_minutes(b.type, b.est_minutes),
+                        "status": b.status,
+                    }
+                    for b in blocks_by_day[d]
                 ],
                 "is_rest": WEEKDAYS[d.weekday()] in rest,
                 "is_today": d == today,

@@ -9,7 +9,9 @@ from datetime import date, datetime, timedelta, timezone
 
 from packages.contracts.api.applications import PlannerSettings
 from packages.domain.planner.week import (
+    DueItem,
     InterviewSlot,
+    ScheduledBlock,
     build_week,
     contains,
     due_query_start_utc,
@@ -30,8 +32,16 @@ def _slot(at: datetime, company: str = "Stripe", round_type: str | None = None) 
     return InterviewSlot(application_id="a1", company=company, at=at, round_type=round_type)
 
 
+def _due(at: datetime, type_: str = "follow_up", est: int | None = None) -> DueItem:
+    return DueItem(at=at, type=type_, est_minutes=est)
+
+
 def _build(**over):
-    kwargs = dict(interviews=[], due_ats=[], settings=_settings(), now_utc=NOW)
+    # due_ats= is accepted as shorthand for bare instants, so the day-boundary
+    # tests stay about boundaries rather than about estimate plumbing.
+    if "due_ats" in over:
+        over["due_items"] = [_due(x) for x in over.pop("due_ats")]
+    kwargs = dict(interviews=[], due_items=[], settings=_settings(), now_utc=NOW)
     kwargs.update(over)
     return build_week(**kwargs)
 
@@ -201,7 +211,7 @@ def test_interview_on_the_dst_shift_day_stays_on_that_day():
     at = datetime(2026, 3, 8, 5, 30, tzinfo=timezone.utc)
     week = build_week(
         interviews=[_slot(at)],
-        due_ats=[at],
+        due_items=[_due(at)],
         settings=_settings(),
         now_utc=datetime(2026, 3, 4, 12, 0, tzinfo=timezone.utc),
         week_start=date(2026, 3, 2),
@@ -229,3 +239,110 @@ def test_a_round_logged_before_durations_existed_says_unknown_not_zero():
     out = _build(interviews=[InterviewSlot(application_id="a1", company="Stripe", at=at)])
     day = next(d for d in out["days"] if d["interviews"])
     assert day["interviews"][0]["duration_minutes"] is None
+
+
+# --- per-day load (W0: what the taller strip renders) ------------------------
+
+
+def test_due_minutes_use_the_per_type_default_never_a_raw_sum():
+    # est_minutes is nullable by design. A raw column sum would read NULL as
+    # zero and file a full day as an empty one.
+    tue = datetime(2026, 7, 14, 16, 0, tzinfo=timezone.utc)
+    week = _build(due_items=[
+        _due(tue, "apply"),              # NULL -> default 60
+        _due(tue, "follow_up", est=25),  # explicit wins
+    ])
+    day = next(d for d in week["days"] if d["date"] == "2026-07-14")
+    assert day["due_count"] == 2
+    assert day["due_est_minutes"] == 85
+
+
+def test_todays_minutes_fold_in_the_backlog_exactly_as_the_count_does():
+    # The strip sits directly above the capacity bar, which counts overdue and
+    # undated work as today's load. A count that included the backlog while the
+    # minutes did not would put two contradictory readings of today on one row.
+    today_due = datetime(2026, 7, 15, 16, 0, tzinfo=timezone.utc)
+    week = _build(
+        due_items=[_due(today_due, "follow_up", est=15)],
+        carried_into_today=2,
+        carried_est_minutes=80,
+    )
+    day = next(d for d in week["days"] if d["is_today"])
+    assert day["due_count"] == 3
+    assert day["due_est_minutes"] == 95
+
+
+def test_a_backlog_with_no_day_to_land_on_is_ignored_in_both_units():
+    # A historical week has no "today" to inherit it; the count already worked
+    # this way and the minutes must not diverge.
+    week = _build(week_start=date(2026, 7, 6), carried_into_today=2, carried_est_minutes=80)
+    assert all(d["due_est_minutes"] == 0 for d in week["days"])
+    assert all(d["due_count"] == 0 for d in week["days"])
+
+
+def test_scheduled_minutes_are_separate_from_owed_minutes():
+    # A to-do due Friday but scheduled Wednesday belongs to both days, counted
+    # once in each. Merging them into one number would describe neither.
+    fri = datetime(2026, 7, 17, 16, 0, tzinfo=timezone.utc)
+    wed = datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc)  # 10:00 EDT
+    week = _build(
+        due_items=[_due(fri, "apply", est=60)],
+        blocks=[ScheduledBlock(action_id="a1", title="Apply · HRT", at=wed, type="apply", est_minutes=60)],
+    )
+    friday = next(d for d in week["days"] if d["date"] == "2026-07-17")
+    wednesday = next(d for d in week["days"] if d["date"] == "2026-07-15")
+    assert (friday["due_est_minutes"], friday["scheduled_est_minutes"]) == (60, 0)
+    assert (wednesday["due_est_minutes"], wednesday["scheduled_est_minutes"]) == (0, 60)
+
+
+def test_blocks_land_on_the_local_day_and_arrive_sorted():
+    # 2026-07-16 01:00 UTC is still 21:00 on the 15th in New York — the same
+    # boundary rule the interviews follow.
+    late = datetime(2026, 7, 16, 1, 0, tzinfo=timezone.utc)
+    morning = datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc)
+    week = _build(blocks=[
+        ScheduledBlock(action_id="b", title="late", at=late, type="prep"),
+        ScheduledBlock(action_id="a", title="morning", at=morning, type="prep"),
+    ])
+    day = next(d for d in week["days"] if d["date"] == "2026-07-15")
+    assert [b["title"] for b in day["blocks"]] == ["morning", "late"]
+
+
+def test_scheduled_minutes_also_use_the_per_type_default():
+    # The mirror of the due-side test. Without this assertion, replacing
+    # effective_est_minutes with a bare `or 0` on the scheduled side passes the
+    # whole suite — a day drawn empty while its own blocks are visible in it.
+    week = _build(blocks=[
+        ScheduledBlock(action_id="a", title="no est", at=datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc), type="prep"),
+        ScheduledBlock(action_id="b", title="also none", at=datetime(2026, 7, 15, 15, 0, tzinfo=timezone.utc), type="prep"),
+    ])
+    day = next(d for d in week["days"] if d["date"] == "2026-07-15")
+    assert day["scheduled_est_minutes"] == 60  # prep defaults to 30 each, not 0
+
+
+def test_a_finished_block_is_reported_as_finished():
+    # due_* is pending-only while scheduled_* keeps completed work, so a cleared
+    # day reads "0 owed, 1h placed". The renderer can only explain that if it
+    # can see which blocks are done.
+    week = _build(blocks=[
+        ScheduledBlock(action_id="a", title="done one", at=datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc),
+                       type="apply", est_minutes=60, status="done"),
+    ])
+    day = next(d for d in week["days"] if d["date"] == "2026-07-15")
+    assert day["blocks"][0]["status"] == "done"
+    assert day["scheduled_est_minutes"] == 60  # still counted: it is how the day went
+
+
+def test_blocks_carry_a_resolved_estimate_so_the_strip_needs_no_table():
+    week = _build(blocks=[
+        ScheduledBlock(action_id="a", title="no est", at=datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc), type="apply"),
+    ])
+    day = next(d for d in week["days"] if d["date"] == "2026-07-15")
+    assert day["blocks"][0]["est_minutes"] == 60  # the apply default, not None
+
+
+def test_a_block_outside_the_week_is_ignored_not_clamped():
+    outside = datetime(2026, 7, 25, 14, 0, tzinfo=timezone.utc)
+    week = _build(blocks=[ScheduledBlock(action_id="a", title="next week", at=outside, type="apply")])
+    assert all(d["blocks"] == [] for d in week["days"])
+    assert all(d["scheduled_est_minutes"] == 0 for d in week["days"])
