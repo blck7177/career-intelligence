@@ -209,3 +209,23 @@ def test_interview_on_the_dst_shift_day_stays_on_that_day():
     days = {d["date"]: d for d in week["days"]}
     assert len(days["2026-03-08"]["interviews"]) == 1
     assert days["2026-03-08"]["due_count"] == 1
+
+
+def test_interview_duration_rides_through_to_the_day():
+    # The week grid draws a block whose HEIGHT is the duration, so this value
+    # has to survive the trip; before it existed the grid had nothing to size
+    # blocks by and the mockup faked it with a hardcoded number.
+    at = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)
+    slot = InterviewSlot(application_id="a1", company="Stripe", at=at, duration_minutes=120)
+    out = _build(interviews=[slot])
+    day = next(d for d in out["days"] if d["interviews"])
+    assert day["interviews"][0]["duration_minutes"] == 120
+
+
+def test_a_round_logged_before_durations_existed_says_unknown_not_zero():
+    # None and 0 are different claims: "we don't know how long" versus "it takes
+    # no time". Rendering the second would show a day with room it does not have.
+    at = datetime(2026, 7, 16, 18, 0, tzinfo=timezone.utc)
+    out = _build(interviews=[InterviewSlot(application_id="a1", company="Stripe", at=at)])
+    day = next(d for d in out["days"] if d["interviews"])
+    assert day["interviews"][0]["duration_minutes"] is None

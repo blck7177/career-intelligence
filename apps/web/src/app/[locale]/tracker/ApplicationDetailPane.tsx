@@ -11,13 +11,14 @@ import {
   updateApplication,
   createAction,
   updateAction,
-  addApplicationEvent, deleteApplication } from "@/api/client";
+  addApplicationEvent, deleteApplication, getPlannerSettings } from "@/api/client";
 import type { ApplicationDetail, ApplicationUpdate, StatusTransition, ApplicationEventRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { toast } from "@/components/ui/toaster";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
-import { parseQuickAdd } from "@/lib/quickParse";
+import { localDateTimeUtc, parseQuickAdd } from "@/lib/quickParse";
 import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE, restoreTargetOf } from "./status";
 
 interface Props {
@@ -661,20 +662,58 @@ export function eventLabel(e: ApplicationEventRead, t: T): string {
 
 const INTERVIEW_ROUNDS = ["recruiter_screen", "phone", "onsite", "final"] as const;
 
+/** Offered lengths, in minutes. A round the user was not told the length of
+ *  stays unset — the week grid marks that block unknown rather than sizing it
+ *  from round_type, because a block's height is a claim about how much of the
+ *  day is gone. */
+const INTERVIEW_LENGTHS = [30, 45, 60, 90, 120, 180] as const;
+
 function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [round, setRound] = useState<string>("recruiter_screen");
   const [when, setWhen] = useState(""); // datetime-local string
+  const [mins, setMins] = useState<string>(""); // "" = not told
   const [busy, setBusy] = useState(false);
 
+  /**
+   * The timezone is read at submit time, matching the Reschedule action in the
+   * list: caching it at mount would pin the encoding to whatever the config was
+   * when the pane opened.
+   *
+   * `datetime-local` hands back a bare wall time with no zone. Reading it with
+   * `new Date(when)` — what this did — interprets it in the BROWSER's zone, so a
+   * user travelling, or simply working from a different zone than the
+   * workspace, stored an instant that is not the time they typed. Every other
+   * timezone slip in the tracker is a display bug that a refresh corrects; this
+   * one persists, and it is the instant the week grid places interview blocks
+   * by, so it would put them in the wrong slot for as long as the row lives.
+   */
   async function add() {
     if (busy || !when) return;
     setBusy(true);
     try {
       const token = await getToken();
-      // datetime-local is local wall-time with no zone → interpret as local, send UTC ISO.
-      const at = new Date(when).toISOString();
-      await addApplicationEvent(app.id, { event_type: "interview_scheduled", round_type: round, at }, token);
+      const cfg = await getPlannerSettings(token);
+      const at = cfg.timezone ? localDateTimeUtc(when, cfg.timezone) : null;
+      if (!at) {
+        // Refuse rather than fall back to the browser clock: a wrong instant
+        // here is indistinguishable from a right one once it is stored.
+        toast.error(t("interviewTimeUnresolved"));
+        return;
+      }
+      await addApplicationEvent(
+        app.id,
+        {
+          event_type: "interview_scheduled",
+          round_type: round,
+          at,
+          // Left out entirely when unset: the payload records "not told", which
+          // the grid renders as an unknown-length block.
+          ...(mins ? { duration_minutes: Number(mins) } : {}),
+        },
+        token,
+      );
       setWhen("");
+      setMins("");
       onMutated();
     } catch {
       // keep the input for retry
@@ -698,6 +737,12 @@ function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDet
           ))}
         </select>
         <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className={inputCls} style={inputStyle} />
+        <select value={mins} onChange={(e) => setMins(e.target.value)} className={inputCls} style={inputStyle} aria-label={t("interviewLength")}>
+          <option value="">{t("interviewLengthUnknown")}</option>
+          {INTERVIEW_LENGTHS.map((m) => (
+            <option key={m} value={m}>{t("interviewLengthOption", { minutes: m })}</option>
+          ))}
+        </select>
         <Button size="sm" variant="outline" onClick={add} disabled={!when} loading={busy}>{t("addInterview")}</Button>
       </div>
     </section>

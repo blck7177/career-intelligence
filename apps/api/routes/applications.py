@@ -12,7 +12,8 @@ Contract:
   POST   /api/app/applications/{application_id}/transition  -> ApplicationRead
   POST   /api/app/applications/{application_id}/events      -> ApplicationEventRead (201)
   POST   /api/app/actions                                   -> ActionRead (201)
-  GET    /api/app/actions                                   -> ActionList
+  GET    /api/app/actions[?due_on_or_before=|?scheduled_from=&scheduled_to=|?unscheduled=]
+                                                            -> ActionList
   PATCH  /api/app/actions/{action_id}                       -> ActionRead
   GET    /api/app/planner-settings                          -> PlannerSettings
   PUT    /api/app/planner-settings                          -> PlannerSettings
@@ -105,6 +106,18 @@ router = APIRouter(prefix="/api/app", tags=["applications"])
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _int_or_none(value: object) -> Optional[int]:
+    """Read an integer out of an event payload, or nothing.
+
+    A payload is whatever was written into JSON, and rows predating a field have
+    no key at all. A malformed value must degrade to "unknown" rather than 500
+    the week endpoint — the same reason ActionRead validates its payload in
+    before-mode. bool is excluded explicitly: it is a subclass of int, and
+    `True` minutes is not a duration.
+    """
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def _assert_owned(app: Optional[JobApplication], workspace: Workspace) -> JobApplication:
@@ -444,7 +457,11 @@ def add_application_event(
             workspace_id=workspace.id,
             event_type="interview_scheduled",
             message=body.message,
-            payload_json={"round_type": body.round_type, "at": body.at.isoformat()},
+            payload_json={
+                "round_type": body.round_type,
+                "at": body.at.isoformat(),
+                "duration_minutes": body.duration_minutes,
+            },
         )
     db.commit()
     return ApplicationEventRead.model_validate(event)
@@ -484,13 +501,48 @@ def list_actions(
         None, description="Default: now — the Today view's cutoff"
     ),
     include_undated: bool = Query(True),
+    scheduled_from: Optional[datetime] = Query(
+        None, description="With scheduled_to: blocks placed in [from, to). Week grid."
+    ),
+    scheduled_to: Optional[datetime] = Query(None),
+    unscheduled: bool = Query(
+        False, description="Pending to-dos with no calendar slot yet — the week grid's tray."
+    ),
     db: Session = Depends(get_db),
     workspace: Workspace = Depends(get_current_workspace),
 ) -> ActionList:
-    on_or_before = due_on_or_before or datetime.now(timezone.utc)
-    actions = ApplicationActionRepository(db).list_due(
-        workspace.id, on_or_before, include_undated=include_undated
-    )
+    """Three mutually exclusive selections over the same rows.
+
+    Combining them is rejected rather than resolved by precedence: a caller that
+    sends both a due cutoff and a scheduled range has two different questions in
+    mind, and silently answering one of them is how a view ends up rendering
+    numbers nobody asked for.
+    """
+    repo = ApplicationActionRepository(db)
+    ranged = scheduled_from is not None or scheduled_to is not None
+    if unscheduled and ranged:
+        raise HTTPException(
+            status_code=422, detail="unscheduled and scheduled_from/to are exclusive."
+        )
+    if (unscheduled or ranged) and due_on_or_before is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="due_on_or_before cannot be combined with the schedule filters.",
+        )
+    if unscheduled:
+        actions = repo.list_unscheduled(workspace.id)
+    elif ranged:
+        if scheduled_from is None or scheduled_to is None:
+            raise HTTPException(
+                status_code=422,
+                detail="scheduled_from and scheduled_to must be given together.",
+            )
+        actions = repo.list_scheduled_between(workspace.id, scheduled_from, scheduled_to)
+    else:
+        on_or_before = due_on_or_before or datetime.now(timezone.utc)
+        actions = repo.list_due(
+            workspace.id, on_or_before, include_undated=include_undated
+        )
     return ActionList(items=actions, total=len(actions))
 
 
@@ -514,6 +566,22 @@ def update_action(
     elif body.op == "reopen":
         _assert_within_undo_window(db, workspace, row)
         action = repo.reopen(action_id, workspace.id)
+    elif body.op == "schedule":
+        if body.scheduled_at is None:
+            raise HTTPException(
+                status_code=422, detail="Scheduling a to-do requires scheduled_at."
+            )
+        if row.status != "pending":
+            # Placing a finished or retired to-do on the calendar would put a
+            # block on a day for work nobody is going to do, and the grid has no
+            # way to say so.
+            raise HTTPException(
+                status_code=409,
+                detail="Only a pending to-do can be scheduled.",
+            )
+        action = repo.schedule(action_id, workspace.id, body.scheduled_at)
+    elif body.op == "unschedule":
+        action = repo.unschedule(action_id, workspace.id)
     else:  # dismiss
         action = repo.dismiss(action_id, workspace.id)
     db.commit()
@@ -678,6 +746,7 @@ def get_planner_week(
                 company=job.company if job else "",
                 at=at,
                 round_type=(e.payload_json or {}).get("round_type"),
+                duration_minutes=_int_or_none((e.payload_json or {}).get("duration_minutes")),
             )
         )
 

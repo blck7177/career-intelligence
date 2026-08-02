@@ -55,8 +55,8 @@ def _event(**over) -> SimpleNamespace:
 
 def _action(**over) -> SimpleNamespace:
     base = dict(id="act-1", application_id="app-1", type="follow_up", title="Ping",
-                due_at=_NOW, est_minutes=15, snooze_count=0, payload_json=None,
-                status="pending", auto_generated=False,
+                due_at=_NOW, est_minutes=15, scheduled_at=None, snooze_count=0,
+                payload_json=None, status="pending", auto_generated=False,
                 completed_at=None, created_at=_NOW, updated_at=_NOW)
     base.update(over)
     return SimpleNamespace(**base)
@@ -691,6 +691,171 @@ class TestActionsMore:
         assert resp.status_code == 200, resp.text
         assert resp.json()["status"] == "pending"
         MockAct.return_value.reopen.assert_called_once_with("act-1", WS_ID)
+
+    def test_interview_duration_is_stored_when_given(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, patch(
+            "apps.api.routes.applications.ApplicationEventRepository"
+        ) as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = SimpleNamespace(
+                id="ev-1", event_type="interview_scheduled", message=None,
+                payload_json={}, created_at=_NOW,
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={
+                    "event_type": "interview_scheduled",
+                    "round_type": "onsite",
+                    "at": "2026-08-06T18:00:00+00:00",
+                    "duration_minutes": 120,
+                },
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["payload_json"]["duration_minutes"] == 120
+
+    def test_an_interview_without_a_duration_is_still_accepted(self, make_client):
+        # The user may simply not have been told how long the round runs; that
+        # is different from it being zero-length, and refusing the round would
+        # lose the one fact they DO have.
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, patch(
+            "apps.api.routes.applications.ApplicationEventRepository"
+        ) as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = SimpleNamespace(
+                id="ev-1", event_type="interview_scheduled", message=None,
+                payload_json={}, created_at=_NOW,
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={
+                    "event_type": "interview_scheduled",
+                    "round_type": "phone",
+                    "at": "2026-08-06T18:00:00+00:00",
+                },
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["payload_json"]["duration_minutes"] is None
+
+    # --- scheduling (V8) ---------------------------------------------------
+
+    def test_schedule_stores_the_instant_and_is_not_a_snooze(self, make_client):
+        client = make_client()
+        at = "2026-08-05T13:30:00+00:00"
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action()
+            MockAct.return_value.schedule.return_value = _action(
+                scheduled_at=datetime(2026, 8, 5, 13, 30, tzinfo=timezone.utc)
+            )
+            resp = client.patch(
+                "/api/app/actions/act-1", json={"op": "schedule", "scheduled_at": at}
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["scheduled_at"].startswith("2026-08-05T13:30")
+        args, _ = MockAct.return_value.schedule.call_args
+        assert args[2] == datetime(2026, 8, 5, 13, 30, tzinfo=timezone.utc)
+        # Placing a block is not postponing one.
+        MockAct.return_value.snooze.assert_not_called()
+
+    def test_schedule_does_not_fall_through_to_dismiss(self, make_client):
+        # The op chain ends in a bare `else: # dismiss`, so an op added after
+        # that line would silently dismiss the row the user meant to schedule.
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action()
+            client.patch(
+                "/api/app/actions/act-1",
+                json={"op": "schedule", "scheduled_at": "2026-08-05T13:30:00+00:00"},
+            )
+            client.patch("/api/app/actions/act-1", json={"op": "unschedule"})
+        MockAct.return_value.dismiss.assert_not_called()
+        MockAct.return_value.schedule.assert_called_once()
+        MockAct.return_value.unschedule.assert_called_once()
+
+    def test_schedule_without_a_time_is_rejected(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = _action()
+            resp = client.patch("/api/app/actions/act-1", json={"op": "schedule"})
+        assert resp.status_code == 422, resp.text
+        MockAct.return_value.schedule.assert_not_called()
+
+    def test_only_a_pending_todo_can_be_scheduled(self, make_client):
+        # A block for work already done or retired would occupy a day nobody is
+        # going to spend on it, and the grid has no way to say so.
+        client = make_client()
+        for status in ("done", "dismissed", "cancelled"):
+            with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+                MockAct.return_value.get.return_value = _action(status=status)
+                resp = client.patch(
+                    "/api/app/actions/act-1",
+                    json={"op": "schedule", "scheduled_at": "2026-08-05T13:30:00+00:00"},
+                )
+            assert resp.status_code == 409, f"{status}: {resp.text}"
+            MockAct.return_value.schedule.assert_not_called()
+
+    def test_scheduling_a_foreign_action_is_404(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.get.return_value = None
+            resp = client.patch(
+                "/api/app/actions/act-1",
+                json={"op": "schedule", "scheduled_at": "2026-08-05T13:30:00+00:00"},
+            )
+        assert resp.status_code == 404, resp.text
+        MockAct.return_value.schedule.assert_not_called()
+
+    def test_list_actions_by_schedule_range_forwards_both_bounds(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_scheduled_between.return_value = []
+            resp = client.get(
+                "/api/app/actions",
+                params={
+                    "scheduled_from": "2026-08-03T00:00:00+00:00",
+                    "scheduled_to": "2026-08-10T00:00:00+00:00",
+                },
+            )
+        assert resp.status_code == 200, resp.text
+        args, _ = MockAct.return_value.list_scheduled_between.call_args
+        assert args[1] == datetime(2026, 8, 3, tzinfo=timezone.utc)
+        assert args[2] == datetime(2026, 8, 10, tzinfo=timezone.utc)
+        MockAct.return_value.list_due.assert_not_called()
+
+    def test_list_actions_unscheduled_is_the_tray(self, make_client):
+        client = make_client()
+        with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+            MockAct.return_value.list_unscheduled.return_value = []
+            resp = client.get("/api/app/actions", params={"unscheduled": "true"})
+        assert resp.status_code == 200, resp.text
+        MockAct.return_value.list_unscheduled.assert_called_once()
+        MockAct.return_value.list_due.assert_not_called()
+
+    def test_conflicting_selections_are_rejected_not_silently_ranked(self, make_client):
+        # Answering one of two different questions is how a view ends up
+        # rendering numbers nobody asked for.
+        client = make_client()
+        conflicts = [
+            {"unscheduled": "true", "scheduled_from": "2026-08-03T00:00:00+00:00"},
+            {"unscheduled": "true", "due_on_or_before": "2026-08-03T00:00:00+00:00"},
+            {
+                "scheduled_from": "2026-08-03T00:00:00+00:00",
+                "scheduled_to": "2026-08-10T00:00:00+00:00",
+                "due_on_or_before": "2026-08-03T00:00:00+00:00",
+            },
+            {"scheduled_from": "2026-08-03T00:00:00+00:00"},  # half a range
+            {"scheduled_to": "2026-08-10T00:00:00+00:00"},
+        ]
+        for params in conflicts:
+            with patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
+                resp = client.get("/api/app/actions", params=params)
+                assert resp.status_code == 422, f"{params}: {resp.text}"
+                MockAct.return_value.list_due.assert_not_called()
+                MockAct.return_value.list_unscheduled.assert_not_called()
+                MockAct.return_value.list_scheduled_between.assert_not_called()
 
     def test_reopen_rejects_a_completion_from_an_earlier_day(self, make_client):
         # The done bar and the weekly review freeze their totals; undoing a

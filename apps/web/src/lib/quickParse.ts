@@ -87,13 +87,19 @@ function weekdayOf(isoDate: string): number {
 }
 
 /**
- * The UTC instant of local midnight on `isoDate` in `tz` — the exact encoding
- * the backend uses for due_at, found by probing rather than by hardcoding
- * offsets (which would be wrong across DST and for half-hour zones).
+ * The UTC instant of a local wall-clock time in `tz`, found by probing rather
+ * than by hardcoding offsets (which would be wrong across DST and for
+ * half-hour zones).
+ *
+ * `minutes` counts from local midnight, so 0 is 00:00 and 570 is 09:30. The
+ * week grid needs arbitrary times (a block starts at a slot, not at midnight);
+ * due_at needs only the midnight case, which localMidnightUtc below keeps
+ * named. Both go through this one probe: a second copy of the arithmetic is
+ * the kind of thing that gets fixed in one place and not the other.
  */
-export function localMidnightUtc(isoDate: string, tz: string): string {
+export function localWallTimeUtc(isoDate: string, tz: string, minutes = 0): string {
   const [y, m, d] = isoDate.split("-").map(Number);
-  const guess = Date.UTC(y, m - 1, d);
+  const guess = Date.UTC(y, m - 1, d, Math.floor(minutes / 60), minutes % 60);
   // How far the guess is from the target, measured in the target zone.
   const shift = (ms: number): number => {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -111,6 +117,35 @@ export function localMidnightUtc(isoDate: string, tz: string): string {
   let ms = guess - shift(guess);
   ms = guess - shift(ms);
   return new Date(ms).toISOString();
+}
+
+/**
+ * The UTC instant of local midnight on `isoDate` in `tz` — the exact encoding
+ * the backend uses for due_at.
+ */
+export function localMidnightUtc(isoDate: string, tz: string): string {
+  return localWallTimeUtc(isoDate, tz, 0);
+}
+
+/**
+ * The UTC instant of a `<input type="datetime-local">` value read in `tz`.
+ *
+ * The input hands back a bare wall time with no zone. `new Date(value)` reads
+ * it in the *browser's* zone, which is the bug this replaces: a user in one
+ * zone scheduling an interview for a workspace in another was storing an
+ * instant that lands in the wrong slot — and, unlike a display bug, that one
+ * persists.
+ *
+ * Returns null on a malformed value so callers can refuse to write rather than
+ * store a guess.
+ */
+export function localDateTimeUtc(local: string, tz: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(local);
+  if (!m) return null;
+  const hh = Number(m[2]);
+  const mm = Number(m[3]);
+  if (hh > 23 || mm > 59) return null;
+  return localWallTimeUtc(m[1], tz, hh * 60 + mm);
 }
 
 // --- patterns ---------------------------------------------------------------

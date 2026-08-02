@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiToken } from "@/hooks/useApiToken";
+import { addDays, localMidnightUtc } from "@/lib/quickParse";
 import {
   listActions,
   getPlannerStats,
@@ -34,7 +35,7 @@ const HORIZON_DAYS = 14;
  *  reading their page-load values for the rest of the sitting — the same freeze
  *  this hook was extracted to end, reintroduced by an incomplete list. If a
  *  server-measured number is on screen, it needs a name here. */
-export type PlannerSource = "week" | "day" | "stats" | "funnel";
+export type PlannerSource = "week" | "day" | "stats" | "funnel" | "schedule";
 
 export interface PlannerData {
   /** null until the first load finishes (or it failed — see `error`). */
@@ -52,6 +53,12 @@ export interface PlannerData {
   funnel: FunnelResponse | null;
   /** undefined = still loading. `day.log` null = no row today. */
   day: PlannerDayRead | undefined;
+  /** Blocks placed inside the requested week, and the to-dos still waiting for
+   *  a slot. Both null unless the caller asked for the schedule: the Plan view
+   *  renders neither, and fetching them there would be two requests a page
+   *  nobody is looking at. */
+  blocks: ActionRead[] | null;
+  tray: ActionRead[] | null;
   /** The action list failed to load. Context failures do not set this. */
   error: boolean;
   reload: () => Promise<void>;
@@ -81,15 +88,64 @@ export interface PlannerData {
  * The mockup's own architecture is a single store with one `renderToday()`;
  * this is the closest honest translation of it that keeps optimistic updates.
  */
-export function usePlannerData(): PlannerData {
+/**
+ * The week's placed blocks and the unscheduled tray.
+ *
+ * The range is derived from the week the SERVER resolved (`wk.week_start`) and
+ * the workspace timezone, never from the browser's clock or calendar — the same
+ * rule the rest of the planner follows. Without either, it returns null and the
+ * grid shows nothing rather than a week's worth of blocks filed against the
+ * wrong days.
+ */
+async function loadSchedule(
+  wk: PlannerWeek | null,
+  cfg: PlannerSettings | null,
+  token: string | null,
+): Promise<{ blocks: ActionRead[]; tray: ActionRead[] } | null> {
+  const tz = cfg?.timezone;
+  if (!wk?.week_start || !tz) return null;
+  const from = localMidnightUtc(wk.week_start, tz);
+  const to = localMidnightUtc(addDays(wk.week_start, 7), tz);
+  const [placed, unplaced] = await Promise.all([
+    listActions({ scheduled_from: from, scheduled_to: to }, token).catch(() => null),
+    listActions({ unscheduled: true }, token).catch(() => null),
+  ]);
+  if (!placed || !unplaced) return null;
+  return { blocks: placed.items, tray: unplaced.items };
+}
+
+export interface PlannerDataOptions {
+  /** Also load the week's placed blocks and the unscheduled tray. */
+  schedule?: boolean;
+  /** Any date inside the week to load; the server folds it to that Monday.
+   *  Omitted = the current week.
+   *
+   *  Callers that pass this get their OWN instance of this hook. `is_today` is
+   *  only true inside the current week, and seven places read it as "the
+   *  server's idea of today" — sharing one instance between Today and a view
+   *  paged back to March would take the day identity with it. */
+  week?: string;
+}
+
+export function usePlannerData(options: PlannerDataOptions = {}): PlannerData {
+  const { schedule: wantSchedule = false, week: weekParam } = options;
   const getToken = useApiToken();
   const [actions, setActions] = useState<ActionRead[] | null>(null);
+  const [blocks, setBlocks] = useState<ActionRead[] | null>(null);
+  const [tray, setTray] = useState<ActionRead[] | null>(null);
   const [stats, setStats] = useState<PlannerStats | null>(null);
   const [settings, setSettings] = useState<PlannerSettings | null>(null);
   const [week, setWeek] = useState<PlannerWeek | null>(null);
   const [day, setDay] = useState<PlannerDayRead | undefined>(undefined);
   const [funnel, setFunnel] = useState<FunnelResponse | null>(null);
   const [error, setError] = useState(false);
+  // refresh("schedule") needs the week bounds, and reading them from state
+  // inside the callback would capture the values from the render that created
+  // it — the stale-closure version of the freeze this hook exists to end.
+  const weekRef = useRef<PlannerWeek | null>(null);
+  const settingsRef = useRef<PlannerSettings | null>(null);
+  weekRef.current = week;
+  settingsRef.current = settings;
   // Ids whose removal is in flight. A reload that overlaps a mutation would
   // otherwise put a row the user just ticked back on the list.
   const removingRef = useRef<Set<string>>(new Set());
@@ -110,12 +166,16 @@ export function usePlannerData(): PlannerData {
       // replacing today's work with an error page.
       const [res, st, cfg, wk, dayState, fn] = await Promise.all([
         listActions({ due_on_or_before: horizon, include_undated: true }, token),
-        getPlannerStats(undefined, token).catch(() => null),
+        getPlannerStats(weekParam, token).catch(() => null),
         getPlannerSettings(token).catch(() => null),
-        getPlannerWeek(undefined, token).catch(() => null),
+        getPlannerWeek(weekParam, token).catch(() => null),
         getPlannerDay(token).catch(() => undefined),
         getFunnel(token).catch(() => null),
       ]);
+      // Sequenced after the week rather than beside it: the range to ask for is
+      // the week the server just resolved, and guessing it here would be a
+      // second, quietly different definition of where a week starts.
+      const sched = wantSchedule ? await loadSchedule(wk, cfg, token) : null;
       if (mutationSeq.current !== startedAt) {
         // A mutation landed while this was in the air. Retry once — the second
         // read is ordered after it. A second collision is left alone rather
@@ -128,11 +188,15 @@ export function usePlannerData(): PlannerData {
       setWeek(wk);
       setDay(dayState);
       setFunnel(fn);
+      if (sched) {
+        setBlocks(sched.blocks);
+        setTray(sched.tray);
+      }
       setError(false);
     } catch {
       setError(true);
     }
-  }, [getToken]);
+  }, [getToken, weekParam, wantSchedule]);
 
   useEffect(() => {
     reload();
@@ -147,10 +211,19 @@ export function usePlannerData(): PlannerData {
         sources.map(async (source) => {
           try {
             const token = await getToken();
-            if (source === "week") setWeek(await getPlannerWeek(undefined, token));
-            else if (source === "stats") setStats(await getPlannerStats(undefined, token));
+            if (source === "week") setWeek(await getPlannerWeek(weekParam, token));
+            else if (source === "stats") setStats(await getPlannerStats(weekParam, token));
             else if (source === "funnel") setFunnel(await getFunnel(token));
-            else setDay(await getPlannerDay(token));
+            else if (source === "schedule") {
+              // Explicit, not folded into the fallback: the last branch is a
+              // bare `else` that fetches the day, so a source name that fell
+              // through would silently refetch the wrong thing and look fine.
+              const sched = await loadSchedule(weekRef.current, settingsRef.current, token);
+              if (sched) {
+                setBlocks(sched.blocks);
+                setTray(sched.tray);
+              }
+            } else setDay(await getPlannerDay(token));
           } catch {
             // Keep the last good reading rather than blanking it: these are
             // context, and blank context reads as "nothing scheduled" / "nothing
@@ -227,5 +300,5 @@ export function usePlannerData(): PlannerData {
     [serverToday],
   );
 
-  return { actions, stats, settings, week, day, funnel, error, reload, refresh, mutateActions, patchDayLog };
+  return { actions, stats, settings, week, day, funnel, blocks, tray, error, reload, refresh, mutateActions, patchDayLog };
 }

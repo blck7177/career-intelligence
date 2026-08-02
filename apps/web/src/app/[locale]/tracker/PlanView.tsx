@@ -31,7 +31,7 @@ let dismissedReview: string | null = null;
  *  zone render the same funnel and the same alert list, and each used to fetch
  *  its own — so confirming from either left the other showing the reading it
  *  had at page load, in both directions. */
-export function PlanView() {
+export function PlanView({ onOpenSchedule }: { onOpenSchedule: () => void }) {
   const getToken = useApiToken();
   const userId = useApiUserId();
   const planner = usePlannerData();
@@ -89,6 +89,7 @@ export function PlanView() {
             rail's pipeline snapshot scrolls rather than navigates — same move
             the review banner makes. */}
         <PlanToday
+          onOpenSchedule={onOpenSchedule}
           data={planner}
           onShowPipeline={() => pipelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
         />

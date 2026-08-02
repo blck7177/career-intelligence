@@ -107,7 +107,14 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  * All server state lives in usePlannerData; this component owns only what is
  * local to the sitting (the compose box, which wizard is open, in-flight flags).
  */
-export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowPipeline?: () => void }) {
+export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
+  data: PlannerData;
+  onShowPipeline?: () => void;
+  /** Switch the shell to the Week sub-view. The strip has promised this jump
+   *  since V3 ("V8 落地后改为跳周排程") — the schedule view now exists, so a
+   *  cell click finally goes where the cell points. */
+  onOpenSchedule: () => void;
+}) {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
   // Every server-side source the view reads, plus the two ways to write to the
@@ -593,7 +600,7 @@ export function PlanToday({ data, onShowPipeline }: { data: PlannerData; onShowP
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}
-          {week && <WeekStrip week={week} />}
+          {week && <WeekStrip week={week} onOpen={onOpenSchedule} />}
           {!isEmpty && actions !== null && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -803,12 +810,14 @@ function ParseChip({ tone, onRevoke, t, children }: {
 
 const MAX_DUE_DOTS = 4;
 
-function WeekStrip({ week }: { week: PlannerWeek }) {
+function WeekStrip({ week, onOpen }: { week: PlannerWeek; onOpen: () => void }) {
   const t = useTranslations("tracker");
+  // role="group", not "list": the cells are now buttons, and a button inside a
+  // listitem role loses its button semantics for assistive tech.
   return (
-    <div className="grid grid-cols-7 gap-1" role="list" aria-label={t("weekStripLabel")}>
+    <div className="grid grid-cols-7 gap-1" role="group" aria-label={t("weekStripLabel")}>
       {week.days.map((d, i) => (
-        <WeekCell key={d.date} day={d} index={i} t={t} />
+        <WeekCell key={d.date} day={d} index={i} onOpen={onOpen} t={t} />
       ))}
     </div>
   );
@@ -816,9 +825,10 @@ function WeekStrip({ week }: { week: PlannerWeek }) {
 
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
-function WeekCell({ day, index, t }: {
+function WeekCell({ day, index, onOpen, t }: {
   day: PlannerWeekDay;
   index: number;
+  onOpen: () => void;
   t: (k: string, v?: Record<string, string | number>) => string;
 }) {
   // Days arrive Monday-first, so position IS the weekday — deriving it from the
@@ -835,10 +845,16 @@ function WeekCell({ day, index, t }: {
   ].filter(Boolean).join(" · ");
 
   return (
-    <div
-      role="listitem"
-      title={title}
-      className="rounded-md border px-1.5 py-1 min-h-[46px] text-2xs"
+    // A real <button>, not a div with handlers: Tab reaches it and Enter fires
+    // it for free, and rowKeyboard.test.ts forbids the hand-rolled shape. The
+    // strip only ever shows the CURRENT week, which is also what the schedule
+    // view opens to — so the jump carries no date and cannot disagree with it.
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`${title} — ${t("stripOpenWeek")}`}
+      aria-label={`${title} — ${t("stripOpenWeek")}`}
+      className="rounded-md border px-1.5 py-1 min-h-[46px] text-2xs text-left align-top"
       style={{
         borderColor: day.is_today ? "var(--primary)" : "var(--border)",
         background: day.is_today
@@ -871,7 +887,7 @@ function WeekCell({ day, index, t }: {
           />
         ))}
       </div>
-    </div>
+    </button>
   );
 }
 

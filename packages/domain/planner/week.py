@@ -32,6 +32,7 @@ class InterviewSlot:
     company: str
     at: datetime  # UTC
     round_type: Optional[str] = None
+    duration_minutes: Optional[int] = None
 
 
 def week_start_for(ref: date) -> date:
@@ -132,6 +133,7 @@ def build_week(
                         "company": s.company,
                         "round_type": s.round_type,
                         "at": s.at,
+                        "duration_minutes": s.duration_minutes,
                     }
                     for s in by_day[d]
                 ],

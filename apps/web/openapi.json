@@ -2398,6 +2398,7 @@
           "applications"
         ],
         "summary": "List Actions",
+        "description": "Three mutually exclusive selections over the same rows.\n\nCombining them is rejected rather than resolved by precedence: a caller that\nsends both a due cutoff and a scheduled range has two different questions in\nmind, and silently answering one of them is how a view ends up rendering\nnumbers nobody asked for.",
         "operationId": "list_actions_api_app_actions_get",
         "parameters": [
           {
@@ -2428,6 +2429,54 @@
               "default": true,
               "title": "Include Undated"
             }
+          },
+          {
+            "name": "scheduled_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With scheduled_to: blocks placed in [from, to). Week grid.",
+              "title": "Scheduled From"
+            },
+            "description": "With scheduled_to: blocks placed in [from, to). Week grid."
+          },
+          {
+            "name": "scheduled_to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Scheduled To"
+            }
+          },
+          {
+            "name": "unscheduled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Pending to-dos with no calendar slot yet \u2014 the week grid's tray.",
+              "default": false,
+              "title": "Unscheduled"
+            },
+            "description": "Pending to-dos with no calendar slot yet \u2014 the week grid's tray."
           },
           {
             "name": "Authorization",
@@ -3778,6 +3827,18 @@
             ],
             "title": "Est Minutes"
           },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled At"
+          },
           "snooze_count": {
             "type": "integer",
             "title": "Snooze Count",
@@ -3846,7 +3907,9 @@
               "complete",
               "snooze",
               "dismiss",
-              "reopen"
+              "reopen",
+              "schedule",
+              "unschedule"
             ],
             "title": "Op"
           },
@@ -3868,6 +3931,18 @@
               }
             ],
             "title": "Snooze Until"
+          },
+          "scheduled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled At"
           }
         },
         "type": "object",
@@ -4368,6 +4443,19 @@
               }
             ],
             "title": "At"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 480.0,
+                "minimum": 5.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
           }
         },
         "type": "object",
@@ -6696,6 +6784,17 @@
             "type": "string",
             "format": "date-time",
             "title": "At"
+          },
+          "duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Minutes"
           }
         },
         "type": "object",
