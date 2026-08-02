@@ -3,8 +3,10 @@
 `generate_actions()` takes a snapshot (applications + their events/actions, the
 existing global actions, settings, and `now_utc`) and returns a list of
 `ActionSpec`s the worker should create. It is idempotent by construction: it
-never emits a spec that a matching pending/dismissed auto-action already
-suppresses, so re-running the daily beat produces no duplicates.
+never emits a spec that a matching to-do already suppresses — pending whoever
+wrote it, or dismissed if the engine wrote it (see _suppressed) — so re-running
+the daily beat produces no duplicates, and neither does a to-do the user added
+by hand.
 
 Day-boundary contract (matches PlannerSettings docstring): "today" is the
 calendar day in `settings.timezone`; every due_at is the UTC instant of that
@@ -54,11 +56,17 @@ from packages.contracts.api.applications import WEEKDAYS, PlannerSettings
 # Gmail ingest (P2) exists.
 EMPLOYER_RESPONSE_EVENTS = frozenset({"interview_scheduled"})
 
-# An open/rejected auto-action of the same (application, type) suppresses
+# An open/rejected action of the same (application, type) suppresses
 # regeneration. dismissed MUST be here — dismiss() writes no event and the rule
 # predicates are state-based, so without it the beat resurrects a dismissed
 # action every day.
 _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
+
+# The half of that set which means "this work is already on the plate", as
+# opposed to "this work was refused". The two halves are read differently by
+# _suppressed(): see its docstring. Named rather than spelled inline so the
+# split cannot drift from the set it partitions (asserted in the rules tests).
+OPEN_STATUS = "pending"
 
 # Status written when an application closes and its outstanding to-dos are
 # retired (JobApplicationRepository._cancel_pending_actions). It is defined here,
@@ -123,7 +131,13 @@ class EventView:
 class ActionView:
     type: str
     status: str  # pending | done | dismissed | cancelled (see _SUPPRESSING_STATUSES)
-    auto_generated: bool = True
+    # Deliberately has NO default. It used to default to True while the ORM, the
+    # repository and the create route all default it to False — an inversion
+    # invisible at every call site, and the direct cause of _suppressed()'s
+    # hand-written branch going untested for its whole life: every test omitted
+    # the field and silently got the engine's path. It decides behaviour now, so
+    # every construction states it, and Python enforces that rather than a test.
+    auto_generated: bool
     completed_at: Optional[datetime] = None  # UTC
     created_at: Optional[datetime] = None  # UTC (for global per-week dedup)
     payload: Optional[dict] = None
@@ -209,9 +223,39 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def _suppressed(actions: list[ActionView], type_: str) -> bool:
-    """True if an auto-action of this type is already pending or dismissed."""
+    """Should a rule stay quiet because a to-do of this type already covers it?
+
+    The two suppressing statuses answer two different questions, and provenance
+    only matters to one of them.
+
+    OPEN (pending) — the work is on the plate. Whether the engine queued it or
+    the user typed it changes nothing about whether it exists, so this half
+    ignores `auto_generated`. It used to require it, which made the engine blind
+    to the user's own rows: the morning ritual creates "apply" to-dos through
+    POST /actions (auto_generated=False by construction — no client can set it),
+    so a to-do the user had just pulled into today sat beside an identical
+    "Apply now or drop this one" the next beat generated, and neither side
+    deduplicated.
+
+    DISMISSED — the work was refused, and models.py calls this a LIFETIME veto
+    for that (application, type). That is a large thing to infer, and it is only
+    safe to infer from refusing the engine's own suggestion. Both ritual wizards
+    map "drop" onto op="dismiss" in bulk, so reading a user's dismissal the same
+    way would mean: drop your own "apply to Stripe" during the morning ritual
+    and the engine never mentions Stripe again — while the application is still
+    sitting in the queue, still planned. That failure is invisible; it is a nag
+    that stops arriving. The engine re-offering is visible and has an obvious
+    lever (dismiss the engine's row, or drop the application itself).
+
+    Only the four rule types reach here, so a `custom` to-do ("call Sarah")
+    still suppresses nothing.
+    """
     return any(
-        a.auto_generated and a.type == type_ and a.status in _SUPPRESSING_STATUSES
+        a.type == type_
+        and (
+            a.status == OPEN_STATUS
+            or (a.auto_generated and a.status in _SUPPRESSING_STATUSES)
+        )
         for a in actions
     )
 

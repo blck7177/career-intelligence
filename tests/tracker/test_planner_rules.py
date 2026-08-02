@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
+
 from packages.contracts.api.applications import (
     PUBLIC_PAYLOAD_KEYS,
     WEEKDAYS,
     PlannerSettings,
 )
 from packages.domain.planner.rules import (
+    OPEN_STATUS,
     RETIRED_STATUS,
     _SUPPRESSING_STATUSES,
     ActionView,
@@ -123,7 +126,7 @@ def test_follow_up_NOT_suppressed_by_user_note():
 
 
 def test_follow_up_idempotent_when_pending_exists():
-    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="pending")])
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="pending", auto_generated=True)])
     assert [s for s in _gen([app]) if s.type == "follow_up"] == []
 
 
@@ -137,18 +140,18 @@ def test_the_status_a_closing_application_retires_todos_with_never_suppresses():
     is the shape of not-actually-a-test this repo keeps finding.
     """
     assert RETIRED_STATUS not in _SUPPRESSING_STATUSES
-    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status=RETIRED_STATUS)])
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status=RETIRED_STATUS, auto_generated=True)])
     assert "follow_up" in _types(_gen([app]))
 
 
 def test_follow_up_suppressed_when_dismissed():
     # dismiss-resurrection fix: a dismissed auto follow_up stays dead.
-    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="dismissed")])
+    app = _app(applied_at=_d(8), actions=[ActionView(type="follow_up", status="dismissed", auto_generated=True)])
     assert [s for s in _gen([app]) if s.type == "follow_up"] == []
 
 
 def test_follow_up_once_per_lifetime_after_completion():
-    app = _app(applied_at=_d(30), actions=[ActionView(type="follow_up", status="done", completed_at=_d(20))])
+    app = _app(applied_at=_d(30), actions=[ActionView(type="follow_up", status="done", auto_generated=True, completed_at=_d(20))])
     assert [s for s in _gen([app]) if s.type == "follow_up"] == []
 
 
@@ -174,8 +177,102 @@ def test_apply_or_drop_no_fire_before_threshold():
 
 def test_apply_or_drop_idempotent():
     app = _app(status="planned", applied_at=None, created_at=_d(15),
-               actions=[ActionView(type="apply", status="pending")])
+               actions=[ActionView(type="apply", status="pending", auto_generated=True)])
     assert [s for s in _gen([app]) if s.type == "apply"] == []
+
+
+# --- work on the plate counts however it got there ---------------------------
+#
+# Every test above USED to build ActionView without naming auto_generated, and
+# the dataclass defaulted it to True — so the engine path was tested and the
+# hand-written path was not tested at all. The field has no default now, which
+# is why they all say auto_generated=True out loud; these are the cases that
+# were missing, and they are why _suppressed() reads the flag for one of its
+# two statuses and not the other.
+
+# (fixture app id, the to-do type the rule dedupes on, the rule's payload name)
+_DEDUPING_RULES = [
+    ("fu", "follow_up", "follow_up"),
+    ("ty", "thank_you", "thank_you"),
+    ("ci", "prep", "check_in"),
+    ("ad", "apply", "apply_or_drop"),
+]
+
+
+def _rules_fired(apps):
+    return {s.payload["rule"] for s in _gen(apps)}
+
+
+def _with_action(app_id, **action):
+    apps = _all_rules_firing()
+    next(a for a in apps if a.id == app_id).actions = [ActionView(**action)]
+    return apps
+
+
+def test_the_open_status_is_one_of_the_suppressing_ones():
+    """_suppressed() splits _SUPPRESSING_STATUSES into "on the plate" and
+    "refused" and treats them differently. Spelling the open one separately is
+    how it reads; this is what stops the two from drifting apart."""
+    assert OPEN_STATUS in _SUPPRESSING_STATUSES
+
+
+@pytest.mark.parametrize("app_id,todo_type,rule", _DEDUPING_RULES)
+def test_a_hand_written_todo_suppresses_its_rule(app_id, todo_type, rule):
+    """A pending to-do the user typed counts as the work already existing.
+
+    The morning ritual creates "apply" to-dos through POST /actions, which
+    records auto_generated=False; before this, the next beat generated a second
+    to-do for the same application and both sat in the same group.
+
+    Parametrised across ALL four deduping rules on purpose: fixing this for
+    "apply" alone would leave three rules disagreeing about whether your own
+    to-do counts, for no reason a later reader could recover.
+    """
+    apps = _all_rules_firing()
+    # The rule fires without the hand-written to-do — otherwise the assertion
+    # below passes for the wrong reason and keeps passing if the fixture drifts.
+    assert rule in _rules_fired(apps)
+    assert rule not in _rules_fired(
+        _with_action(app_id, type=todo_type, status=OPEN_STATUS, auto_generated=False)
+    )
+
+
+@pytest.mark.parametrize("app_id,todo_type,rule", _DEDUPING_RULES)
+def test_dismissing_your_own_todo_is_not_a_lifetime_veto(app_id, todo_type, rule):
+    """The asymmetry, stated as a test: dismissal vetoes the rule for the life
+    of the application, and that may only be inferred from refusing the ENGINE's
+    suggestion.
+
+    Both wizards map "drop" onto op="dismiss" in bulk, so the wide reading would
+    make dropping a to-do you wrote yourself silence the engine about that
+    application forever — while it sits in the queue, still planned, with the
+    reminder simply never arriving again. Refusing the engine's own row is still
+    a veto, which is the second half of this test.
+    """
+    assert rule in _rules_fired(
+        _with_action(app_id, type=todo_type, status="dismissed", auto_generated=False)
+    )
+    assert rule not in _rules_fired(
+        _with_action(app_id, type=todo_type, status="dismissed", auto_generated=True)
+    )
+
+
+def test_suppression_is_still_keyed_by_type():
+    """Provenance stopped counting for open work; type did not. An unrelated
+    to-do must not silence a rule — "call Sarah" is not an application."""
+    apps = _all_rules_firing()
+    for app in apps:
+        app.actions = [ActionView(type="custom", status=OPEN_STATUS, auto_generated=False)]
+    assert _rules_fired(apps) >= {"follow_up", "thank_you", "check_in", "apply_or_drop"}
+
+
+def test_a_retired_hand_written_todo_does_not_suppress():
+    """Closing an application retires its to-dos, and force-reopening it has to
+    start them again — the same guarantee test_..._retires_todos_with_never_
+    suppresses makes for engine rows, now that user rows reach the same code."""
+    app = _app(status="planned", applied_at=None, created_at=_d(15),
+               actions=[ActionView(type="apply", status=RETIRED_STATUS, auto_generated=False)])
+    assert "apply" in _types(_gen([app]))
 
 
 # --- queue_refill (global) ---------------------------------------------------
@@ -206,13 +303,13 @@ def test_queue_refill_no_fire_when_at_target():
 
 def test_queue_refill_deduped_within_week():
     apps = [_app(id="p1", status="planned", applied_at=None, created_at=_d(1))]
-    existing = [ActionView(type="global", status="pending", created_at=_d(1), payload={"rule": "queue_refill"})]
+    existing = [ActionView(type="global", status="pending", auto_generated=True, created_at=_d(1), payload={"rule": "queue_refill"})]
     assert [s for s in _gen(apps, global_actions=existing) if s.type == "global"] == []
 
 
 def test_queue_refill_dismissed_still_suppresses_this_week():
     apps = [_app(id="p1", status="planned", applied_at=None, created_at=_d(1))]
-    existing = [ActionView(type="global", status="dismissed", created_at=_d(0), payload={"rule": "queue_refill"})]
+    existing = [ActionView(type="global", status="dismissed", auto_generated=True, created_at=_d(0), payload={"rule": "queue_refill"})]
     assert [s for s in _gen(apps, global_actions=existing) if s.type == "global"] == []
 
 
