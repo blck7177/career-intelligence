@@ -112,3 +112,56 @@ export function fmtClock(minutes: number): string {
   const m = minutes % 60;
   return `${h}:${String(m).padStart(2, "0")}`;
 }
+
+// --- month grid (the week picker) -------------------------------------------
+
+/** Monday of the week `isoDate` falls in. Weeks are Mon..Sun everywhere in the
+ *  planner, matching week_start_for on the server. */
+export function mondayOf(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d));
+  // getUTCDay: 0=Sunday. Shift so Monday is 0.
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7));
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * Whole weeks covering the month `anchor` falls in, as Mon..Sun rows.
+ *
+ * Bare calendar arithmetic in UTC — no timezone involved, so no DST skew and
+ * no chance of the browser's zone deciding which month this is. Leading and
+ * trailing days from the neighbouring months are included so every row is a
+ * real week: the grid's job is to pick a WEEK, and a ragged row would offer
+ * days that belong to a week it cannot show.
+ */
+export function monthGrid(anchor: string): string[][] {
+  const [y, m] = anchor.split("-").map(Number);
+  const first = `${y}-${String(m).padStart(2, "0")}-01`;
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const last = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  const rows: string[][] = [];
+  let cursor = mondayOf(first);
+  const stop = mondayOf(last);
+  while (true) {
+    const [cy, cm, cd] = cursor.split("-").map(Number);
+    const row: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const t = new Date(Date.UTC(cy, cm - 1, cd + i));
+      row.push(t.toISOString().slice(0, 10));
+    }
+    rows.push(row);
+    if (cursor === stop) break;
+    const nx = new Date(Date.UTC(cy, cm - 1, cd + 7));
+    cursor = nx.toISOString().slice(0, 10);
+  }
+  return rows;
+}
+
+/** Shift a month anchor by whole months, clamping the day so 3/31 → 2/28. */
+export function shiftMonth(anchor: string, months: number): string {
+  const [y, m, d] = anchor.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
+}

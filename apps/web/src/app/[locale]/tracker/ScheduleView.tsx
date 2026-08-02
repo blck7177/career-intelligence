@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useMemo, useRef, useState } from "react";
+import { useLocale, useTranslations } from "next-intl";
 
 import { updateAction } from "@/api/client";
 import type { ActionRead, PlannerWeekInterview } from "@/api/client";
@@ -15,7 +15,7 @@ import { estOf, fmtMinutes } from "./capacity";
 import { usePlannerData } from "./usePlannerData";
 import {
   BLOCK_INSET, SLOT, SLOT_H,
-  bandFor, fmtClock, geometryFor, minutesOfDay, rowsFor, snapDuration,
+  bandFor, fmtClock, geometryFor, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
 } from "./scheduleGrid";
 
 /** Sizes taken from the Compass mockup. SLOT_H lives in scheduleGrid because
@@ -47,10 +47,26 @@ type Item =
 export function ScheduleView() {
   const t = useTranslations("tracker");
   const getToken = useApiToken();
-  const data = usePlannerData({ schedule: true });
+  /** Which week is on screen. undefined = this week, which is also what the
+   *  server defaults to. This state is deliberately LOCAL to the schedule view:
+   *  `is_today` is only true inside the current week, and seven places in the
+   *  Today view read it as "the server's idea of today" — one of them a guard
+   *  that fails OPEN rather than degrading. Paging back a month must not take
+   *  the day identity of another view with it. */
+  const [weekParam, setWeekParam] = useState<string | undefined>(undefined);
+  const data = usePlannerData({ schedule: true, week: weekParam });
   const { week, settings, blocks, tray, refresh } = data;
   const tz = settings?.timezone ?? null;
   const cap = settings?.daily_cap_minutes ?? 0;
+  // Remembered rather than re-read: once paged away from the current week the
+  // server stops marking any day as today, and the picker would lose the one
+  // date worth pointing at. Never computed from the browser clock.
+  const todayRef = useRef<string | null>(null);
+  const serverToday = week?.days.find((d) => d.is_today)?.date ?? null;
+  if (serverToday) todayRef.current = serverToday;
+  const [monthAnchor, setMonthAnchor] = useState<string | null>(null);
+  const anchor = monthAnchor ?? week?.week_start ?? null;
+  const viewingThisWeek = weekParam === undefined;
   /** Id being dragged. Also the flag that makes slots accept a drop: without
    *  it every dragged file from the desktop would light the grid up. */
   const [dragId, setDragId] = useState<string | null>(null);
@@ -164,7 +180,11 @@ export function ScheduleView() {
             {t("scheduleEyebrow")}
           </span>
           <h2 className="text-base font-extrabold" style={{ color: "var(--ink-primary)" }}>
-            {week ? t("scheduleTitle", { week: weekLabel(week.week_start) }) : t("viewSchedule")}
+            {week
+              ? t(viewingThisWeek ? "scheduleTitle" : "scheduleTitleOther", {
+                  week: weekLabel(week.week_start),
+                })
+              : t("viewSchedule")}
           </h2>
           <span className="text-xs ml-auto" style={{ color: "var(--ink-muted)" }}>
             {t("scheduleHint")}
@@ -172,6 +192,19 @@ export function ScheduleView() {
         </div>
 
         <div className="grid grid-cols-1 min-[861px]:grid-cols-[230px_minmax(0,1fr)] gap-4 items-start">
+          <div>
+            {anchor && (
+              <MiniMonth
+                anchor={anchor}
+                onAnchor={setMonthAnchor}
+                today={todayRef.current}
+                currentWeekStart={week?.week_start ?? null}
+                onPick={(d) => { setWeekParam(d); setMonthAnchor(d); }}
+                onToday={() => { setWeekParam(undefined); setMonthAnchor(null); }}
+                viewingThisWeek={viewingThisWeek}
+                t={t}
+              />
+            )}
           <Tray
             items={tray}
             loading={loading}
@@ -180,6 +213,7 @@ export function ScheduleView() {
             onPick={setPicking}
             t={t}
           />
+          </div>
 
           <div
             className="rounded-[14px] overflow-x-auto"
@@ -277,6 +311,106 @@ export function ScheduleView() {
           }}
           t={t}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A month at a glance, used to choose which WEEK the grid shows.
+ *
+ * Deliberately not a month view of the work itself: the endpoint returns one
+ * week at a time, so painting density across a whole month would mean either
+ * five more requests or inventing numbers for the weeks not loaded. An empty
+ * calendar that navigates honestly beats a full one that guesses — the planner
+ * already treats "no data" and "zero" as different claims everywhere else.
+ */
+function MiniMonth({
+  anchor, onAnchor, today, currentWeekStart, onPick, onToday, viewingThisWeek, t,
+}: {
+  anchor: string;
+  onAnchor: (a: string) => void;
+  today: string | null;
+  currentWeekStart: string | null;
+  onPick: (date: string) => void;
+  onToday: () => void;
+  viewingThisWeek: boolean;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const locale = useLocale();
+  const rows = monthGrid(anchor);
+  const month = anchor.slice(0, 7);
+  // Formatted through UTC on purpose: `anchor` is a bare calendar date, and
+  // letting the browser zone read it can name the previous month.
+  const label = new Intl.DateTimeFormat(locale, {
+    timeZone: "UTC", year: "numeric", month: "long",
+  }).format(new Date(`${anchor}T12:00:00Z`));
+
+  return (
+    <div
+      className="rounded-[14px] px-3 py-3 mb-4"
+      style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-btn-rest-soft)" }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          className="w-6 h-6 rounded hover:bg-[var(--muted)] text-sm"
+          onClick={() => onAnchor(shiftMonth(anchor, -1))}
+          aria-label={t("monthPrev")}
+        >
+          ‹
+        </button>
+        <span className="text-xs font-semibold" style={{ color: "var(--ink-primary)" }}>{label}</span>
+        <button
+          type="button"
+          className="w-6 h-6 rounded hover:bg-[var(--muted)] text-sm"
+          onClick={() => onAnchor(shiftMonth(anchor, 1))}
+          aria-label={t("monthNext")}
+        >
+          ›
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 text-center">
+        {WEEKDAY_KEYS.map((k) => (
+          <span key={k} className="text-[9px] pb-1" style={{ color: "var(--ink-faint)" }}>{t(k)}</span>
+        ))}
+        {rows.flat().map((d) => {
+          const inShownWeek = currentWeekStart !== null && mondayOf(d) === currentWeekStart;
+          const isToday = d === today;
+          const otherMonth = d.slice(0, 7) !== month;
+          return (
+            <button
+              key={d}
+              type="button"
+              className="h-6 text-[10.5px] tabular-nums"
+              style={{
+                background: inShownWeek ? "var(--accent)" : undefined,
+                color: isToday
+                  ? "var(--match-good-fg)"
+                  : otherMonth
+                    ? "var(--ink-faint)"
+                    : "var(--ink-secondary)",
+                fontWeight: isToday ? 700 : undefined,
+              }}
+              onClick={() => onPick(d)}
+              aria-label={t("openWeekOf", { date: d })}
+            >
+              {Number(d.slice(8, 10))}
+            </button>
+          );
+        })}
+      </div>
+
+      {!viewingThisWeek && (
+        <button
+          type="button"
+          className="mt-2 w-full text-[11px] py-1 rounded hover:bg-[var(--muted)]"
+          style={{ color: "var(--primary)" }}
+          onClick={onToday}
+        >
+          {t("backToThisWeek")}
+        </button>
       )}
     </div>
   );

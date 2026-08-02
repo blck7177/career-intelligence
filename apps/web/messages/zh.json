@@ -802,7 +802,7 @@
     "scheduleHint": "面试是每天的硬骨架。",
     "trayTitle": "未排期",
     "trayCount": "{count} 件",
-    "trayEmpty": "托盘清空了——本周任务全部有了时间位。",
+    "trayEmpty": "托盘清空了——所有待办都有了时间位。",
     "trayHint": "📌 是日历事件（面试），只读。",
     "blockTimeUnknownEnd": "{start} · 时长未知",
     "weekdayMon": "一",
@@ -818,6 +818,11 @@
     "pickerTitle": "放到日程上",
     "pickerTime": "开始于",
     "pickerConfirm": "就放这里",
-    "pickerRemove": "撤回托盘"
+    "pickerRemove": "撤回托盘",
+    "monthPrev": "上个月",
+    "monthNext": "下个月",
+    "openWeekOf": "打开 {date} 所在的那周",
+    "backToThisWeek": "回到本周",
+    "scheduleTitleOther": "{week} 那一周"
   }
 }

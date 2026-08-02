@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_END, DEFAULT_START, SLOT, SLOT_H,
-  bandFor, fmtClock, geometryFor, minutesOfDay, rowsFor, snapDuration,
+  bandFor, fmtClock, geometryFor, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
 } from "./scheduleGrid";
 
 const NY = "America/New_York";
@@ -106,5 +106,45 @@ describe("reading the clock in the workspace zone", () => {
 describe("axis labels", () => {
   it.each([[9 * 60, "9:00"], [9 * 60 + 30, "9:30"], [18 * 60, "18:00"]])("%i → %s", (m, s) => {
     expect(fmtClock(m)).toBe(s);
+  });
+});
+
+describe("the month grid behind the week picker", () => {
+  it("folds any day to the Monday of its week", () => {
+    expect(mondayOf("2026-08-01")).toBe("2026-07-27"); // a Saturday
+    expect(mondayOf("2026-08-02")).toBe("2026-07-27"); // Sunday belongs to the week before
+    expect(mondayOf("2026-08-03")).toBe("2026-08-03"); // Monday is its own
+  });
+
+  it("gives whole Mon..Sun rows, so every row is a week you can open", () => {
+    const rows = monthGrid("2026-08-15");
+    for (const r of rows) {
+      expect(r).toHaveLength(7);
+      expect(mondayOf(r[0])).toBe(r[0]);
+    }
+    // August 2026 starts on a Saturday, so the first row reaches back into July.
+    expect(rows[0][0]).toBe("2026-07-27");
+    expect(rows[0]).toContain("2026-08-01");
+    // ...and the last row covers the 31st.
+    expect(rows[rows.length - 1]).toContain("2026-08-31");
+  });
+
+  it("covers a month that starts on a Monday without an empty leading row", () => {
+    const rows = monthGrid("2026-06-10"); // June 2026 starts Monday
+    expect(rows[0][0]).toBe("2026-06-01");
+  });
+
+  it("does not lose a day across a year boundary", () => {
+    const rows = monthGrid("2026-12-05");
+    expect(rows[rows.length - 1].some((d) => d.startsWith("2027-01"))).toBe(true);
+  });
+
+  it("steps months without landing on a day that does not exist", () => {
+    // 3/31 minus one month is February; clamping keeps it a real date rather
+    // than rolling forward into March, which would make the arrow a no-op.
+    expect(shiftMonth("2026-03-31", -1)).toBe("2026-02-28");
+    expect(shiftMonth("2026-01-31", 1)).toBe("2026-02-28");
+    expect(shiftMonth("2026-12-15", 1)).toBe("2027-01-15");
+    expect(shiftMonth("2026-01-15", -1)).toBe("2025-12-15");
   });
 });

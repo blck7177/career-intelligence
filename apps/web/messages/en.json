@@ -802,7 +802,7 @@
     "scheduleHint": "Interviews are the fixed skeleton of each day.",
     "trayTitle": "Unscheduled",
     "trayCount": "{count} waiting",
-    "trayEmpty": "Tray is clear — everything this week has a time.",
+    "trayEmpty": "Tray is clear — everything waiting has a time.",
     "trayHint": "📌 marks a calendar event (an interview) — read-only.",
     "blockTimeUnknownEnd": "{start} · length not known",
     "weekdayMon": "Mon",
@@ -818,6 +818,11 @@
     "pickerTitle": "Put this on the calendar",
     "pickerTime": "Start at",
     "pickerConfirm": "Place it",
-    "pickerRemove": "Take it off"
+    "pickerRemove": "Take it off",
+    "monthPrev": "Previous month",
+    "monthNext": "Next month",
+    "openWeekOf": "Open the week of {date}",
+    "backToThisWeek": "Back to this week",
+    "scheduleTitleOther": "Week of {week}"
   }
 }
