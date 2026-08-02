@@ -824,6 +824,10 @@
     "openWeekOf": "打开 {date} 所在的那周",
     "backToThisWeek": "回到本周",
     "scheduleTitleOther": "{week} 那一周",
-    "stripOpenWeek": "打开本周排程"
+    "stripOpenWeek": "打开本周排程",
+    "stripOwed": "{n} 到期 · {minutes}",
+    "stripHeld": "已排 {minutes}",
+    "stripRest": "休息",
+    "stripClear": "空"
   }
 }

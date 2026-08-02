@@ -824,6 +824,10 @@
     "openWeekOf": "Open the week of {date}",
     "backToThisWeek": "Back to this week",
     "scheduleTitleOther": "Week of {week}",
-    "stripOpenWeek": "open the week schedule"
+    "stripOpenWeek": "open the week schedule",
+    "stripOwed": "{n} due · {minutes}",
+    "stripHeld": "{minutes} placed",
+    "stripRest": "Rest",
+    "stripClear": "Clear"
   }
 }

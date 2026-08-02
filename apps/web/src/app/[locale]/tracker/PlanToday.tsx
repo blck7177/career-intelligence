@@ -15,6 +15,7 @@ import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
+import { fmtClock, minutesOfDay } from "./scheduleGrid";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
 const GROUP_OF: Record<string, string> = {
@@ -594,7 +595,7 @@ export function PlanToday({ data, onShowPipeline, onOpenSchedule }: {
           {/* Outside the !isEmpty block on purpose: a cleared day is exactly when
               you most need to see that Thursday has an onsite. The strip is the
               week's shape, not a decoration on today's list. */}
-          {week && <WeekStrip week={week} onOpen={onOpenSchedule} />}
+          {week && <WeekStrip week={week} onOpen={onOpenSchedule} cap={cap} tz={tz} />}
           {!isEmpty && actions !== null && (
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 text-xs" style={{ color: "var(--ink-muted)" }}>
@@ -804,16 +805,15 @@ function ParseChip({ tone, onRevoke, t, children }: {
   );
 }
 
-const MAX_DUE_DOTS = 4;
 
-function WeekStrip({ week, onOpen }: { week: PlannerWeek; onOpen: () => void }) {
+function WeekStrip({ week, onOpen, cap, tz }: { week: PlannerWeek; onOpen: () => void; cap: number; tz: string | null }) {
   const t = useTranslations("tracker");
   // role="group", not "list": the cells are now buttons, and a button inside a
   // listitem role loses its button semantics for assistive tech.
   return (
     <div className="grid grid-cols-7 gap-1" role="group" aria-label={t("weekStripLabel")}>
       {week.days.map((d, i) => (
-        <WeekCell key={d.date} day={d} index={i} onOpen={onOpen} t={t} />
+        <WeekCell key={d.date} day={d} index={i} onOpen={onOpen} cap={cap} tz={tz} t={t} />
       ))}
     </div>
   );
@@ -821,23 +821,50 @@ function WeekStrip({ week, onOpen }: { week: PlannerWeek; onOpen: () => void }) 
 
 const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
 
-function WeekCell({ day, index, onOpen, t }: {
+/** "9:30" for an instant, read in the workspace zone. Empty when the zone is
+ *  unknown — the same refusal to guess the rest of Today now makes. Built on
+ *  the schedule grid's own two functions so the strip and the grid can never
+ *  print different times for one block. */
+function hhmm(iso: string, tz: string | null): string {
+  if (!tz) return "";
+  const m = minutesOfDay(iso, tz);
+  return m === null ? "" : fmtClock(m);
+}
+
+function WeekCell({ day, index, onOpen, cap, tz, t }: {
   day: PlannerWeekDay;
   index: number;
   onOpen: () => void;
+  /** Daily cap, for the load bar. 0 = not configured, so no bar is drawn. */
+  cap: number;
+  /** Workspace zone. Times are read in it, never in the browser's — the server
+   *  bucketed these instants with it, so any other zone could print an hour
+   *  belonging to the neighbouring day inside this cell. */
+  tz: string | null;
   t: (k: string, v?: Record<string, string | number>) => string;
 }) {
   // Days arrive Monday-first, so position IS the weekday — deriving it from the
   // date string would mean parsing a date the server already resolved for us.
   const label = t(`weekdayShort.${WEEKDAY_KEYS[index]}`);
   const dd = Number(day.date.slice(8, 10));
-  const dots = Math.min(day.due_count, MAX_DUE_DOTS);
   // interviews is optional in the generated type (server default), never absent in practice.
   const interviews = day.interviews ?? [];
+  const blocks = day.blocks ?? [];
+  const owed = day.due_est_minutes ?? 0;
+  // What the day HOLDS: placed to-dos plus interviews of known length. Kept in
+  // one place here rather than in each renderer — the schedule grid's day
+  // footer answers the same question and must not reach a different number.
+  const known = interviews.filter((iv) => typeof iv.duration_minutes === "number");
+  const held = (day.scheduled_est_minutes ?? 0)
+    + known.reduce((sum, iv) => sum + (iv.duration_minutes ?? 0), 0);
+  const unknownRounds = interviews.length - known.length;
+  const pct = cap > 0 ? Math.round((held / cap) * 100) : 0;
+
   const title = [
     day.date,
     day.due_count > 0 ? t("weekStripDue", { n: day.due_count }) : null,
     ...interviews.map((i) => `${i.company}${i.round_type ? ` · ${i.round_type}` : ""}`),
+    ...blocks.map((b) => b.title),
   ].filter(Boolean).join(" · ");
 
   return (
@@ -850,7 +877,7 @@ function WeekCell({ day, index, onOpen, t }: {
       onClick={onOpen}
       title={`${title} — ${t("stripOpenWeek")}`}
       aria-label={`${title} — ${t("stripOpenWeek")}`}
-      className="rounded-md border px-1.5 py-1 min-h-[46px] text-2xs text-left align-top"
+      className="flex flex-col gap-0.5 rounded-md border px-1.5 py-1.5 min-h-[82px] text-2xs text-left"
       style={{
         borderColor: day.is_today ? "var(--primary)" : "var(--border)",
         background: day.is_today
@@ -861,31 +888,67 @@ function WeekCell({ day, index, onOpen, t }: {
         color: day.is_rest ? "var(--ink-faint)" : "var(--ink-muted)",
       }}
     >
-      <div className="font-semibold" style={{ color: day.is_today ? "var(--ink-primary)" : undefined }}>
+      <span className="font-semibold" style={{ color: day.is_today ? "var(--ink-primary)" : undefined }}>
         {label} <span className="tabular-nums font-normal">{dd}</span>
-      </div>
-      <div className="flex flex-wrap items-center gap-0.5 mt-0.5">
-        {interviews.slice(0, 2).map((iv, i) => (
+      </span>
+
+      {/* Interviews first: they are the day's fixed skeleton, and the same
+          amber the schedule grid uses for them. */}
+      {interviews.slice(0, 2).map((iv, i) => (
+        <span
+          key={`iv${i}`}
+          className="block truncate rounded-sm px-1 font-semibold"
+          style={{ background: "var(--warn-bg)", color: "var(--warn-fg)" }}
+        >
+          <span className="tabular-nums">{hhmm(iv.at, tz)}</span>{" "}
+          {iv.company.split(/\s+/)[0].slice(0, 8)}
+        </span>
+      ))}
+
+      {/* Then what you chose to put there — the grid's accent for placed work.
+          Done blocks are dimmed: a cleared day should not look untouched. */}
+      {blocks.slice(0, 2).map((b) => (
+        <span
+          key={b.action_id}
+          className="block truncate rounded-sm px-1 font-semibold"
+          style={{
+            background: day.is_today ? "var(--card)" : "var(--accent)",
+            color: "var(--accent-foreground)",
+            opacity: b.status === "done" ? 0.55 : 1,
+            textDecoration: b.status === "done" ? "line-through" : undefined,
+          }}
+        >
+          <span className="tabular-nums">{hhmm(b.at, tz)}</span> {b.title}
+        </span>
+      ))}
+
+      <span className="mt-auto tabular-nums">
+        {day.is_rest && day.due_count === 0 && blocks.length === 0
+          ? t("stripRest")
+          : [
+              day.due_count > 0 ? t("stripOwed", { n: day.due_count, minutes: fmtMinutes(owed) }) : null,
+              held > 0 ? t("stripHeld", { minutes: fmtMinutes(held) }) : null,
+              unknownRounds > 0 ? "+?" : null,
+            ].filter(Boolean).join(" · ") || t("stripClear")}
+      </span>
+
+      {cap > 0 && (
+        <span className="block h-1 rounded-full overflow-hidden" style={{ background: "var(--muted)" }} aria-hidden>
           <span
-            key={i}
-            className="px-1 rounded-sm font-semibold truncate max-w-full"
-            style={{ background: "var(--match-partial-bg)", color: "var(--match-partial-fg)" }}
-          >
-            {iv.company.split(/\s+/)[0].slice(0, 8)}
-          </span>
-        ))}
-        {Array.from({ length: dots }).map((_, i) => (
-          <span
-            key={`d${i}`}
-            className="inline-block w-1 h-1 rounded-full"
-            style={{ background: "var(--primary)", opacity: 0.7 }}
-            aria-hidden
+            className="block h-full rounded-full"
+            style={{
+              width: `${Math.min(100, pct)}%`,
+              // Over the cap is the one thing here worth an alarm colour; the
+              // 85% mark is where the capacity bar already starts warning.
+              background: pct > 100 ? "var(--danger-fg)" : pct > 85 ? "var(--warn-fg)" : "var(--primary)",
+            }}
           />
-        ))}
-      </div>
+        </span>
+      )}
     </button>
   );
 }
+
 
 /**
  * Today's load against the workspace's daily cap. Three states — under, past the
