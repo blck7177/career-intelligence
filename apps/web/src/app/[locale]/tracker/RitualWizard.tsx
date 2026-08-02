@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import type { ActionRead } from "@/api/client";
+import type { ActionRead, ApplicationRead } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { DropAcknowledgement, dropGateBlocks } from "./DropAcknowledgement";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { CapacityMeter, estOf, fmtMinutes } from "./capacity";
+import { CapacityMeter, EST_FALLBACK, estOf, fmtMinutes } from "./capacity";
 import { ritualSteps } from "./ritual";
+import { isFresh } from "./queueRank";
 
 /** What the user decided about one piece of yesterday's leftover work. */
 export type CarryChoice = "today" | "tomorrow" | "drop";
@@ -19,6 +20,13 @@ export interface RitualResult {
   deferIds: string[];
   /** Ids to dismiss — work the user decided not to do at all. */
   dropIds: string[];
+  /** APPLICATION ids the user pulled in from the queue. Application ids, never
+   *  action ids: nothing exists for these yet, and the wizard does not create
+   *  it. A synthesised id mixed into keptIds would be filed as a commitment
+   *  worth zero minutes and never noticed (see mergeCommitIds), and one sent to
+   *  PATCH /actions/{id} would 404 the whole ritual. The caller creates, and
+   *  only real ids come back from that. */
+  queueApplicationIds: string[];
 }
 
 /** Morning planning, in three steps.
@@ -49,6 +57,8 @@ export function RitualWizard({
   cap,
   overdue,
   startAtStep,
+  queue,
+  freshDays,
   onApply,
   applying,
 }: {
@@ -62,6 +72,12 @@ export function RitualWizard({
   /** Where to open: 1 when there are leftovers to decide (or we cannot yet tell
    *  whether there are), 2 when there are demonstrably none. See ritual.ts. */
   startAtStep: 1 | 2;
+  /** Queued applications that can be pulled into today, already ranked and
+   *  already deduplicated against existing apply to-dos by the caller. */
+  queue: ApplicationRead[];
+  /** How recently a posting counts as fresh — for the badge, matching the
+   *  sidebar's. */
+  freshDays: number;
   onApply: (result: RitualResult) => void;
   applying: boolean;
 }) {
@@ -74,6 +90,9 @@ export function RitualWizard({
   const [carry, setCarry] = useState<Record<string, CarryChoice>>({});
   const [kept, setKept] = useState<Set<string> | null>(null);
   const [ackDrop, setAckDrop] = useState(false);
+  /** Queued APPLICATIONS ticked to become today's work. Off by default: pulling
+   *  new work in is a thing to choose, not a thing to notice and undo. */
+  const [pulled, setPulled] = useState<Set<string>>(new Set());
 
   // Default ticks: dated work is on, undated ("anytime") is off. Undated work
   // is what the day absorbs when there is room, so it should be an opt-in
@@ -90,7 +109,15 @@ export function RitualWizard({
   );
   const candidates = actions.filter((a) => !carriedAway.has(a.id));
   const keptList = candidates.filter((a) => ticked.has(a.id));
-  const committed = keptList.reduce((sum, a) => sum + estOf(a), 0);
+  // The to-dos that do not exist yet count too. They are what the user is
+  // agreeing to as much as the ticked rows are, and the capacity bar that omits
+  // them tells someone a full day is a light one — the exact reading the meter
+  // exists to prevent. The minute figure is EST_FALLBACK's, which is the number
+  // the server will reach for the same row: create sends no est_minutes, so
+  // effective_est_minutes() fills it from the table this one is asserted equal
+  // to. One number, two tables that a test keeps in step; not a third literal.
+  const pulledMinutes = pulled.size * EST_FALLBACK.apply;
+  const committed = keptList.reduce((sum, a) => sum + estOf(a), 0) + pulledMinutes;
   const pct = cap > 0 ? Math.round((committed / cap) * 100) : 0;
   const dropCount = Object.values(carry).filter((c) => c === "drop").length;
 
@@ -99,6 +126,7 @@ export function RitualWizard({
     setCarry({});
     setAckDrop(false);
     setKept(null);
+    setPulled(new Set());
   }
 
   function close(next: boolean) {
@@ -132,6 +160,9 @@ export function RitualWizard({
       keptIds: keptList.map((a) => a.id),
       deferIds: [...new Set([...carriedTomorrow, ...untickedToday])],
       dropIds,
+      // Only what is still on offer: a row the caller has since deduplicated
+      // away must not be pulled twice because it was ticked before a refresh.
+      queueApplicationIds: queue.filter((a) => pulled.has(a.id)).map((a) => a.id),
     });
   }
 
@@ -225,7 +256,7 @@ export function RitualWizard({
                   <CapacityMeter used={committed} cap={cap} />
                 </div>
               )}
-              {candidates.length === 0 ? (
+              {candidates.length === 0 && queue.length === 0 ? (
                 <p className="text-sm py-4 text-center" style={{ color: "var(--ink-muted)" }}>
                   {t("ritualNothingToPick")}
                 </p>
@@ -255,13 +286,71 @@ export function RitualWizard({
                   </label>
                 ))
               )}
+
+              {/* Building the plate, not just trimming it. Without this the
+                  ritual can only ever subtract from a list something else
+                  filled, which on a clear morning means it has nothing to do.
+                  Ticking one does not create anything here — the wizard reports
+                  which APPLICATIONS were chosen and the caller writes the
+                  to-dos, because creating from inside a step the user can still
+                  go Back from would leave rows behind on every cancel. */}
+              {queue.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-2xs mb-1.5" style={{ color: "var(--ink-faint)" }}>
+                    {t("ritualQueueHead")}
+                  </p>
+                  {queue.map((a) => (
+                    <label
+                      key={a.id}
+                      className="flex items-center gap-3 rounded-lg border px-3 py-2 mb-2 cursor-pointer"
+                      style={{ borderColor: "var(--border)" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={pulled.has(a.id)}
+                        onChange={(e) => {
+                          const next = new Set(pulled);
+                          if (e.target.checked) next.add(a.id);
+                          else next.delete(a.id);
+                          setPulled(next);
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm truncate" style={{ color: "var(--ink-primary)" }}>
+                          {t("ritualQueueRow", {
+                            company: a.job?.company ?? "—",
+                            role: a.job?.title ?? "",
+                          })}
+                        </div>
+                        <div className="text-2xs truncate" style={{ color: "var(--ink-faint)" }}>
+                          {[
+                            typeof a.fit_score === "number" ? t("ritualQueueFit", { fit: a.fit_score }) : null,
+                            (a.excitement ?? 0) > 0 ? "★".repeat(a.excitement ?? 0) : null,
+                            isFresh(a.job?.posted_at, freshDays) ? t("ritualQueueFresh") : null,
+                          ].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-2xs" style={{ color: "var(--ink-muted)" }}>
+                        {t("estMinutes", { minutes: EST_FALLBACK.apply })}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </>
           )}
 
           {step === 3 && (
             <div className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
               <div className="text-lg font-semibold tabular-nums" style={{ color: "var(--ink-primary)" }}>
-                {t("ritualConfirmCount", { n: keptList.length, minutes: fmtMinutes(committed) })}
+                {/* Both halves of the same commitment. `committed` already
+                    includes the pulled work, so counting only keptList here
+                    would print a count and a duration that describe different
+                    sets — "3 to-dos · 4h" for five. */}
+                {t("ritualConfirmCount", {
+                  n: keptList.length + pulled.size,
+                  minutes: fmtMinutes(committed),
+                })}
               </div>
               {cap > 0 && (
                 <p className="text-xs mt-1" style={{ color: "var(--ink-muted)" }}>

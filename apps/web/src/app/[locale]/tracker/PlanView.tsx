@@ -75,6 +75,10 @@ export function PlanView({
   }, [load]);
 
   const unread = shouldAnnounceReview(review, dismissed, userId);
+  // Hoisted out of the sidebar's JSX now that the morning ritual ranks the same
+  // queue: the two must read one window, or the top of the ritual's offer and
+  // the top of the sidebar are different applications.
+  const freshDays = planner.settings?.fresh_window_days ?? 3;
 
   async function openReview() {
     if (!review) return;
@@ -107,7 +111,7 @@ export function PlanView({
         <div className="grid grid-cols-1 min-[1100px]:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
           <Sidebar
             data={applications}
-            freshDays={planner.settings?.fresh_window_days ?? 3}
+            freshDays={freshDays}
             selectedId={selectedId}
             onSelect={setSelectedId}
           />
@@ -120,6 +124,8 @@ export function PlanView({
             the review banner makes. */}
         <PlanToday
           onOpenSchedule={onOpenSchedule}
+          applications={applications}
+          freshDays={freshDays}
           selectedApplicationId={selectedId}
           onClearSelected={() => setSelectedId(null)}
           onApplicationsChanged={() => { void applications.reload(); }}

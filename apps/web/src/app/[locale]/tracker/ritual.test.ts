@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { ritualFirstStep, ritualPlate, ritualSteps, type RitualPlate } from "./ritual";
+import {
+  mergeCommitIds,
+  offerableQueue,
+  ritualFirstStep,
+  ritualPlate,
+  ritualSteps,
+  type RitualPlate,
+} from "./ritual";
+import { rankedIds } from "./queueRank";
 
 describe("ritualPlate", () => {
   it("reports carry whenever anything is overdue", () => {
@@ -66,5 +74,72 @@ describe("ritualSteps", () => {
       expect(steps[0]).toBe(first);
       expect(steps[steps.length - 1]).toBe(3);
     }
+  });
+});
+
+describe("offerableQueue", () => {
+  const app = (id: string, over: Record<string, unknown> = {}) => ({
+    id,
+    fit_score: 50,
+    excitement: 0,
+    job: { posted_at: null },
+    ...over,
+  });
+  // The real ranking, not a stub: the point of taking `rank` as a parameter is
+  // that the wizard and the sidebar share one, so a test with its own ordering
+  // would pass while they disagreed on screen.
+  const rank = (rows: ReturnType<typeof app>[]) => rankedIds(rows, 3, Date.parse("2026-07-15"));
+
+  it("offers the queue in the queue's order", () => {
+    const rows = [app("low", { fit_score: 10 }), app("high", { fit_score: 90 })];
+    expect(offerableQueue(rows, [], rank).map((a) => a.id)).toEqual(["high", "low"]);
+  });
+
+  it("drops applications that already have an apply to-do", () => {
+    const rows = [app("a"), app("b")];
+    const out = offerableQueue(rows, [{ type: "apply", application_id: "a" }], rank);
+    expect(out.map((r) => r.id)).toEqual(["b"]);
+  });
+
+  it("only apply to-dos exclude — another kind of to-do is other work", () => {
+    // A follow-up or a note about an application says nothing about whether you
+    // have agreed to apply to it.
+    const rows = [app("a")];
+    for (const type of ["follow_up", "prep", "thank_you", "custom", "networking"]) {
+      expect(offerableQueue(rows, [{ type, application_id: "a" }], rank)).toHaveLength(1);
+    }
+  });
+
+  it("ignores a global to-do, which belongs to no application", () => {
+    // queue_refill actions carry application_id === null. Recorded rather than
+    // guarded: this assertion CANNOT fail, because a null in the covered set
+    // matches no real id whether or not the null check is there. What actually
+    // forbids the null is the Set<string> annotation in offerableQueue, and tsc
+    // enforces that. Kept because the behaviour is worth stating; not counted as
+    // coverage.
+    const rows = [app("a"), app("b")];
+    expect(offerableQueue(rows, [{ type: "apply", application_id: null }], rank)).toHaveLength(2);
+  });
+
+  it("returns nothing rather than undefined holes when everything is covered", () => {
+    const rows = [app("a")];
+    expect(offerableQueue(rows, [{ type: "apply", application_id: "a" }], rank)).toEqual([]);
+  });
+});
+
+describe("mergeCommitIds", () => {
+  it("keeps both halves, kept work first", () => {
+    expect(mergeCommitIds(["k1", "k2"], ["n1"])).toEqual(["k1", "k2", "n1"]);
+  });
+
+  it("deduplicates", () => {
+    // Not hypothetical: a retried commit after a partial failure re-sends ids
+    // that were created on the first attempt.
+    expect(mergeCommitIds(["a"], ["a", "b"])).toEqual(["a", "b"]);
+  });
+
+  it("survives either half being empty", () => {
+    expect(mergeCommitIds([], ["n"])).toEqual(["n"]);
+    expect(mergeCommitIds(["k"], [])).toEqual(["k"]);
   });
 });

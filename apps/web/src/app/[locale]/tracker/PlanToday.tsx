@@ -15,7 +15,9 @@ import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
-import { ritualFirstStep, ritualPlate } from "./ritual";
+import { mergeCommitIds, offerableQueue, ritualFirstStep, ritualPlate } from "./ritual";
+import type { ApplicationsList } from "./useApplicationsList";
+import { rankedIds } from "./queueRank";
 import { fmtClock, minutesOfDay } from "./scheduleGrid";
 
 // Action type → Today group. Manual/global/undated fall to "anytime".
@@ -102,9 +104,20 @@ function pickToDefer(candidates: ActionRead[], excess: number): ActionRead[] {
  */
 export function PlanToday({
   data, onShowPipeline, onOpenSchedule, selectedApplicationId, onClearSelected, onApplicationsChanged,
+  applications, freshDays,
 }: {
   data: PlannerData;
   onShowPipeline?: () => void;
+  /** The same list object the sidebar renders, passed down rather than fetched
+   *  again. Calling useApplicationsList() here would add three requests per
+   *  mount AND a second copy of the queue that PlanView's reload cannot reach,
+   *  so the sidebar and the wizard would disagree the moment the ritual ran.
+   *  (plannerSources.test.ts does not guard this — it only knows about the
+   *  planner endpoints — so the reason has to live here.) */
+  applications: ApplicationsList;
+  /** How recently a posting counts as fresh. Shared with the sidebar so the
+   *  ritual's offer and the queue below it are ordered the same way. */
+  freshDays: number;
   /** An application picked in the sidebar. The panel is shared: a to-do opened
    *  from the list and an application opened from the sidebar are the same
    *  surface, so only one can be showing. */
@@ -354,15 +367,63 @@ export function PlanToday({
     }
   }
 
-  async function applyRitual({ keptIds, deferIds, dropIds }: RitualResult) {
+  async function applyRitual({ keptIds, deferIds, dropIds, queueApplicationIds }: RitualResult) {
     setRitualBusy(true);
     setRitualError(false);
-    // Order matters: file the commitment FIRST. If the moves fail we have still
-    // recorded what the user agreed to, which is the part that cannot be
-    // reconstructed later; the to-dos are all still there to move by hand.
+    // Order: CREATE, then commit, then move.
+    //
+    // Commit still comes before the moves, for the reason it always did — it
+    // records what the user agreed to, which is the part that cannot be
+    // reconstructed later, and the to-dos survive to be moved by hand.
+    //
+    // Creation has to come before the commit, and that is a load-bearing
+    // constraint rather than a preference: commitPlannerDay totals the estimates
+    // by matching the ids it is given against rows that exist, and an id with no
+    // row contributes ZERO without raising anything — its docstring says as much.
+    // Committing first and creating after would file every pulled application at
+    // sixty minutes less than the wizard just showed, every time, with nothing
+    // on screen to indicate it.
     try {
       const token = await getToken();
-      const log = await commitPlannerDay(keptIds, token);
+      // Serial, not Promise.all. A rejected member of a Promise.all does not
+      // cancel its siblings and cannot say which ones landed, so a partial
+      // failure would leave an unknown number of new to-dos and no way to name
+      // them; one at a time, the accumulator is always an accurate record of
+      // what exists. Slower by a few hundred ms on a handful of rows, which is
+      // the correct trade for a write with no idempotency key.
+      const dueToday = queueApplicationIds.length > 0 ? dayShift(0) : undefined;
+      if (queueApplicationIds.length > 0 && !dueToday) {
+        // Same rule as everywhere else on this view: no calendar, no guessing.
+        // Creating them undated would be worse than not creating them — an
+        // undated to-do counts toward EVERY day's capacity and never appears in
+        // the over-capacity escape hatch, so it would quietly weigh on the plan
+        // forever.
+        throw new Error("day or timezone unknown — refusing to date new to-dos");
+      }
+      const byId = new Map(applications.planned.map((a) => [a.id, a]));
+      const createdIds: string[] = [];
+      for (const applicationId of queueApplicationIds) {
+        const app = byId.get(applicationId);
+        const created = await createAction(
+          {
+            type: "apply",
+            title: t("ritualQueueRow", {
+              company: app?.job?.company ?? "—",
+              role: app?.job?.title ?? "",
+            }),
+            application_id: applicationId,
+            due_at: dueToday,
+            // est_minutes is deliberately omitted rather than sent as 60. The
+            // server fills a missing one from its own table, the client renders
+            // a missing one from a table asserted equal to it, and the wizard's
+            // meter read that same table — so the number cannot disagree with
+            // itself. Sending a literal would add a third place to keep in step.
+          },
+          token,
+        );
+        createdIds.push(created.id);
+      }
+      const log = await commitPlannerDay(mergeCommitIds(keptIds, createdIds), token);
       patchDayLog(log);
       // Absolute target, not snooze_days: a relative snooze is measured from
       // due_at, so an overdue item moved "to tomorrow" would land on the day
@@ -387,11 +448,27 @@ export function PlanToday({
       // verbatim from before this hook existed so the refactor stays a refactor.
       await reload();
       await refresh("week");
+      // The sidebar's queue is not part of the planner store, so nothing above
+      // re-reads it — and a pulled application now has a to-do it did not have,
+      // which is what makes the ritual stop offering it. Without this the row
+      // stays offerable until something else happens to reload the list.
+      if (queueApplicationIds.length > 0) onApplicationsChanged?.();
     } catch {
       // Leave the wizard open so the user can retry without redoing three steps,
       // and say so — setError only renders while the list is still loading, so
       // on a loaded page it would have failed in complete silence.
       setRitualError(true);
+      // Then re-read, which the old version did only on the success path. Two
+      // things depend on it. The visible one: a failure partway used to leave
+      // Today showing the pre-ritual list while the server already held new
+      // rows, so "something failed" sat next to a list that looked untouched.
+      // The load-bearing one: POST /actions has no idempotency key, and the
+      // Commit button re-arms, so pressing it again would create every pulled
+      // application a second time — unless the offer has been re-derived from a
+      // list that now contains the first attempt's to-dos, which is exactly what
+      // deduplicates them away. The refresh IS the idempotency.
+      await reload().catch(() => {});
+      onApplicationsChanged?.();
     } finally {
       setRitualBusy(false);
     }
@@ -499,6 +576,13 @@ export function PlanToday({
   // reading an empty result as "nothing carried over". See ritual.ts.
   const plate = ritualPlate(overdue.length, todayItems.length, tz !== null && serverToday !== null);
   const ritualStart = ritualFirstStep(plate);
+  // What the ritual may pull in from the queue. Deduplicated against `items` —
+  // the WHOLE pending list, not today's plate: an application whose apply to-do
+  // is dated next Tuesday has already been agreed to, and re-offering it is how
+  // the same job ends up on the list twice.
+  const queueOffer = offerableQueue(applications.planned, items, (rows) =>
+    rankedIds(rows, freshDays),
+  );
   // Ask only once the day is actually known and the list has loaded: a banner
   // that flashes before the data arrives is a banner that gets clicked away.
   // The question is "has the morning ritual run today", and committed_est is
@@ -599,6 +683,8 @@ export function PlanToday({
         actions={todayItems}
         overdue={overdue}
         startAtStep={ritualStart}
+        queue={queueOffer}
+        freshDays={freshDays}
         cap={cap}
         onApply={applyRitual}
         applying={ritualBusy}
