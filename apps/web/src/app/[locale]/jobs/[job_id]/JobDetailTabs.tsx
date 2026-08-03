@@ -39,6 +39,10 @@ interface JobDetailTabsProps {
    * since it's a Server Component and router.refresh() alone is sufficient
    * there. */
   onMutated?: () => void;
+  /** Whether to offer the actions that belong to the job library rather than
+   *  to the posting — start tracking it, delete it. False when this pane is
+   *  embedded somewhere the job is already tracked. */
+  libraryActions?: boolean;
 }
 
 /* ── Shared ── */
@@ -284,7 +288,7 @@ function FitPanel({
 
 /* ── Main Component ── */
 
-export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExistingReport, jobReportId, onMutated }: JobDetailTabsProps) {
+export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExistingReport, jobReportId, onMutated, libraryActions = true }: JobDetailTabsProps) {
   const t = useTranslations("jobDetail");
   const tJobs = useTranslations("jobs");
   // Default to the first tab that actually has something to show — a job
@@ -360,9 +364,19 @@ export function JobDetailTabs({ job, jd, jobReport, fitReport, profile, hasExist
                 onMutated={onMutated}
               />
             )}
-            <MarkAppliedButton jobId={job.id} onMutated={onMutated} />
-            <span className="w-px h-4 bg-[var(--border)]" />
-            <RemoveJobButton jobId={job.id} />
+            {/* These two act on the job's place in the LIBRARY, not on the
+                posting: one offers to start tracking it, the other deletes it
+                and navigates to /jobs. Neither is right when this pane is
+                being read from inside the tracker — the application already
+                exists, and the navigation would take the day being planned
+                with it. */}
+            {libraryActions && (
+              <>
+                <MarkAppliedButton jobId={job.id} onMutated={onMutated} />
+                <span className="w-px h-4 bg-[var(--border)]" />
+                <RemoveJobButton jobId={job.id} />
+              </>
+            )}
           </div>
         </div>
 

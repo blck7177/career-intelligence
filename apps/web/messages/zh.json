@@ -831,6 +831,7 @@
     "dropConfirmYes": "放弃",
     "cancelShort": "保留",
     "peekJobPage": "职位页",
+    "jobModalTitle": "职位详情",
     "ritualStepProgress": "第 {n} 步，共 {total} 步"
   }
 }

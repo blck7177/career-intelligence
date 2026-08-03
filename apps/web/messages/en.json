@@ -831,6 +831,7 @@
     "dropConfirmYes": "Drop",
     "cancelShort": "Keep",
     "peekJobPage": "Job page",
+    "jobModalTitle": "Job details",
     "ritualStepProgress": "Step {n} of {total}"
   }
 }

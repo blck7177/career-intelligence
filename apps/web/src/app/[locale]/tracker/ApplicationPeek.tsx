@@ -11,6 +11,7 @@ import type { ActionRead, ApplicationDetail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { PeekSurface } from "./PeekSurface";
+import { JobDetailModal } from "./JobDetailModal";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { STATUS_STYLE, LANE_STYLE } from "./status";
@@ -143,6 +144,8 @@ export function ApplicationPeek({
      long notes still live there. */
   const [view, setView] = useState<"peek" | "edit">("peek");
   const [nudged, setNudged] = useState(false);
+  /** The job being read over the top of this panel, or null. */
+  const [jobModal, setJobModal] = useState<string | null>(null);
 
   /* Back to the overview whenever the subject changes or the panel closes: a
      form opened for one application must not still be standing when the next
@@ -150,6 +153,7 @@ export function ApplicationPeek({
   useEffect(() => {
     setView("peek");
     setNudged(false);
+    setJobModal(null);
   }, [appId, open]);
 
   useEffect(() => {
@@ -176,6 +180,13 @@ export function ApplicationPeek({
   }
 
   function interceptDismiss(reason: "escape" | "outside"): boolean {
+    // While the job modal is up, every dismissal belongs to it. The panel
+    // listens on the document — in capture phase for pointerdown — so without
+    // this the first click inside the modal reads as a click outside the card
+    // and closes the panel underneath it, and one Escape closes both surfaces
+    // at once. The modal has its own handling for both; this only declines to
+    // act on the same events.
+    if (jobModal) return true;
     if (view !== "edit") return false;
     if (reason === "escape") {
       setView("peek");
@@ -209,9 +220,14 @@ export function ApplicationPeek({
                         where you decide whether a to-do is worth doing, and
                         "what is this role again" is the question it exists to
                         answer. */}
-                    <Link href={`/jobs/${app.job_id}`} className="truncate hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => setJobModal(app.job_id)}
+                      className="truncate text-left hover:underline"
+                      style={{ color: "var(--primary)" }}
+                    >
                       {app.job?.title ?? t("untitledRole")}
-                    </Link>
+                    </button>
                     {style && (
                       <span
                         className="px-1.5 py-0.5 rounded text-2xs font-semibold shrink-0"
@@ -309,6 +325,7 @@ export function ApplicationPeek({
                     // longer exists — and "Tomorrow" on a retired to-do is a
                     // request the server now refuses.
                     onDropped={() => { onActionsChanged(); onClose(); }}
+                    onOpenJob={() => setJobModal(app.job_id)}
                     t={t}
                   />
 
@@ -348,6 +365,7 @@ export function ApplicationPeek({
 
           </>
         )}
+      <JobDetailModal jobId={jobModal} onClose={() => setJobModal(null)} />
     </PeekSurface>
   );
 }
@@ -533,7 +551,7 @@ function NoteBox({ app, onLogged, t }: { app: ApplicationDetail; onLogged: () =>
  * `manual://` URL that would open to nothing.
  */
 function ApplicationVerbs({
-  app, tz, serverToday, onChanged, onDropped, t,
+  app, tz, serverToday, onChanged, onDropped, onOpenJob, t,
 }: {
   app: ApplicationDetail;
   tz: string | null;
@@ -545,6 +563,8 @@ function ApplicationVerbs({
    *  every pending to-do here, and the buttons above them are still drawn from
    *  the copy this panel loaded before that happened. */
   onDropped: () => void;
+  /** Read the posting without leaving the plan. */
+  onOpenJob: () => void;
   t: T;
 }) {
   const getToken = useApiToken();
@@ -618,9 +638,10 @@ function ApplicationVerbs({
       {/* The job's own page — where the JD, the fit report and resume
           tailoring live. Distinct from the footer's link, which opens this
           APPLICATION's full page; they were briefly both labelled the same. */}
-      <Link href={`/jobs/${app.job_id}`} className="inline-flex">
-        <Button size="sm" variant="outline">{t("peekJobPage")}</Button>
-      </Link>
+      {/* Opens over the plan rather than navigating to it. Both ways into the
+          posting — this and the title above — had to change together, or the
+          same click would leave the page from one place and not the other. */}
+      <Button size="sm" variant="outline" onClick={onOpenJob}>{t("peekJobPage")}</Button>
       {next && tz && serverToday && (
         <Button size="sm" variant="outline" onClick={defer} loading={busy === "defer"} disabled={!!busy}>
           {t("rowReschedule")}
