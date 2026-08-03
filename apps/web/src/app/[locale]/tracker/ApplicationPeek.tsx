@@ -14,7 +14,7 @@ import { PeekSurface } from "./PeekSurface";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { STATUS_STYLE, LANE_STYLE } from "./status";
-import { StatusStepper, eventLabel } from "./ApplicationDetailPane";
+import { StatusStepper, eventLabel, MetaSection, StatusSection, InterviewSection } from "./ApplicationDetailPane";
 import { estOf } from "./capacity";
 
 // Enough to answer "where does this stand" without turning the panel into the
@@ -137,6 +137,54 @@ export function ApplicationPeek({
 
   const style = app ? (STATUS_STYLE[app.status] ?? STATUS_STYLE.planned) : null;
 
+  /* Overview or the editing form. Editing is a mode of this panel rather than a
+     different page, because "change the status" is the commonest reason anyone
+     left it — but the full page keeps every deep link, and the timeline and the
+     long notes still live there. */
+  const [view, setView] = useState<"peek" | "edit">("peek");
+  const [nudged, setNudged] = useState(false);
+
+  /* Back to the overview whenever the subject changes or the panel closes: a
+     form opened for one application must not still be standing when the next
+     one arrives. */
+  useEffect(() => {
+    setView("peek");
+    setNudged(false);
+  }, [appId, open]);
+
+  useEffect(() => {
+    if (!nudged) return;
+    const id = window.setTimeout(() => setNudged(false), 2400);
+    return () => window.clearTimeout(id);
+  }, [nudged]);
+
+  /* Escape steps back out of the form before it closes the panel, and a click
+     outside does neither — it says so instead. The asymmetry is the point:
+     pressing Escape is a decision to leave, so losing a half-typed note is what
+     was asked for; catching the page with a stray click is not, and silently
+     throwing the form away for it would be the panel's fault. */
+  /* Every edit here moves rows, not just readings. A transition can close the
+     application, which retires its pending to-dos server-side; the sidebar has
+     to move the row between its groups; lane and excitement are drawn on the
+     queue rows; an interview is drawn on the week strip. `onActionsChanged` is
+     the wide channel — its handler re-reads the planner (which re-reads the
+     week with it) and the sidebar's own list — so it is the right one for all
+     of them, and `nonce` re-reads the record this panel is showing. */
+  function afterEdit() {
+    setNonce((n) => n + 1);
+    onActionsChanged();
+  }
+
+  function interceptDismiss(reason: "escape" | "outside"): boolean {
+    if (view !== "edit") return false;
+    if (reason === "escape") {
+      setView("peek");
+      return true;
+    }
+    setNudged(true);
+    return true;
+  }
+
   return (
     <PeekSurface
       open={open}
@@ -145,6 +193,7 @@ export function ApplicationPeek({
       // already uses to decide what it is about.
       anchorId={action?.id ?? appId ?? null}
       onClose={onClose}
+      onDismiss={interceptDismiss}
       label={app?.job?.company || action?.title || t("peekLoading")}
     >
         {(action || app || loading) && (
@@ -177,13 +226,25 @@ export function ApplicationPeek({
                         machine, the interview form, lane and excitement) — and
                         the name says the main reason people go there, rather
                         than describing the navigation. */}
-                    <Link
-                      href={`/tracker/${app.id}`}
-                      className="ml-auto shrink-0 text-xs font-medium hover:underline"
-                      style={{ color: "var(--primary)" }}
-                    >
-                      {t("peekEditStatus")}
-                    </Link>
+                    {view === "peek" ? (
+                      <button
+                        type="button"
+                        onClick={() => setView("edit")}
+                        className="ml-auto shrink-0 text-xs font-medium hover:underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        {t("peekEditStatus")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setView("peek")}
+                        className="ml-auto shrink-0 text-xs font-medium hover:underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        {t("peekBackToOverview")}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <span>{appId ? (failed ? t("loadFailed") : "…") : t("peekManualAction")}</span>
@@ -196,7 +257,42 @@ export function ApplicationPeek({
                 <CurrentAction action={action} reason={reason} busy={busy} onRun={run} t={t} />
               )}
 
-              {app && (
+              {app && view === "edit" && (
+                <>
+                  {/* The same components the full page renders, with the same
+                      four props — the record, a token getter, a translator, and
+                      what to do afterwards. Nothing here knows it is in a panel,
+                      which is why the two cannot drift apart. */}
+                  <MetaSection app={app} onMutated={afterEdit} getToken={getToken} t={t} />
+                  <StatusSection
+                    app={app}
+                    onMutated={afterEdit}
+                    // A removed application has no panel to return to.
+                    onDeleted={() => { onActionsChanged(); onClose(); }}
+                    getToken={getToken}
+                    t={t}
+                  />
+                  <InterviewSection app={app} onMutated={afterEdit} getToken={getToken} t={t} />
+
+                  {nudged && (
+                    <p className="text-2xs" role="status" style={{ color: "var(--warn-fg)" }}>
+                      {t("peekEditingHint")}
+                    </p>
+                  )}
+
+                  {/* The rest of the record — the whole timeline, the long notes
+                      — is still the full page's, and this is the way there. */}
+                  <Link
+                    href={`/tracker/${app.id}`}
+                    className="block text-2xs hover:underline"
+                    style={{ color: "var(--ink-faint)" }}
+                  >
+                    {t("peekOpenFull")}
+                  </Link>
+                </>
+              )}
+
+              {app && view === "peek" && (
                 <>
                   <ApplicationVerbs
                     app={app}

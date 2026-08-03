@@ -39,6 +39,7 @@ export function PeekSurface({
   open,
   anchorId,
   onClose,
+  onDismiss,
   label,
   children,
 }: {
@@ -47,6 +48,11 @@ export function PeekSurface({
    *  whatever the opener stamped on itself. Null anchors to the top. */
   anchorId: string | null;
   onClose: () => void;
+  /** Offered a chance to swallow a dismissal before it closes the panel.
+   *  Return true to keep it open. The panel can be showing a form the user is
+   *  half way through, and only its contents know that — the surface knows how
+   *  the dismissal was asked for, which is the other half of the decision. */
+  onDismiss?: (reason: "escape" | "outside") => boolean;
   label: string;
   children: React.ReactNode;
 }) {
@@ -125,11 +131,14 @@ export function PeekSurface({
   useEffect(() => {
     if (!open || !anchored) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (onDismiss?.("escape")) return;
+      onClose();
     };
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null;
       if (!el || cardRef.current?.contains(el) || el.closest(`[${PEEK_ANCHOR_ATTR}]`)) return;
+      if (onDismiss?.("outside")) return;
       onClose();
     };
     document.addEventListener("keydown", onKey);
@@ -138,11 +147,18 @@ export function PeekSurface({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onDown, true);
     };
-  }, [open, anchored, onClose]);
+  }, [open, anchored, onClose, onDismiss]);
 
   if (!anchored) {
     return (
-      <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <Sheet
+        open={open}
+        // Base UI reports a dismissal without saying how it was asked for, so
+        // this reads as the cautious one: on a narrow screen a half-finished
+        // form is kept rather than discarded, and the panel is left by its own
+        // Back or close button.
+        onOpenChange={(next) => { if (next) return; if (onDismiss?.("outside")) return; onClose(); }}
+      >
         <SheetContent className="max-w-[430px] flex flex-col gap-0 p-0">
           {/* The accessible name belongs to whichever surface is rendered, so it
               lives here rather than in the contents. SheetTitle is a Base UI
