@@ -205,8 +205,8 @@ export function ApplicationDetailPane({ applicationId }: Props) {
   );
 }
 
-type Getter = () => Promise<string | null>;
-type T = ReturnType<typeof useTranslations>;
+export type Getter = () => Promise<string | null>;
+export type T = ReturnType<typeof useTranslations>;
 
 const STEPPER = ["planned", "applied", "in_review", "interviewing", "onsite", "offer"];
 
@@ -235,6 +235,13 @@ function currentStep(app: ApplicationDetail): number {
 /** Shared with ApplicationPeek — the same chain has to read identically in the
  *  side panel and the full pane, or the two disagree about where an
  *  application stands. */
+/* MetaSection / StatusSection / InterviewSection below are exported because the
+   peek panel renders them too. They stay in this file rather than moving to one
+   of their own: this is where the status machine lives, and the peek already
+   imports StatusStepper and eventLabel from here. Their props are the same four
+   either way — a host supplies the record, a token getter, a translator, and
+   what to do after a mutation — so neither host learns anything about the
+   other. */
 export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   const cur = currentStep(app);
   const closed = cur === -1;
@@ -266,7 +273,7 @@ export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   );
 }
 
-function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+export function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [lane, setLane] = useState<string | null>(app.lane ?? null);
   const [excitement, setExcitement] = useState<number>(app.excitement ?? 0);
   const [contactName, setContactName] = useState(app.contact_name ?? "");
@@ -353,7 +360,7 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
   );
 }
 
-function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted: () => void; getToken: Getter; t: T }) {
+export function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted: () => void; getToken: Getter; t: T }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -664,7 +671,7 @@ const INTERVIEW_ROUNDS = ["recruiter_screen", "phone", "onsite", "final"] as con
  *  day is gone. */
 const INTERVIEW_LENGTHS = [30, 45, 60, 90, 120, 180] as const;
 
-function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+export function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [round, setRound] = useState<string>("recruiter_screen");
   const [when, setWhen] = useState(""); // datetime-local string
   const [mins, setMins] = useState<string>(""); // "" = not told
