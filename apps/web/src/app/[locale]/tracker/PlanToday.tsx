@@ -15,6 +15,7 @@ import type { PlannerData, PlannerSource } from "./usePlannerData";
 import { ApplicationPeek } from "./ApplicationPeek";
 import { parseQuickAdd, dueAtFor, localMidnightUtc, addDays } from "@/lib/quickParse";
 import { countsTowardToday, dueInfo, isOverdue } from "./dueDate";
+import { PEEK_ANCHOR_ATTR } from "./PeekSurface";
 import { mergeCommitIds, offerableQueue, ritualFirstStep, ritualPlate } from "./ritual";
 import type { ApplicationsList } from "./useApplicationsList";
 import { rankedIds } from "./queueRank";
@@ -640,7 +641,10 @@ export function PlanToday({
   ].filter(Boolean).join(" · ");
 
   return (
-    <section className="w-full">
+    // `relative` makes this the offsetParent the anchored panel measures and
+    // positions against — the plan column itself, so the card scrolls with the
+    // content and cannot be placed outside it.
+    <section className="w-full relative">
       <ZoneHead eyebrow={t("zoneEyebrowToday")} title={t("todayTitle")} sub={zoneSub || undefined} />
 
       {/* Morning ritual. Above the strip and the list because it is the thing
@@ -1182,6 +1186,7 @@ function ActionItem({ a, tz, serverToday, onComplete, onSnooze, onOpen }: {
     // is what makes the row reachable by keyboard (Tab, Enter) without a second
     // code path or a nested-interactive double fire.
     <li
+      {...{ [PEEK_ANCHOR_ATTR]: a.id }}
       onClick={onOpen}
       className="group flex items-center gap-2.5 py-2 border-b cursor-pointer"
       style={{ borderColor: "var(--border)" }}

@@ -10,7 +10,7 @@ import { addDays, localDateOf, localMidnightUtc } from "@/lib/quickParse";
 import type { ActionRead, ApplicationDetail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { PeekSurface } from "./PeekSurface";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { STATUS_STYLE, LANE_STYLE } from "./status";
@@ -138,12 +138,21 @@ export function ApplicationPeek({
   const style = app ? (STATUS_STYLE[app.status] ?? STATUS_STYLE.planned) : null;
 
   return (
-    <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent className="max-w-[430px] flex flex-col gap-0 p-0">
+    <PeekSurface
+      open={open}
+      // The row to sit level with: the to-do when one opened it, otherwise the
+      // sidebar row for the application itself — the same precedence the panel
+      // already uses to decide what it is about.
+      anchorId={action?.id ?? appId ?? null}
+      onClose={onClose}
+      label={app?.job?.company || action?.title || t("peekLoading")}
+    >
         {(action || app || loading) && (
           <>
             <header className="shrink-0 px-5 pt-5 pb-3 pr-10" style={{ borderBottom: "1px solid var(--border)" }}>
-              <SheetTitle>{app?.job?.company || action?.title || t("peekLoading")}</SheetTitle>
+              <h2 className="text-base font-semibold" style={{ color: "var(--ink-primary)" }}>
+                {app?.job?.company || action?.title || t("peekLoading")}
+              </h2>
               <div className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: "var(--ink-muted)" }}>
                 {app ? (
                   <>
@@ -243,8 +252,7 @@ export function ApplicationPeek({
 
           </>
         )}
-      </SheetContent>
-    </Sheet>
+    </PeekSurface>
   );
 }
 

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import type { ApplicationRead } from "@/api/client";
 import { AddApplicationEntry } from "./AddApplicationEntry";
+import { PEEK_ANCHOR_ATTR } from "./PeekSurface";
 import { STATUS_STYLE } from "./status";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { matchesQuery, type ApplicationsList } from "./useApplicationsList";
@@ -165,6 +166,7 @@ function Row({
   return (
     <button
       type="button"
+      {...{ [PEEK_ANCHOR_ATTR]: a.id }}
       onClick={() => onSelect(a.id)}
       className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-[var(--muted)]"
       style={{ background: selected ? "var(--accent)" : undefined }}
