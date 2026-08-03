@@ -72,4 +72,7 @@ export const LANE_STYLE: Record<string, { bg: string; fg: string }> = {
   c: { bg: "var(--match-partial-bg)", fg: "var(--match-partial-fg)" },
 };
 // Lane cycle order for the detail editor: none -> A -> B -> C -> none.
-export const LANE_CYCLE: (string | null)[] = [null, "a", "b", "c"];
+// The lane values, in display order. The cycle array that used to live here
+// died with the cycling pill — the control is a select now, which shows all
+// three at once instead of making you click through them.
+export const LANES = ["a", "b", "c"] as const;

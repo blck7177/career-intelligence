@@ -768,6 +768,9 @@
     "peekDismissToast": "已放弃 —— 如果这条是规则引擎生成的，它不会再生成同样的一条。",
     "peekAllEvents": "全部 {n} 条 →",
     "peekEditStatus": "编辑状态",
+    "peekBackToOverview": "← 概览",
+    "peekEditingHint": "编辑中 —— 用「概览」或 × 离开。",
+    "peekOpenFull": "打开完整页",
     "peekManualAction": "手动待办 · 无关联申请",
     "statusLabel": "状态",
     "untitledRole": "（未命名职位）",
@@ -787,6 +790,12 @@
     "trayCount": "{count} 件",
     "trayEmpty": "托盘清空了——所有待办都有了时间位。",
     "trayHint": "📌 是日历事件（面试），只读。",
+    "slotMenuTitle": "排到 {when}",
+    "slotMenuNew": "在这里新建待办…",
+    "slotMenuPick": "把未排期的放进来…（{count}）",
+    "slotMenuNewPlaceholder": "要做什么？例：投递 Stripe =30m",
+    "slotMenuCreate": "创建并排入",
+    "slotMenuNewHint": "语法与 Today 相同。Esc 返回。",
     "blockTimeUnknownEnd": "{start} · 时长未知",
     "weekdayMon": "一",
     "weekdayTue": "二",
@@ -822,6 +831,7 @@
     "dropConfirmYes": "放弃",
     "cancelShort": "保留",
     "peekJobPage": "职位页",
+    "jobModalTitle": "职位详情",
     "ritualStepProgress": "第 {n} 步，共 {total} 步"
   }
 }

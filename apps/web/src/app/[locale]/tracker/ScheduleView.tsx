@@ -1,21 +1,21 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 
-import { updateAction } from "@/api/client";
+import { createAction, updateAction } from "@/api/client";
 import type { ActionRead, PlannerWeekInterview } from "@/api/client";
 import { useApiToken } from "@/hooks/useApiToken";
 import { toast } from "@/components/ui/toaster";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { optionPillVariants } from "@/components/ui/option-pill-variants";
-import { localWallTimeUtc } from "@/lib/quickParse";
+import { localMidnightUtc, localWallTimeUtc, parseQuickAdd } from "@/lib/quickParse";
 import { estOf, fmtMinutes } from "./capacity";
 import { usePlannerData } from "./usePlannerData";
 import {
   BLOCK_INSET, SLOT, SLOT_H,
-  bandFor, fmtClock, geometryFor, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
+  bandFor, fmtClock, geometryFor, menuPlacement, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
 } from "./scheduleGrid";
 
 /** Sizes taken from the Compass mockup. SLOT_H lives in scheduleGrid because
@@ -76,6 +76,13 @@ export function ScheduleView() {
    *  with a keyboard and invisible on a phone. */
   const [picking, setPicking] = useState<ActionRead | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The slot a double-click opened, and which of the menu's two paths is
+   *  showing. Held here rather than in the cell so only one can ever be open —
+   *  a grid of 126 cells each holding its own popover state is 126 ways to
+   *  leave one behind. */
+  const [slot, setSlot] = useState<
+    { date: string; minutes: number; cell: DOMRect; mode: "menu" | "new" | "pick" } | null
+  >(null);
 
   async function place(actionId: string, date: string, minutes: number) {
     if (!tz || busy) return;
@@ -92,6 +99,55 @@ export function ScheduleView() {
         token,
       );
       await refresh("schedule");
+    } catch {
+      toast.error(t("scheduleFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** New to-do, straight onto the grid.
+   *
+   *  Two requests, in this order, because there is no endpoint that does both:
+   *  POST /actions then PATCH {op:"schedule"}. Create first, because a schedule
+   *  needs something to schedule; if the second fails the to-do still exists and
+   *  lands in the unscheduled tray, where it is visible and one drag from where
+   *  it was meant to go. The other order would have nothing to show for a
+   *  failure.
+   *
+   *  due_at is the day it was dropped on. "Scheduled for Wednesday" and "owed on
+   *  Wednesday" are the same fact here, and leaving it undated would put the
+   *  to-do in Today's Anytime group, weighing on every day at once.
+   *
+   *  The text goes through the SAME parser as Today's quick-add, so "apply to
+   *  Stripe =30m" means what it means over there — one syntax, learned once.
+   */
+  async function createAndPlace(raw: string, date: string, minutes: number) {
+    if (!tz || busy) return;
+    const text = raw.trim();
+    if (!text) return;
+    setBusy(true);
+    try {
+      const token = await getToken();
+      // Dates are refused, not parsed: the slot IS the date, and a "next tue"
+      // in the text would silently disagree with the cell that was clicked.
+      const parsed = parseQuickAdd(text, tz, { accept: { date: false } });
+      const created = await createAction(
+        {
+          type: parsed.type?.value ?? "custom",
+          title: parsed.title || text,
+          due_at: localMidnightUtc(date, tz),
+          est_minutes: parsed.duration?.minutes,
+        },
+        token,
+      );
+      await updateAction(
+        created.id,
+        { op: "schedule", snooze_days: 1, scheduled_at: localWallTimeUtc(date, tz, minutes) },
+        token,
+      );
+      setSlot(null);
+      await refresh("schedule", "week");
     } catch {
       toast.error(t("scheduleFailed"));
     } finally {
@@ -275,6 +331,7 @@ export function ScheduleView() {
                     if (dragId) void place(dragId, date, min);
                     setDragId(null);
                   }}
+                  onOpenSlot={(date, min, cell) => setSlot({ date, minutes: min, cell, mode: "menu" })}
                   onBlockDragStart={setDragId}
                   onBlockDragEnd={() => { setDragId(null); setOver(null); }}
                   onPick={setPicking}
@@ -293,6 +350,20 @@ export function ScheduleView() {
           </div>
         </div>
       </div>
+
+      {slot && tz && (
+        <SlotMenu
+          slot={slot}
+          tray={tray ?? []}
+          busy={busy}
+          onMode={(mode) => setSlot((s) => (s ? { ...s, mode } : s))}
+          onClose={() => setSlot(null)}
+          onCreate={(text) => void createAndPlace(text, slot.date, slot.minutes)}
+          onPickExisting={(id) => { setSlot(null); void place(id, slot.date, slot.minutes); }}
+          label={`${slot.date.slice(5)} ${fmtClock(slot.minutes)}`}
+          t={t}
+        />
+      )}
 
       {picking && (
         <SchedulePicker
@@ -496,7 +567,7 @@ function SchedulePicker({
 }
 
 function RowCells({
-  minutes, days, byDay, band, over, dragging, onOver, onDrop,
+  minutes, days, byDay, band, over, dragging, onOver, onDrop, onOpenSlot,
   onBlockDragStart, onBlockDragEnd, onPick, onRemove, t,
 }: {
   minutes: number;
@@ -507,6 +578,7 @@ function RowCells({
   dragging: boolean;
   onOver: (key: string | null) => void;
   onDrop: (date: string, minutes: number) => void;
+  onOpenSlot: (date: string, minutes: number, cell: DOMRect) => void;
   onBlockDragStart: (id: string) => void;
   onBlockDragEnd: () => void;
   onPick: (a: ActionRead) => void;
@@ -554,6 +626,16 @@ function RowCells({
               if (!dragging) return;
               e.preventDefault();
               onDrop(d.date, minutes);
+            }}
+            // Double-click is the calendar gesture for "put something here".
+            // Ignored on a cell that already holds a block: a block has its own
+            // verbs, and reaching for one is not a request for an empty slot.
+            // Rest days are left out too — nothing new comes due on a day off,
+            // which is the same rule the engine follows.
+            onDoubleClick={(e) => {
+              if (d.is_rest) return;
+              if ((e.target as HTMLElement).closest("[data-schedule-block]")) return;
+              onOpenSlot(d.date, minutes, e.currentTarget.getBoundingClientRect());
             }}
           >
             {byDay[i]
@@ -604,6 +686,7 @@ function Block({
 
   return (
     <div
+      data-schedule-block=""
       className="absolute rounded-[7px] px-2 py-[3px] text-[11px] leading-[1.35] overflow-hidden group"
       style={{
         left: BLOCK_INSET, right: BLOCK_INSET, top, height: geo.height, zIndex: 3,
@@ -680,6 +763,154 @@ function DayFoot({
         : cap > 0
           ? `${fmtMinutes(total)} / ${fmtMinutes(cap)}${unknown ? " +?" : ""}`
           : `${fmtMinutes(total)}${unknown ? " +?" : ""}`}
+    </div>
+  );
+}
+
+/**
+ * What a double-click on an empty slot offers: make something new here, or put
+ * something already waiting here.
+ *
+ * Two steps rather than one, which is the shape that was chosen over opening
+ * straight into a composer. It costs a click and buys the other path a home:
+ * the tray can be reached from the slot you are looking at instead of from the
+ * far side of the screen.
+ *
+ * Fixed to the viewport, not absolute in the cell. The grid lives inside an
+ * `overflow-x-auto` wrapper, so a cell-relative popover on Sunday — the column
+ * furthest right, and the one a week is most often planned from — would be
+ * clipped by its own scroller.
+ */
+function SlotMenu({
+  slot, tray, busy, onMode, onClose, onCreate, onPickExisting, label, t,
+}: {
+  slot: { date: string; minutes: number; cell: DOMRect; mode: "menu" | "new" | "pick" };
+  tray: ActionRead[];
+  busy: boolean;
+  onMode: (mode: "menu" | "new" | "pick") => void;
+  onClose: () => void;
+  onCreate: (text: string) => void;
+  onPickExisting: (id: string) => void;
+  label: string;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  const [text, setText] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  // Measured after the mode's own content is in, because the menu, the composer
+  // and a list of eight tray rows are three different heights and the placement
+  // has to clamp against the real one.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setPos(menuPlacement(
+      slot.cell,
+      { width: el.offsetWidth, height: el.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+    ));
+  }, [slot.cell, slot.mode, tray.length]);
+
+  useEffect(() => {
+    if (slot.mode === "new") inputRef.current?.focus();
+  }, [slot.mode]);
+
+  // Escape steps back to the menu from either path before it closes, so a
+  // mistyped composer does not cost the slot as well as the text.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (slot.mode === "menu") onClose();
+      else onMode("menu");
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [slot.mode, onClose, onMode]);
+
+  const itemCls = "w-full text-left px-2.5 py-[7px] rounded-[8px] text-[12.5px] hover:bg-[var(--muted)]";
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-label={t("slotMenuTitle", { when: label })}
+      className="fixed z-50 w-[264px] rounded-[12px] p-2.5"
+      style={{
+        left: pos?.left ?? -9999,
+        top: pos?.top ?? -9999,
+        // Hidden until measured rather than flashed at the wrong place first.
+        visibility: pos ? "visible" : "hidden",
+        background: "var(--card)",
+        border: "1px solid var(--border)",
+        boxShadow: "var(--shadow-pop, 0 10px 30px rgba(0,0,0,.18))",
+      }}
+    >
+      <div className="text-[10.5px] mb-1.5 px-1" style={{ color: "var(--ink-muted)" }}>
+        {t("slotMenuTitle", { when: label })}
+      </div>
+
+      {slot.mode === "menu" && (
+        <>
+          <button type="button" className={itemCls} onClick={() => onMode("new")}>
+            {t("slotMenuNew")}
+          </button>
+          <button type="button" className={itemCls} onClick={() => onMode("pick")}>
+            {t("slotMenuPick", { count: tray.length })}
+          </button>
+        </>
+      )}
+
+      {slot.mode === "new" && (
+        <>
+          <input
+            ref={inputRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") onCreate(text); }}
+            placeholder={t("slotMenuNewPlaceholder")}
+            disabled={busy}
+            className="w-full rounded-[8px] px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+            style={{ background: "var(--background)", border: "1px solid var(--border)", color: "var(--foreground)" }}
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <Button size="sm" onClick={() => onCreate(text)} disabled={busy || !text.trim()} loading={busy}>
+              {t("slotMenuCreate")}
+            </Button>
+            <span className="text-[10.5px]" style={{ color: "var(--ink-muted)" }}>{t("slotMenuNewHint")}</span>
+          </div>
+        </>
+      )}
+
+      {slot.mode === "pick" && (
+        <div className="max-h-[220px] overflow-y-auto">
+          {tray.length === 0 ? (
+            <p className="text-xs px-1 py-2" style={{ color: "var(--ink-muted)" }}>{t("trayEmpty")}</p>
+          ) : (
+            tray.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className={`${itemCls} flex items-center gap-2`}
+                onClick={() => onPickExisting(a.id)}
+                disabled={busy}
+              >
+                <span className="truncate">{a.title}</span>
+                <span className="ml-auto text-[10.5px] tabular-nums shrink-0" style={{ color: "var(--ink-muted)" }}>
+                  ~{estOf(a)}m
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }

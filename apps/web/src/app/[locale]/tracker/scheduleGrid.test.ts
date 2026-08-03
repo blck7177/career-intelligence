@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_END, DEFAULT_START, SLOT, SLOT_H,
-  bandFor, fmtClock, geometryFor, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
+  bandFor, fmtClock, geometryFor, menuPlacement, minutesOfDay, mondayOf, monthGrid, rowsFor, shiftMonth, snapDuration,
 } from "./scheduleGrid";
 
 const NY = "America/New_York";
@@ -146,5 +146,45 @@ describe("the month grid behind the week picker", () => {
     expect(shiftMonth("2026-01-31", 1)).toBe("2026-02-28");
     expect(shiftMonth("2026-12-15", 1)).toBe("2027-01-15");
     expect(shiftMonth("2026-01-15", -1)).toBe("2025-12-15");
+  });
+});
+
+describe("menuPlacement", () => {
+  const VP = { width: 1500, height: 900 };
+  const MENU = { width: 250, height: 160 };
+  const cell = (over: Partial<{ left: number; top: number; right: number; bottom: number }> = {}) =>
+    ({ left: 400, top: 300, right: 500, bottom: 334, ...over });
+
+  it("opens to the right of the cell, clear of the slot being aimed at", () => {
+    expect(menuPlacement(cell(), MENU, VP)).toEqual({ left: 506, top: 300 });
+  });
+
+  it("flips to the left rather than hanging off the right edge", () => {
+    // Sunday, the last column — the one a week is most often planned from.
+    const sunday = cell({ left: 1330, right: 1430 });
+    const { left } = menuPlacement(sunday, MENU, VP);
+    expect(left).toBe(1330 - 6 - 250);
+    expect(left + MENU.width).toBeLessThanOrEqual(sunday.left);
+  });
+
+  it("slides up instead of running past the bottom", () => {
+    const late = cell({ top: 820, bottom: 854 });
+    expect(menuPlacement(late, MENU, VP).top).toBe(900 - 160 - 6);
+  });
+
+  it("never places the menu outside the viewport, from any cell", () => {
+    for (const left of [0, 40, 700, 1300, 1480]) {
+      for (const top of [0, 10, 450, 880]) {
+        const { left: L, top: T } = menuPlacement(cell({ left, top, right: left + 100, bottom: top + 34 }), MENU, VP);
+        expect(L).toBeGreaterThanOrEqual(6);
+        expect(T).toBeGreaterThanOrEqual(6);
+        expect(T + MENU.height).toBeLessThanOrEqual(VP.height);
+      }
+    }
+  });
+
+  it("pins to the gap when the menu is taller than the viewport", () => {
+    // A short window with the picker listing many unscheduled items.
+    expect(menuPlacement(cell(), { width: 250, height: 1200 }, VP).top).toBe(6);
   });
 });

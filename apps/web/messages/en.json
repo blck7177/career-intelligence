@@ -768,6 +768,9 @@
     "peekDismissToast": "Dropped — and if the planner raised it, it won't raise that one again.",
     "peekAllEvents": "All {n} →",
     "peekEditStatus": "Edit status",
+    "peekBackToOverview": "← Overview",
+    "peekEditingHint": "Still editing — use Overview or × to leave.",
+    "peekOpenFull": "Open the full page",
     "peekManualAction": "Manual to-do · not linked to an application",
     "statusLabel": "Status",
     "untitledRole": "(untitled role)",
@@ -787,6 +790,12 @@
     "trayCount": "{count} waiting",
     "trayEmpty": "Tray is clear — everything waiting has a time.",
     "trayHint": "📌 marks a calendar event (an interview) — read-only.",
+    "slotMenuTitle": "{when} on the grid",
+    "slotMenuNew": "New to-do here…",
+    "slotMenuPick": "Put an unscheduled one here… ({count})",
+    "slotMenuNewPlaceholder": "What needs doing?  e.g. apply to Stripe =30m",
+    "slotMenuCreate": "Create & place",
+    "slotMenuNewHint": "Same syntax as Today. Esc goes back.",
     "blockTimeUnknownEnd": "{start} · length not known",
     "weekdayMon": "Mon",
     "weekdayTue": "Tue",
@@ -822,6 +831,7 @@
     "dropConfirmYes": "Drop",
     "cancelShort": "Keep",
     "peekJobPage": "Job page",
+    "jobModalTitle": "Job details",
     "ritualStepProgress": "Step {n} of {total}"
   }
 }

@@ -10,11 +10,12 @@ import { addDays, localDateOf, localMidnightUtc } from "@/lib/quickParse";
 import type { ActionRead, ApplicationDetail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { PeekSurface } from "./PeekSurface";
+import { JobDetailModal } from "./JobDetailModal";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { STATUS_STYLE, LANE_STYLE } from "./status";
-import { StatusStepper, eventLabel } from "./ApplicationDetailPane";
+import { StatusStepper, eventLabel, MetaSection, StatusSection, InterviewSection } from "./ApplicationDetailPane";
 import { estOf } from "./capacity";
 
 // Enough to answer "where does this stand" without turning the panel into the
@@ -137,13 +138,81 @@ export function ApplicationPeek({
 
   const style = app ? (STATUS_STYLE[app.status] ?? STATUS_STYLE.planned) : null;
 
+  /* Overview or the editing form. Editing is a mode of this panel rather than a
+     different page, because "change the status" is the commonest reason anyone
+     left it — but the full page keeps every deep link, and the timeline and the
+     long notes still live there. */
+  const [view, setView] = useState<"peek" | "edit">("peek");
+  const [nudged, setNudged] = useState(false);
+  /** The job being read over the top of this panel, or null. */
+  const [jobModal, setJobModal] = useState<string | null>(null);
+
+  /* Back to the overview whenever the subject changes or the panel closes: a
+     form opened for one application must not still be standing when the next
+     one arrives. */
+  useEffect(() => {
+    setView("peek");
+    setNudged(false);
+    setJobModal(null);
+  }, [appId, open]);
+
+  useEffect(() => {
+    if (!nudged) return;
+    const id = window.setTimeout(() => setNudged(false), 2400);
+    return () => window.clearTimeout(id);
+  }, [nudged]);
+
+  /* Escape steps back out of the form before it closes the panel, and a click
+     outside does neither — it says so instead. The asymmetry is the point:
+     pressing Escape is a decision to leave, so losing a half-typed note is what
+     was asked for; catching the page with a stray click is not, and silently
+     throwing the form away for it would be the panel's fault. */
+  /* Every edit here moves rows, not just readings. A transition can close the
+     application, which retires its pending to-dos server-side; the sidebar has
+     to move the row between its groups; lane and excitement are drawn on the
+     queue rows; an interview is drawn on the week strip. `onActionsChanged` is
+     the wide channel — its handler re-reads the planner (which re-reads the
+     week with it) and the sidebar's own list — so it is the right one for all
+     of them, and `nonce` re-reads the record this panel is showing. */
+  function afterEdit() {
+    setNonce((n) => n + 1);
+    onActionsChanged();
+  }
+
+  function interceptDismiss(reason: "escape" | "outside"): boolean {
+    // While the job modal is up, every dismissal belongs to it. The panel
+    // listens on the document — in capture phase for pointerdown — so without
+    // this the first click inside the modal reads as a click outside the card
+    // and closes the panel underneath it, and one Escape closes both surfaces
+    // at once. The modal has its own handling for both; this only declines to
+    // act on the same events.
+    if (jobModal) return true;
+    if (view !== "edit") return false;
+    if (reason === "escape") {
+      setView("peek");
+      return true;
+    }
+    setNudged(true);
+    return true;
+  }
+
   return (
-    <Sheet open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <SheetContent className="max-w-[430px] flex flex-col gap-0 p-0">
+    <PeekSurface
+      open={open}
+      // The row to sit level with: the to-do when one opened it, otherwise the
+      // sidebar row for the application itself — the same precedence the panel
+      // already uses to decide what it is about.
+      anchorId={action?.id ?? appId ?? null}
+      onClose={onClose}
+      onDismiss={interceptDismiss}
+      label={app?.job?.company || action?.title || t("peekLoading")}
+    >
         {(action || app || loading) && (
           <>
             <header className="shrink-0 px-5 pt-5 pb-3 pr-10" style={{ borderBottom: "1px solid var(--border)" }}>
-              <SheetTitle>{app?.job?.company || action?.title || t("peekLoading")}</SheetTitle>
+              <h2 className="text-base font-semibold" style={{ color: "var(--ink-primary)" }}>
+                {app?.job?.company || action?.title || t("peekLoading")}
+              </h2>
               <div className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: "var(--ink-muted)" }}>
                 {app ? (
                   <>
@@ -151,9 +220,14 @@ export function ApplicationPeek({
                         where you decide whether a to-do is worth doing, and
                         "what is this role again" is the question it exists to
                         answer. */}
-                    <Link href={`/jobs/${app.job_id}`} className="truncate hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => setJobModal(app.job_id)}
+                      className="truncate text-left hover:underline"
+                      style={{ color: "var(--primary)" }}
+                    >
                       {app.job?.title ?? t("untitledRole")}
-                    </Link>
+                    </button>
                     {style && (
                       <span
                         className="px-1.5 py-0.5 rounded text-2xs font-semibold shrink-0"
@@ -168,13 +242,25 @@ export function ApplicationPeek({
                         machine, the interview form, lane and excitement) — and
                         the name says the main reason people go there, rather
                         than describing the navigation. */}
-                    <Link
-                      href={`/tracker/${app.id}`}
-                      className="ml-auto shrink-0 text-xs font-medium hover:underline"
-                      style={{ color: "var(--primary)" }}
-                    >
-                      {t("peekEditStatus")}
-                    </Link>
+                    {view === "peek" ? (
+                      <button
+                        type="button"
+                        onClick={() => setView("edit")}
+                        className="ml-auto shrink-0 text-xs font-medium hover:underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        {t("peekEditStatus")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setView("peek")}
+                        className="ml-auto shrink-0 text-xs font-medium hover:underline"
+                        style={{ color: "var(--primary)" }}
+                      >
+                        {t("peekBackToOverview")}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <span>{appId ? (failed ? t("loadFailed") : "…") : t("peekManualAction")}</span>
@@ -187,7 +273,42 @@ export function ApplicationPeek({
                 <CurrentAction action={action} reason={reason} busy={busy} onRun={run} t={t} />
               )}
 
-              {app && (
+              {app && view === "edit" && (
+                <>
+                  {/* The same components the full page renders, with the same
+                      four props — the record, a token getter, a translator, and
+                      what to do afterwards. Nothing here knows it is in a panel,
+                      which is why the two cannot drift apart. */}
+                  <MetaSection app={app} onMutated={afterEdit} getToken={getToken} t={t} />
+                  <StatusSection
+                    app={app}
+                    onMutated={afterEdit}
+                    // A removed application has no panel to return to.
+                    onDeleted={() => { onActionsChanged(); onClose(); }}
+                    getToken={getToken}
+                    t={t}
+                  />
+                  <InterviewSection app={app} onMutated={afterEdit} getToken={getToken} t={t} />
+
+                  {nudged && (
+                    <p className="text-2xs" role="status" style={{ color: "var(--warn-fg)" }}>
+                      {t("peekEditingHint")}
+                    </p>
+                  )}
+
+                  {/* The rest of the record — the whole timeline, the long notes
+                      — is still the full page's, and this is the way there. */}
+                  <Link
+                    href={`/tracker/${app.id}`}
+                    className="block text-2xs hover:underline"
+                    style={{ color: "var(--ink-faint)" }}
+                  >
+                    {t("peekOpenFull")}
+                  </Link>
+                </>
+              )}
+
+              {app && view === "peek" && (
                 <>
                   <ApplicationVerbs
                     app={app}
@@ -204,6 +325,7 @@ export function ApplicationPeek({
                     // longer exists — and "Tomorrow" on a retired to-do is a
                     // request the server now refuses.
                     onDropped={() => { onActionsChanged(); onClose(); }}
+                    onOpenJob={() => setJobModal(app.job_id)}
                     t={t}
                   />
 
@@ -243,8 +365,8 @@ export function ApplicationPeek({
 
           </>
         )}
-      </SheetContent>
-    </Sheet>
+      <JobDetailModal jobId={jobModal} onClose={() => setJobModal(null)} />
+    </PeekSurface>
   );
 }
 
@@ -429,7 +551,7 @@ function NoteBox({ app, onLogged, t }: { app: ApplicationDetail; onLogged: () =>
  * `manual://` URL that would open to nothing.
  */
 function ApplicationVerbs({
-  app, tz, serverToday, onChanged, onDropped, t,
+  app, tz, serverToday, onChanged, onDropped, onOpenJob, t,
 }: {
   app: ApplicationDetail;
   tz: string | null;
@@ -441,6 +563,8 @@ function ApplicationVerbs({
    *  every pending to-do here, and the buttons above them are still drawn from
    *  the copy this panel loaded before that happened. */
   onDropped: () => void;
+  /** Read the posting without leaving the plan. */
+  onOpenJob: () => void;
   t: T;
 }) {
   const getToken = useApiToken();
@@ -514,9 +638,10 @@ function ApplicationVerbs({
       {/* The job's own page — where the JD, the fit report and resume
           tailoring live. Distinct from the footer's link, which opens this
           APPLICATION's full page; they were briefly both labelled the same. */}
-      <Link href={`/jobs/${app.job_id}`} className="inline-flex">
-        <Button size="sm" variant="outline">{t("peekJobPage")}</Button>
-      </Link>
+      {/* Opens over the plan rather than navigating to it. Both ways into the
+          posting — this and the title above — had to change together, or the
+          same click would leave the page from one place and not the other. */}
+      <Button size="sm" variant="outline" onClick={onOpenJob}>{t("peekJobPage")}</Button>
       {next && tz && serverToday && (
         <Button size="sm" variant="outline" onClick={defer} loading={busy === "defer"} disabled={!!busy}>
           {t("rowReschedule")}

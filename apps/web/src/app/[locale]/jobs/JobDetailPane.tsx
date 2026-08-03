@@ -37,6 +37,8 @@ interface JobDetailPaneProps {
   /** Fit report id for this job from the parent list's fit map, if analyzed —
    *  lets us fetch the fit report directly instead of re-listing all of them. */
   fitReportId?: string | null;
+  /** Forwarded to JobDetailTabs — see there. */
+  libraryActions?: boolean;
 }
 
 interface Loaded {
@@ -45,7 +47,7 @@ interface Loaded {
   fit: FitReportResponse | null;
 }
 
-export function JobDetailPane({ jobId, profile, fitReportId }: JobDetailPaneProps) {
+export function JobDetailPane({ jobId, profile, fitReportId, libraryActions = true }: JobDetailPaneProps) {
   const t = useTranslations("jobDetail");
   const getToken = useApiToken();
   const [data, setData] = useState<Loaded | null>(null);
@@ -193,6 +195,7 @@ export function JobDetailPane({ jobId, profile, fitReportId }: JobDetailPaneProp
         hasExistingReport={!!report}
         jobReportId={report?.id}
         onMutated={() => setRefetchNonce((n) => n + 1)}
+        libraryActions={libraryActions}
       />
     </div>
   );

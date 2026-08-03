@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toaster";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { localDateTimeUtc, parseQuickAdd } from "@/lib/quickParse";
-import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE, restoreTargetOf } from "./status";
+import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANES, restoreTargetOf } from "./status";
 
 interface Props {
   applicationId: string | null;
@@ -205,8 +205,8 @@ export function ApplicationDetailPane({ applicationId }: Props) {
   );
 }
 
-type Getter = () => Promise<string | null>;
-type T = ReturnType<typeof useTranslations>;
+export type Getter = () => Promise<string | null>;
+export type T = ReturnType<typeof useTranslations>;
 
 const STEPPER = ["planned", "applied", "in_review", "interviewing", "onsite", "offer"];
 
@@ -235,6 +235,13 @@ function currentStep(app: ApplicationDetail): number {
 /** Shared with ApplicationPeek — the same chain has to read identically in the
  *  side panel and the full pane, or the two disagree about where an
  *  application stands. */
+/* MetaSection / StatusSection / InterviewSection below are exported because the
+   peek panel renders them too. They stay in this file rather than moving to one
+   of their own: this is where the status machine lives, and the peek already
+   imports StatusStepper and eventLabel from here. Their props are the same four
+   either way — a host supplies the record, a token getter, a translator, and
+   what to do after a mutation — so neither host learns anything about the
+   other. */
 export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   const cur = currentStep(app);
   const closed = cur === -1;
@@ -266,7 +273,7 @@ export function StatusStepper({ app, t }: { app: ApplicationDetail; t: T }) {
   );
 }
 
-function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+export function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [lane, setLane] = useState<string | null>(app.lane ?? null);
   const [excitement, setExcitement] = useState<number>(app.excitement ?? 0);
   const [contactName, setContactName] = useState(app.contact_name ?? "");
@@ -283,12 +290,6 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
     } catch {
       // keep the optimistic value; reselecting the row refetches and reconciles
     }
-  }
-
-  function cycleLane() {
-    const next = LANE_CYCLE[(LANE_CYCLE.indexOf(lane) + 1) % LANE_CYCLE.length];
-    setLane(next);
-    patch({ lane: next });
   }
 
   function setStar(n: number) {
@@ -315,13 +316,30 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
     <section className="flex flex-wrap items-start gap-x-6 gap-y-3">
       <div>
         <div className={labelCls} style={{ color: "var(--ink-faint)" }}>{t("laneLabel")}</div>
-        <button
-          onClick={cycleLane}
-          className="px-2.5 py-1 rounded-full text-xs font-bold border"
-          style={laneStyle ? { background: laneStyle.bg, color: laneStyle.fg, borderColor: "transparent" } : { color: "var(--ink-muted)", borderColor: "var(--border)" }}
+        {/* A select, not the cycling pill it used to be. Cycling shows one value
+            and hides the rest, so choosing C from unset meant three clicks and
+            three writes, each one landing as a real PATCH. The tint keeps the
+            lane's colour language now that the pill is gone. */}
+        <select
+          value={lane ?? ""}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            setLane(next);
+            patch({ lane: next });
+          }}
+          aria-label={t("laneLabel")}
+          className="h-8 px-2 rounded-md border text-xs font-bold outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+          style={
+            laneStyle
+              ? { background: laneStyle.bg, color: laneStyle.fg, borderColor: "transparent" }
+              : { color: "var(--ink-muted)", borderColor: "var(--border)" }
+          }
         >
-          {lane ? lane.toUpperCase() : "—"}
-        </button>
+          <option value="">—</option>
+          {LANES.map((l) => (
+            <option key={l} value={l}>{l.toUpperCase()}</option>
+          ))}
+        </select>
       </div>
       <div>
         <div className={labelCls} style={{ color: "var(--ink-faint)" }}>{t("excitementLabel")}</div>
@@ -353,7 +371,7 @@ function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; 
   );
 }
 
-function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted: () => void; getToken: Getter; t: T }) {
+export function StatusSection({ app, onMutated, onDeleted, getToken, t }: { app: ApplicationDetail; onMutated: () => void; onDeleted: () => void; getToken: Getter; t: T }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [removing, setRemoving] = useState(false);
@@ -664,7 +682,7 @@ const INTERVIEW_ROUNDS = ["recruiter_screen", "phone", "onsite", "final"] as con
  *  day is gone. */
 const INTERVIEW_LENGTHS = [30, 45, 60, 90, 120, 180] as const;
 
-function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
+export function InterviewSection({ app, onMutated, getToken, t }: { app: ApplicationDetail; onMutated: () => void; getToken: Getter; t: T }) {
   const [round, setRound] = useState<string>("recruiter_screen");
   const [when, setWhen] = useState(""); // datetime-local string
   const [mins, setMins] = useState<string>(""); // "" = not told
