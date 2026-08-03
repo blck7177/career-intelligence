@@ -767,7 +767,7 @@
     "dropAcknowledge": "我知道：这 {n} 项会被放弃；其中由规则引擎自己生成的，不会再被提起。",
     "peekDismissToast": "已放弃 —— 如果这条是规则引擎生成的，它不会再生成同样的一条。",
     "peekAllEvents": "全部 {n} 条 →",
-    "peekOpenFull": "打开全页 ↗",
+    "peekEditStatus": "编辑状态",
     "peekManualAction": "手动待办 · 无关联申请",
     "statusLabel": "状态",
     "untitledRole": "（未命名职位）",

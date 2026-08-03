@@ -767,7 +767,7 @@
     "dropAcknowledge": "I understand: {n, plural, one {this to-do} other {these # to-dos}} will be dropped, and anything the planner raised itself it will not raise again.",
     "peekDismissToast": "Dropped — and if the planner raised it, it won't raise that one again.",
     "peekAllEvents": "All {n} →",
-    "peekOpenFull": "Open full page ↗",
+    "peekEditStatus": "Edit status",
     "peekManualAction": "Manual to-do · not linked to an application",
     "statusLabel": "Status",
     "untitledRole": "(untitled role)",
