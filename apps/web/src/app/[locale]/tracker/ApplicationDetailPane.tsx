@@ -19,7 +19,7 @@ import { toast } from "@/components/ui/toaster";
 import { fmtTs } from "@/lib/utils";
 import { bandOf, BAND } from "@/lib/matchBand";
 import { localDateTimeUtc, parseQuickAdd } from "@/lib/quickParse";
-import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANE_CYCLE, restoreTargetOf } from "./status";
+import { STATUS_STYLE, FORWARD_NEXT, CLOSE_STATUSES, LIVE_STATUSES, LANE_STYLE, LANES, restoreTargetOf } from "./status";
 
 interface Props {
   applicationId: string | null;
@@ -292,12 +292,6 @@ export function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationD
     }
   }
 
-  function cycleLane() {
-    const next = LANE_CYCLE[(LANE_CYCLE.indexOf(lane) + 1) % LANE_CYCLE.length];
-    setLane(next);
-    patch({ lane: next });
-  }
-
   function setStar(n: number) {
     const next = excitement === n ? 0 : n; // clicking the current value clears it
     setExcitement(next);
@@ -322,13 +316,30 @@ export function MetaSection({ app, onMutated, getToken, t }: { app: ApplicationD
     <section className="flex flex-wrap items-start gap-x-6 gap-y-3">
       <div>
         <div className={labelCls} style={{ color: "var(--ink-faint)" }}>{t("laneLabel")}</div>
-        <button
-          onClick={cycleLane}
-          className="px-2.5 py-1 rounded-full text-xs font-bold border"
-          style={laneStyle ? { background: laneStyle.bg, color: laneStyle.fg, borderColor: "transparent" } : { color: "var(--ink-muted)", borderColor: "var(--border)" }}
+        {/* A select, not the cycling pill it used to be. Cycling shows one value
+            and hides the rest, so choosing C from unset meant three clicks and
+            three writes, each one landing as a real PATCH. The tint keeps the
+            lane's colour language now that the pill is gone. */}
+        <select
+          value={lane ?? ""}
+          onChange={(e) => {
+            const next = e.target.value || null;
+            setLane(next);
+            patch({ lane: next });
+          }}
+          aria-label={t("laneLabel")}
+          className="h-8 px-2 rounded-md border text-xs font-bold outline-none focus:ring-2 focus:ring-[var(--primary)]/20"
+          style={
+            laneStyle
+              ? { background: laneStyle.bg, color: laneStyle.fg, borderColor: "transparent" }
+              : { color: "var(--ink-muted)", borderColor: "var(--border)" }
+          }
         >
-          {lane ? lane.toUpperCase() : "—"}
-        </button>
+          <option value="">—</option>
+          {LANES.map((l) => (
+            <option key={l} value={l}>{l.toUpperCase()}</option>
+          ))}
+        </select>
       </div>
       <div>
         <div className={labelCls} style={{ color: "var(--ink-faint)" }}>{t("excitementLabel")}</div>
