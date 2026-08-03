@@ -70,7 +70,7 @@ def test_frontend_and_backend_estimate_tables_agree():
 
 def test_effective_estimate_falls_back_only_when_unset():
     assert effective_est_minutes("apply", 45) == 45  # explicit wins
-    assert effective_est_minutes("apply", None) == 60  # per-type default
+    assert effective_est_minutes("apply", None) == 5  # per-type default
     assert effective_est_minutes("apply", 0) == 0  # 0 is a value, not "unset"
     assert effective_est_minutes("something_new", None) == 20  # unknown type
 

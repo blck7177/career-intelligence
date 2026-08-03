@@ -105,7 +105,11 @@ DEFAULT_EST_MINUTES = {
     "follow_up": 15,
     "thank_you": 15,
     "prep": 30,
-    "apply": 60,
+    # 5, not 60: in this workflow the submission itself is the five-minute act —
+    # tailoring happens in its own pipeline before anything reaches this list.
+    # At 60, one application pulled into today consumed two thirds of the
+    # default 90-minute cap, and a five-row morning read as 300m over a 90m day.
+    "apply": 5,
     "global": 15,
     # Never emitted by a rule — these two only ever arrive from the user's own
     # quick-add, where est_minutes is optional. They are here because

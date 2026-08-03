@@ -167,7 +167,7 @@ def test_apply_or_drop_fires():
     app = _app(status="planned", applied_at=None, created_at=_d(15))
     specs = [s for s in _gen([app]) if s.type == "apply"]
     assert len(specs) == 1
-    assert specs[0].est_minutes == 60
+    assert specs[0].est_minutes == 5
     assert specs[0].payload == {"rule": "apply_or_drop", "days_planned": 15}
 
 
