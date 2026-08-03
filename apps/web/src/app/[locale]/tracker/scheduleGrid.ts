@@ -165,3 +165,39 @@ export function shiftMonth(anchor: string, months: number): string {
   target.setUTCDate(Math.min(d, lastDay));
   return target.toISOString().slice(0, 10);
 }
+
+/** A rectangle in viewport coordinates — what getBoundingClientRect returns. */
+export interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Where to put a popover opened from a grid cell.
+ *
+ * Viewport-fixed rather than absolute inside the cell, because the grid sits in
+ * an `overflow-x-auto` wrapper: a cell-relative popover on one of the later
+ * columns is clipped by the scroller it lives in, and the last column — Sunday,
+ * the one furthest right — is exactly where a week gets planned from.
+ *
+ * It opens to the RIGHT of the cell and flips to the left only when it would
+ * not fit, which keeps it off the slot the user is aiming at. Vertically it
+ * hangs from the cell's top and slides up if it would run past the bottom, so
+ * a late-afternoon row still shows the whole menu.
+ */
+export function menuPlacement(
+  cell: Rect,
+  menu: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 6,
+): { left: number; top: number } {
+  const toRight = cell.right + gap;
+  const toLeft = cell.left - gap - menu.width;
+  const left = toRight + menu.width <= viewport.width - gap
+    ? toRight
+    : Math.max(gap, toLeft);
+  const top = Math.max(gap, Math.min(cell.top, viewport.height - menu.height - gap));
+  return { left, top };
+}
