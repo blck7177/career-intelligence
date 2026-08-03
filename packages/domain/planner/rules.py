@@ -3,8 +3,10 @@
 `generate_actions()` takes a snapshot (applications + their events/actions, the
 existing global actions, settings, and `now_utc`) and returns a list of
 `ActionSpec`s the worker should create. It is idempotent by construction: it
-never emits a spec that a matching pending/dismissed auto-action already
-suppresses, so re-running the daily beat produces no duplicates.
+never emits a spec that a matching to-do already suppresses — pending whoever
+wrote it, or dismissed if the engine wrote it (see _suppressed) — so re-running
+the daily beat produces no duplicates, and neither does a to-do the user added
+by hand.
 
 Day-boundary contract (matches PlannerSettings docstring): "today" is the
 calendar day in `settings.timezone`; every due_at is the UTC instant of that
@@ -54,11 +56,37 @@ from packages.contracts.api.applications import WEEKDAYS, PlannerSettings
 # Gmail ingest (P2) exists.
 EMPLOYER_RESPONSE_EVENTS = frozenset({"interview_scheduled"})
 
-# An open/rejected auto-action of the same (application, type) suppresses
+# An open/rejected action of the same (application, type) suppresses
 # regeneration. dismissed MUST be here — dismiss() writes no event and the rule
 # predicates are state-based, so without it the beat resurrects a dismissed
 # action every day.
 _SUPPRESSING_STATUSES = frozenset({"pending", "dismissed"})
+
+# The half of that set which means "this work is already on the plate", as
+# opposed to "this work was refused". The two halves are read differently by
+# _suppressed(): see its docstring. Named rather than spelled inline so the
+# split cannot drift from the set it partitions (asserted in the rules tests).
+OPEN_STATUS = "pending"
+
+# Rule types where a to-do the USER wrote means the same work the rule would
+# create, so an open one stands in for it. The other two do not qualify, and the
+# reasons are specific rather than cautious:
+#
+#   prep  — is the emitted type for the check_in rule ("Check in — no word since
+#           the interview"), a naming artifact noted in DEFAULT_EST_MINUTES
+#           below. To a user, "prep" is preparing for a round that has not
+#           happened yet. Those are different work, and ActionCreate accepts the
+#           type, so a hand-written "prep for the onsite" left open would
+#           silence the chase-them reminder for the life of the application.
+#   thank_you — is the one perishable rule, and this predicate has no time
+#           bound: it is consulted before the 24h window check. One stale open
+#           row would suppress the note for every FUTURE interview on that
+#           application, not just the one it was written for.
+#
+# Both are unreachable from today's quick-add, which only ever produces
+# follow_up / networking / apply / custom — but POST /actions takes the whole
+# ActionType literal, so this is an open API surface, not a hypothetical.
+_USER_ROWS_STAND_IN_FOR = frozenset({"apply", "follow_up"})
 
 # Status written when an application closes and its outstanding to-dos are
 # retired (JobApplicationRepository._cancel_pending_actions). It is defined here,
@@ -77,7 +105,11 @@ DEFAULT_EST_MINUTES = {
     "follow_up": 15,
     "thank_you": 15,
     "prep": 30,
-    "apply": 60,
+    # 5, not 60: in this workflow the submission itself is the five-minute act —
+    # tailoring happens in its own pipeline before anything reaches this list.
+    # At 60, one application pulled into today consumed two thirds of the
+    # default 90-minute cap, and a five-row morning read as 300m over a 90m day.
+    "apply": 5,
     "global": 15,
     # Never emitted by a rule — these two only ever arrive from the user's own
     # quick-add, where est_minutes is optional. They are here because
@@ -123,7 +155,13 @@ class EventView:
 class ActionView:
     type: str
     status: str  # pending | done | dismissed | cancelled (see _SUPPRESSING_STATUSES)
-    auto_generated: bool = True
+    # Deliberately has NO default. It used to default to True while the ORM, the
+    # repository and the create route all default it to False — an inversion
+    # invisible at every call site, and the direct cause of _suppressed()'s
+    # hand-written branch going untested for its whole life: every test omitted
+    # the field and silently got the engine's path. It decides behaviour now, so
+    # every construction states it, and Python enforces that rather than a test.
+    auto_generated: bool
     completed_at: Optional[datetime] = None  # UTC
     created_at: Optional[datetime] = None  # UTC (for global per-week dedup)
     payload: Optional[dict] = None
@@ -209,9 +247,44 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def _suppressed(actions: list[ActionView], type_: str) -> bool:
-    """True if an auto-action of this type is already pending or dismissed."""
+    """Should a rule stay quiet because a to-do of this type already covers it?
+
+    The two suppressing statuses answer two different questions, and provenance
+    only matters to one of them.
+
+    OPEN (pending) — the work is on the plate. Whether the engine queued it or
+    the user typed it changes nothing about whether it exists, so for the types
+    in _USER_ROWS_STAND_IN_FOR this half ignores `auto_generated`. It used to
+    require it for everything, which made the engine blind to the user's own
+    rows: the morning ritual creates "apply" to-dos through POST /actions
+    (auto_generated=False by construction — no client can set it), so a to-do
+    the user had just pulled into today sat beside an identical "Apply now or
+    drop this one" the next beat generated, and neither side deduplicated.
+
+    The two types NOT in that set are excluded for reasons written where the set
+    is defined; both come down to the same thing — a user row of that type is
+    not evidence that the rule's work exists.
+
+    DISMISSED — the work was refused, and models.py calls this a LIFETIME veto
+    for that (application, type). That is a large thing to infer, and it is only
+    safe to infer from refusing the engine's own suggestion. Both ritual wizards
+    map "drop" onto op="dismiss" in bulk, so reading a user's dismissal the same
+    way would mean: drop your own "apply to Stripe" during the morning ritual
+    and the engine never mentions Stripe again — while the application is still
+    sitting in the queue, still planned. That failure is invisible; it is a nag
+    that stops arriving. The engine re-offering is visible and has an obvious
+    lever (dismiss the engine's row, or drop the application itself).
+
+    Only the four rule types reach here, so a `custom` to-do ("call Sarah")
+    still suppresses nothing.
+    """
+    user_row_counts = type_ in _USER_ROWS_STAND_IN_FOR
     return any(
-        a.auto_generated and a.type == type_ and a.status in _SUPPRESSING_STATUSES
+        a.type == type_
+        and (
+            (user_row_counts and a.status == OPEN_STATUS)
+            or (a.auto_generated and a.status in _SUPPRESSING_STATUSES)
+        )
         for a in actions
     )
 

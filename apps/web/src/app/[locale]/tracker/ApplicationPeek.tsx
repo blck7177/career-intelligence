@@ -162,6 +162,19 @@ export function ApplicationPeek({
                         {t(`status.${app.status}`)}
                       </span>
                     )}
+                    {/* At the top because it is a primary act, not an escape
+                        hatch. It leads to the full page, which owns every edit
+                        the panel deliberately does not offer (the status
+                        machine, the interview form, lane and excitement) — and
+                        the name says the main reason people go there, rather
+                        than describing the navigation. */}
+                    <Link
+                      href={`/tracker/${app.id}`}
+                      className="ml-auto shrink-0 text-xs font-medium hover:underline"
+                      style={{ color: "var(--primary)" }}
+                    >
+                      {t("peekEditStatus")}
+                    </Link>
                   </>
                 ) : (
                   <span>{appId ? (failed ? t("loadFailed") : "…") : t("peekManualAction")}</span>
@@ -228,17 +241,6 @@ export function ApplicationPeek({
               {appId && loading && !app && !failed && <div className="animate-pulse h-24" aria-hidden />}
             </div>
 
-            {app && (
-              <footer className="shrink-0 px-5 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-                <Link
-                  href={`/tracker/${app.id}`}
-                  className="text-xs font-medium hover:underline"
-                  style={{ color: "var(--primary)" }}
-                >
-                  {t("peekOpenFull")}
-                </Link>
-              </footer>
-            )}
           </>
         )}
       </SheetContent>

@@ -249,12 +249,12 @@ def test_due_minutes_use_the_per_type_default_never_a_raw_sum():
     # zero and file a full day as an empty one.
     tue = datetime(2026, 7, 14, 16, 0, tzinfo=timezone.utc)
     week = _build(due_items=[
-        _due(tue, "apply"),              # NULL -> default 60
+        _due(tue, "apply"),              # NULL -> default 5
         _due(tue, "follow_up", est=25),  # explicit wins
     ])
     day = next(d for d in week["days"] if d["date"] == "2026-07-14")
     assert day["due_count"] == 2
-    assert day["due_est_minutes"] == 85
+    assert day["due_est_minutes"] == 30
 
 
 def test_todays_minutes_fold_in_the_backlog_exactly_as_the_count_does():
@@ -338,7 +338,7 @@ def test_blocks_carry_a_resolved_estimate_so_the_strip_needs_no_table():
         ScheduledBlock(action_id="a", title="no est", at=datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc), type="apply"),
     ])
     day = next(d for d in week["days"] if d["date"] == "2026-07-15")
-    assert day["blocks"][0]["est_minutes"] == 60  # the apply default, not None
+    assert day["blocks"][0]["est_minutes"] == 5  # the apply default, not None
 
 
 def test_a_block_outside_the_week_is_ignored_not_clamped():

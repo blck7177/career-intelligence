@@ -416,7 +416,7 @@ def test_planner_week_returns_seven_days_with_interviews_and_due_counts(make_cli
     assert thu["interviews"][0]["round_type"] == "onsite"
     assert thu["due_count"] == 1
     # A NULL estimate resolves through the per-type default rather than zero.
-    assert thu["due_est_minutes"] == 60
+    assert thu["due_est_minutes"] == 5
     wed = by_date["2026-07-15"]
     assert [b["title"] for b in wed["blocks"]] == ["Apply · HRT"]
     assert wed["scheduled_est_minutes"] == 45
@@ -440,14 +440,14 @@ def test_planner_week_folds_the_backlog_into_today_in_both_units(make_client):
         MockAct.return_value.list_due_between.return_value = []
         MockAct.return_value.list_scheduled_between.return_value = []
         MockAct.return_value.list_pending_carried_into_today.return_value = [
-            ("apply", None),      # -> per-type default 60
+            ("apply", None),      # -> per-type default 5
             ("follow_up", 35),    # -> explicit 35
         ]
         resp = client.get("/api/app/planner-week")
     assert resp.status_code == 200, resp.text
     today = next(d for d in resp.json()["days"] if d["is_today"])
     assert today["due_count"] == 2
-    assert today["due_est_minutes"] == 95
+    assert today["due_est_minutes"] == 40
     # Nowhere else: the backlog is today's alone.
     assert sum(d["due_est_minutes"] for d in resp.json()["days"] if not d["is_today"]) == 0
 

@@ -13,7 +13,7 @@ import type { ActionRead } from "@/api/client";
  *  stored as "what I agreed to", so the two must hold identical values;
  *  tests/tracker/test_planner_day.py parses this literal and asserts it. */
 export const EST_FALLBACK: Record<string, number> = {
-  follow_up: 15, thank_you: 15, prep: 30, apply: 60, networking: 20, custom: 20, global: 15,
+  follow_up: 15, thank_you: 15, prep: 30, apply: 5, networking: 20, custom: 20, global: 15,
 };
 
 export function estOf(a: ActionRead): number {

@@ -147,7 +147,7 @@ def test_list_pending_carried_into_today(db_session: Session):
 
     assert len(rows) == 2
     assert {t for t, _ in rows} == {"apply", "custom"}
-    assert sum(effective_est_minutes(t, e) for t, e in rows) == 80  # apply 60 + custom 20
+    assert sum(effective_est_minutes(t, e) for t, e in rows) == 25  # apply 5 + custom 20
 
 
 def test_snooze_counts_undated_work(db_session: Session):

@@ -71,7 +71,7 @@ def test_planner_run_carries_per_type_estimates(db_session):
         + action_repo.list_for_application(stale_plan.id, "ws3")
     }
     assert by_type["follow_up"].est_minutes == 15
-    assert by_type["apply"].est_minutes == 60  # apply_or_drop, a different default
+    assert by_type["apply"].est_minutes == 5  # apply_or_drop, a different default
 
 
 def test_planner_run_respects_dismissed(db_session):
