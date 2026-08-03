@@ -7,11 +7,8 @@ const handleI18nRouting = createMiddleware(routing);
 // Match both the bare and locale-prefixed sign-in route as public.
 const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/:locale/sign-in(.*)"]);
 
-// !!! TEMPORARY LOCAL VERIFICATION HACK — MUST NOT BE COMMITTED !!!
-const DEV_BYPASS = process.env.DEV_AUTH_BYPASS === "true";
-
 export default clerkMiddleware(async (auth, request) => {
-  if (!DEV_BYPASS && !isPublicRoute(request)) {
+  if (!isPublicRoute(request)) {
     await auth.protect();
   }
   // API/health routes are proxied to the FastAPI backend via next.config.ts
