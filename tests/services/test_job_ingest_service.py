@@ -295,6 +295,81 @@ def test_blocked_aggregators_are_refused_at_the_door(_extract, db, url):
     assert db.query(Job).count() == 0
 
 
+# ---------------------------------------------------------------------------
+# URL path — the charge has to be attributable to something that exists
+# ---------------------------------------------------------------------------
+
+
+def _order_tracking(db, order):
+    """Record the sequence of commits and LLM calls on this session."""
+    real_commit = db.commit
+
+    def tracked_commit():
+        order.append("commit")
+        real_commit()
+
+    db.commit = tracked_commit
+    return db
+
+
+@_no_llm
+def test_run_is_committed_before_any_llm_call(_extract, db):
+    """The cost ledger writes from its own DB session, so a run that is only
+    flushed does not exist as far as that session is concerned: the usage
+    event's foreign key fails, the fire-and-forget writer swallows it, and an
+    already-incurred charge is silently lost. Every manual import between
+    2026-07-10 and this fix went unrecorded exactly that way.
+
+    Ordering is the invariant — cross-session visibility can't be asserted
+    against an in-memory SQLite engine, where both sessions share a connection.
+    """
+    order: list[str] = []
+    _order_tracking(db, order)
+
+    def _llm_marker(*_a, **_kw):
+        order.append("llm")
+        return JobIdentity(title="Senior Risk Analyst", company="Acme Corp")
+
+    with _with_fetch(_SCRAPED), patch(
+        "packages.infrastructure.llm.identity_extractor.extract_job_identity",
+        side_effect=_llm_marker,
+    ):
+        ingest_from_url(db, _ws(), _SCRAPE_URL)
+
+    assert "llm" in order, "the identity channel should have run for this fixture"
+    assert order.index("commit") < order.index("llm")
+
+
+@_no_llm
+def test_paste_commits_the_run_before_its_llm_call(_extract, db):
+    order: list[str] = []
+    _order_tracking(db, order)
+
+    def _llm_marker(*_a, **_kw):
+        order.append("llm")
+        return {"required_skills": []}
+
+    with patch(
+        "packages.infrastructure.llm.jd_extractor.extract_jd_fields",
+        side_effect=_llm_marker,
+    ):
+        ingest_from_paste(db, _ws(), company="Acme", title="Analyst", jd_text=_JD)
+
+    assert order.index("commit") < order.index("llm")
+
+
+@_no_llm
+def test_refused_import_still_leaves_its_run_recorded(_extract, db):
+    """The early commit must not cost us the failure record: a refusal is still
+    an attempt worth accounting for, and its run carries the reason."""
+    with _with_fetch(_SCRAPED), _with_identity(None), pytest.raises(HTTPException):
+        ingest_from_url(db, _ws(), _SCRAPE_URL)
+
+    run = db.query(Run).one()
+    assert run.status == "failed"
+    assert run.result_summary_json["reason"] == "identity_unresolved"
+
+
 @_no_llm
 def test_lookalike_domain_is_not_blocked(_extract, db):
     """Suffix matching must not catch a different registrable domain."""

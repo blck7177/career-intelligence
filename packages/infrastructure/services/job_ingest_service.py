@@ -150,12 +150,24 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         # 500. Re-import dedup is the canonical_url lookup above, not this key.
         idempotency_key=f"manual_import:{workspace.id}:{run.id}",
     )
-    db.flush()
+    # Committed, not flushed. The cost ledger writes from its own DB session,
+    # so a merely-flushed run is invisible to it: the usage event's foreign key
+    # fails, the writer swallows it (it is fire-and-forget by design, so an
+    # accounting problem can't break a user's import), and the charge is lost.
+    # That is how binding run_id below — which fixed usage events landing as
+    # orphans — turned "recorded but unattributable" into "not recorded at all"
+    # for every manual import after 2026-07-10.
+    #
+    # The cost of committing here is one stranded `queued` run if the process
+    # dies mid-import. It is bounded: every path that finishes (success, DOA,
+    # unreadable, unidentifiable) already commits run/task before returning, and
+    # manual_import is not one of the run types under the active-run uniqueness
+    # index, so a stranded row cannot block the next import.
+    db.commit()
 
-    # Bind the LLM cost context now that run/task exist. extract_jd_fields()
-    # below is the only LLM call in this handler; setting the context earlier
-    # (before create/flush) left run_id/task_id/workspace_id empty and its
-    # cost landed as an orphan row in the ledger.
+    # Bind the LLM cost context now that run/task are durable. Setting it
+    # earlier (before create/commit) left run_id/task_id/workspace_id empty and
+    # the cost landed as an orphan row in the ledger.
     from packages.infrastructure.llm.usage_writer import set_llm_context
     set_llm_context(
         run_id=run.id,
@@ -432,7 +444,9 @@ def ingest_from_paste(
         task_type="manual_import",
         idempotency_key=f"manual_import:{workspace.id}:{canonical}",
     )
-    db.flush()
+    # Committed before the LLM call, so the cost ledger's own session can see
+    # the run this charge belongs to — see the URL path for the full reasoning.
+    db.commit()
 
     set_llm_context(
         run_id=run.id,
