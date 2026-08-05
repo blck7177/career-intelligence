@@ -304,6 +304,210 @@ class TestGreenhouseEmbed:
         assert mock_client.return_value.__enter__.return_value.get.call_count == 2
 
 
+# Unrendered-SPA chrome: no <script>/<style> wrapper, so strip_html keeps it and
+# the CSS/JS token density trips is_shell_text (mirrors what _MAX_RAW_BYTES
+# truncation does to a real page — an unclosed <script> leaks its body as text).
+_SHELL_BODY = "var x = {a:1}; function f() { return {b:2}; } " * 200
+
+_JOBPOSTING_LD = json.dumps(
+    {
+        "@type": "JobPosting",
+        "title": "Junior Quantitative Specialist - Corporate &amp; Investment banking",
+        "datePosted": "2026/07/15",
+        "description": "<p>" + ("Model validation and stress testing work. " * 10) + "</p>",
+        "hiringOrganization": {"@type": "Organization", "name": "Societe Generale"},
+        "jobLocation": {
+            "@type": "Place",
+            "address": {"addressLocality": "New York", "addressRegion": "NY"},
+        },
+    }
+)
+
+_JSONLD_SHELL_PAGE = (
+    "<html><head>"
+    f'<script type="application/ld+json">{_JOBPOSTING_LD}</script>'
+    f"</head><body>{_SHELL_BODY}</body></html>"
+)
+
+_SHELL_PAGE_NO_LD = f"<html><body>{_SHELL_BODY}</body></html>"
+
+
+class TestJsonLdTier:
+    """Schema.org JobPosting markup on JS-heavy careers pages — the scrape is
+    chrome that fails the shell check while the full JD sits in ld+json
+    (careers.societegenerale.com / careers.cobank.com, both real shell-refused
+    imports)."""
+
+    @staticmethod
+    def _page(html):
+        return httpx.Response(200, text=html, request=httpx.Request("GET", "https://x.com"))
+
+    def test_shell_page_resolves_via_jsonld_with_identity(self):
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page(
+                _JSONLD_SHELL_PAGE
+            )
+            result = fetch_jd_from_url("https://careers.example.com/en/job-offers/quant-1234")
+
+        assert result.ok is True
+        assert result.source == "jsonld"
+        assert "Model validation and stress testing" in (result.jd_text or "")
+        # Identity fields the scrape could never supply — title unescaped.
+        assert result.title == "Junior Quantitative Specialist - Corporate & Investment banking"
+        assert result.company == "Societe Generale"
+        assert result.location == "New York, NY"
+        assert result.posted_at is not None and result.posted_at.year == 2026
+        # One page GET — no Jina, no board API.
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+    def test_jsonld_preferred_over_valid_scrape(self):
+        # A server-rendered page with both readable prose AND JobPosting markup:
+        # the markup wins (clean JD + identity vs page text with chrome).
+        page = SAMPLE_HTML.replace(
+            "</head>", f'<script type="application/ld+json">{_JOBPOSTING_LD}</script></head>'
+        )
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page(page)
+            result = fetch_jd_from_url("https://careers.example.com/job/1")
+
+        assert result.source == "jsonld"
+        assert result.company == "Societe Generale"
+
+    def test_multiple_jobpostings_is_a_listing_page_and_not_used(self):
+        # Two JobPosting objects = a listing page; picking one would attach the
+        # wrong JD to the URL. Falls through to scrape judgement (shell here).
+        two = f'<script type="application/ld+json">[{_JOBPOSTING_LD},{_JOBPOSTING_LD}]</script>'
+        page = f"<html><head>{two}</head><body>{_SHELL_BODY}</body></html>"
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page(page)
+            result = fetch_jd_from_url("https://careers.example.com/jobs")
+
+        assert result.ok is False
+        assert result.fetch_status == "shell"
+
+    def test_malformed_jsonld_is_skipped_not_fatal(self):
+        page = (
+            '<html><head><script type="application/ld+json">{not json]</script>'
+            f"</head><body>{SAMPLE_HTML}</body></html>"
+        )
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page(page)
+            result = fetch_jd_from_url("https://careers.example.com/job/1")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+
+    def test_short_description_falls_through(self):
+        posting = json.dumps({"@type": "JobPosting", "title": "X", "description": "too short"})
+        page = (
+            f'<html><head><script type="application/ld+json">{posting}</script>'
+            f"</head><body>{SAMPLE_HTML}</body></html>"
+        )
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = self._page(page)
+            result = fetch_jd_from_url("https://careers.example.com/job/1")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+
+    def test_graph_container_and_type_list(self):
+        from packages.infrastructure.jd_fetch.service import _jsonld_job_postings
+
+        graph_page = (
+            '<script type="application/ld+json">'
+            + json.dumps(
+                {
+                    "@context": "https://schema.org",
+                    "@graph": [
+                        {"@type": "BreadcrumbList"},
+                        {"@type": ["JobPosting", "Thing"], "title": "Quant"},
+                    ],
+                }
+            )
+            + "</script>"
+        )
+        postings = _jsonld_job_postings(graph_page)
+        assert len(postings) == 1
+        assert postings[0]["title"] == "Quant"
+
+    def test_date_formats(self):
+        from packages.infrastructure.jd_fetch.service import _parse_jsonld_date
+
+        for raw in ("2026/07/15", "2026-07-15", "2026-07-03T15:54:00+0000", "2026-07-03T15:54:00Z"):
+            parsed = _parse_jsonld_date(raw)
+            assert parsed is not None and parsed.tzinfo is not None, raw
+        assert _parse_jsonld_date("soon") is None
+        assert _parse_jsonld_date(None) is None
+
+
+class TestAntiBotJinaFallback:
+    """A 403 is an anti-bot wall, not a page judgement — Jina's renderer gets
+    through where the direct fetch can't (real case: jobs.fidelity.com behind
+    Cloudflare)."""
+
+    def test_403_falls_back_to_jina(self):
+        request = httpx.Request("GET", "https://jobs.example.com/job/1")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                httpx.HTTPStatusError(
+                    "403", request=request, response=httpx.Response(403, request=request)
+                ),
+                httpx.Response(
+                    200,
+                    text="Job Description: " + ("real responsibilities here. " * 20),
+                    request=httpx.Request("GET", "https://r.jina.ai/x"),
+                ),
+            ]
+            result = fetch_jd_from_url("https://jobs.example.com/job/1")
+
+        assert result.ok is True
+        assert result.source == "worker_fetch"
+        assert "real responsibilities" in (result.jd_text or "")
+
+    def test_403_with_failed_jina_stays_failed_403(self):
+        request = httpx.Request("GET", "https://jobs.example.com/job/1")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                httpx.HTTPStatusError(
+                    "403", request=request, response=httpx.Response(403, request=request)
+                ),
+                httpx.Response(200, text="hi", request=httpx.Request("GET", "https://r.jina.ai/x")),
+            ]
+            result = fetch_jd_from_url("https://jobs.example.com/job/1")
+
+        assert result.ok is False
+        assert result.fetch_status == "failed"
+        assert result.http_status == 403
+
+    def test_404_does_not_try_jina(self):
+        # 404/410 mean the posting is gone — rendering harder won't revive it.
+        request = httpx.Request("GET", "https://jobs.example.com/gone")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                httpx.HTTPStatusError(
+                    "404", request=request, response=httpx.Response(404, request=request)
+                ),
+            ]
+            result = fetch_jd_from_url("https://jobs.example.com/gone")
+
+        assert result.fetch_status == "doa"
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+    def test_shell_without_jsonld_is_refused_without_jina(self):
+        # A density-shell page with no JobPosting markup is a listing page or a
+        # pulled posting in every observed case; rendering it via Jina would
+        # produce prose that validates but isn't this job's JD (false accept).
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.return_value = httpx.Response(
+                200, text=_SHELL_PAGE_NO_LD, request=httpx.Request("GET", "https://x.com")
+            )
+            result = fetch_jd_from_url("https://careers.example.com/careers")
+
+        assert result.ok is False
+        assert result.fetch_status == "shell"
+        assert mock_client.return_value.__enter__.return_value.get.call_count == 1
+
+
 class TestArtifactCache:
     def test_save_and_resolve_from_artifact(self, tmp_path: Path):
         url = "https://boards.greenhouse.io/acme/jobs/123"

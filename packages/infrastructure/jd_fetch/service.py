@@ -36,7 +36,7 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-JdSource = Literal["artifact", "worker_fetch", "ats_api"]
+JdSource = Literal["artifact", "worker_fetch", "ats_api", "jsonld"]
 
 
 @dataclass(frozen=True)
@@ -361,6 +361,127 @@ def _fetch_via_ats_api(url: str, *, timeout: float = 10.0) -> JdFetchResult | No
     )
 
 
+# Schema.org structured data — careers sites embed the posting for search
+# engines even when the visible page renders client-side. On a JS-heavy page
+# the JD is often *only* here: the scraped text is 98K chars of chrome that
+# fails the shell check while a complete JobPosting sits in this block
+# (careers.societegenerale.com, careers.cobank.com — both real shell-refused
+# imports recovered by this tier).
+_JSONLD_SCRIPT_RE = re.compile(
+    r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
+def _parse_jsonld_date(raw: object) -> datetime | None:
+    """datePosted → UTC-aware datetime. Sites vary: ISO ("2026-07-03T15:54:00
+    +0000"), date-only ("2026-07-15"), and slash-dates ("2026/07/15")."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    text = raw.strip().replace("/", "-").replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _is_jobposting_type(type_field: object) -> bool:
+    if isinstance(type_field, str):
+        return type_field == "JobPosting"
+    if isinstance(type_field, list):
+        return "JobPosting" in type_field
+    return False
+
+
+def _jsonld_job_postings(page_html: str) -> list[dict]:
+    """Every JobPosting object in the page's ld+json blocks (top-level object,
+    top-level array, or @graph container). Malformed JSON is skipped."""
+    postings: list[dict] = []
+    for match in _JSONLD_SCRIPT_RE.finditer(page_html):
+        try:
+            data = json.loads(match.group(1).strip())
+        except ValueError:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            graph = item.get("@graph")
+            candidates = graph if isinstance(graph, list) else [item]
+            for candidate in candidates:
+                if isinstance(candidate, dict) and _is_jobposting_type(
+                    candidate.get("@type")
+                ):
+                    postings.append(candidate)
+    return postings
+
+
+def _jsonld_location(posting: dict) -> str | None:
+    """jobLocation → "City, Region" best effort. jobLocation may be an object
+    or a list of objects; address fields are all optional."""
+    loc = posting.get("jobLocation")
+    if isinstance(loc, list):
+        loc = loc[0] if loc else None
+    if not isinstance(loc, dict):
+        return None
+    address = loc.get("address")
+    if not isinstance(address, dict):
+        return None
+    parts = [
+        str(address.get(key)).strip()
+        for key in ("addressLocality", "addressRegion")
+        if isinstance(address.get(key), str) and address.get(key).strip()
+    ]
+    return ", ".join(parts) or None
+
+
+def _fetch_via_jsonld(page_html: str) -> JdFetchResult | None:
+    """Resolve a posting from the page's schema.org JobPosting markup.
+
+    Only fires when the page carries exactly ONE JobPosting — a detail page.
+    Multiple postings mean a listing page, where picking one would attach the
+    wrong JD to the URL. Returns None whenever the tier doesn't apply (no
+    markup, listing page, no/short description) and the caller falls through
+    to scrape validation. Never raises.
+    """
+    from packages.domain.agent_jobs.ats_providers import _strip_html as ats_strip_html
+
+    postings = _jsonld_job_postings(page_html)
+    if len(postings) != 1:
+        return None
+    posting = postings[0]
+
+    description = posting.get("description")
+    if not isinstance(description, str):
+        return None
+    validated = _validate_jd_text(ats_strip_html(description))
+    if not validated.ok:
+        return None
+
+    import html as _html
+
+    org = posting.get("hiringOrganization")
+    company = org.get("name") if isinstance(org, dict) else org
+    title = posting.get("title")
+    # Titles arrive HTML-escaped ("Corporate &amp; Investment banking").
+    title = _html.unescape(title).strip() if isinstance(title, str) else None
+    company = _html.unescape(company).strip() if isinstance(company, str) else None
+
+    return JdFetchResult(
+        ok=True,
+        jd_text=validated.jd_text,
+        jd_hash=validated.jd_hash,
+        error=None,
+        source="jsonld",
+        fetch_status="success",
+        posted_at=_parse_jsonld_date(posting.get("datePosted")),
+        title=title or None,
+        company=company or None,
+        location=_jsonld_location(posting),
+    )
+
+
 # A company careers page that mounts a Greenhouse board client-side ships this
 # script tag; `for=` is the board token, which appears nowhere in the job URL.
 _GREENHOUSE_EMBED_TOKEN_RE = re.compile(
@@ -483,6 +604,13 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
         content_type = response.headers.get("content-type", "")
     except httpx.HTTPStatusError as exc:
         code = exc.response.status_code
+        # 403 is an anti-bot wall (Cloudflare "Just a moment..."), not a page
+        # judgement — the posting is usually alive and Jina's renderer gets
+        # through where the direct fetch can't (real case: jobs.fidelity.com).
+        if code == 403:
+            jina_result = _fetch_via_jina(url, timeout=max(timeout, 30.0))
+            if jina_result.ok:
+                return jina_result
         # 404/410 = the posting is gone (DOA). Other statuses (403 anti-bot,
         # 5xx, etc.) are fetch failures, not proof the job is dead — keep them
         # as "failed" so the job is still recorded and retried.
@@ -536,6 +664,14 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
     if embedded is not None:
         return embedded
 
+    # Schema.org JobPosting markup, before judging the scraped text: on a
+    # JS-heavy detail page the scrape is chrome that fails the shell check
+    # while the complete JD sits in the ld+json block — plus the ATS-reported
+    # title/company/posted_at the scrape can never give. Zero extra requests.
+    jsonld = _fetch_via_jsonld(embed_scan)
+    if jsonld is not None:
+        return jsonld
+
     # The board tier was the only way to read this posting and it didn't land
     # (no token in the page, API error, job pulled from the board). Whatever the
     # scrape holds, it is not this job's JD — it's the careers-page chrome. Some
@@ -544,7 +680,9 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
     # of navigation that validated clean, and the caller wrote it to a
     # `reportable` row with a page-title guess for a title. Refuse instead. A
     # false refusal costs the user a paste; a false accept is a silently wrong
-    # row with nothing to flag it.
+    # row with nothing to flag it. No Jina retry here for the same reason: it
+    # renders the board *listing* when the posting is gone, which validates as
+    # prose and would be accepted as this job's JD.
     if _greenhouse_embed_job_id(url) is not None:
         return JdFetchResult(
             ok=False,
@@ -564,8 +702,14 @@ def fetch_jd_from_url(url: str, *, timeout: float = 15.0) -> JdFetchResult:
 
     validated = _validate_jd_text(jd_text)
 
+    # Jina only on "too_short" — deliberately NOT on "shell". A density-shell
+    # page with no JobPosting markup is, in every observed case, either a
+    # listing page or a pulled posting; rendering it produces prose that
+    # validates but isn't this job's JD (a false accept, the expensive
+    # mistake). The real shell-refused detail pages are recovered by the
+    # JSON-LD tier above without any extra request.
     if not validated.ok and validated.fetch_status == "too_short":
-        jina_result = _fetch_via_jina(url, timeout=timeout)
+        jina_result = _fetch_via_jina(url, timeout=max(timeout, 30.0))
         if jina_result.ok:
             return jina_result
 
