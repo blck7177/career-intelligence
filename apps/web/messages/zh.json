@@ -22,7 +22,8 @@
     "yesterday": "昨天",
     "minutesAgo": "{count} 分钟前",
     "hoursAgo": "{count} 小时前",
-    "daysAgo": "{count} 天前"
+    "daysAgo": "{count} 天前",
+    "retry": "重试"
   },
   "home": {
     "title": "职位收件箱",
@@ -118,7 +119,8 @@
     "reportFirstQueued": "{count} 个先生成职位报告 → 再自动分析匹配度",
     "skippedCount": "已跳过 {count} 个",
     "fitAnalysisComplete": "匹配度分析完成 — 正在刷新结果",
-    "yourProfile": "你的简介"
+    "yourProfile": "你的简介",
+    "regenerateFit": "重新生成契合度报告"
   },
   "jobFilters": {
     "filters": "筛选",
@@ -219,7 +221,8 @@
     "selectRole": "选择一个职位,查看它的情报、契合度与 JD。",
     "loadFailed": "该职位加载失败。",
     "seniorityLabel": "资历级别",
-    "experienceLabel": "经验要求"
+    "experienceLabel": "经验要求",
+    "generatingReport": "生成中…"
   },
   "runs": {
     "title": "报告与任务",
@@ -270,7 +273,13 @@
     "jobReportIdOptional": "职位报告 ID(可选)",
     "useLatestActive": "使用最新有效报告",
     "startFitReportRun": "开始生成匹配报告",
-    "failedToStartRun": "任务启动失败"
+    "failedToStartRun": "任务启动失败",
+    "toastReportDone": "职位情报报告已生成",
+    "toastFitDone": "契合度分析已完成",
+    "toastTailorDone": "定制简历已生成",
+    "toastReportFailed": "职位情报报告未能完成",
+    "toastFitFailed": "契合度分析未能完成",
+    "toastTailorFailed": "简历定制未能完成"
   },
   "profile": {
     "loadingProfile": "正在加载简介…",

@@ -22,7 +22,8 @@
     "yesterday": "Yesterday",
     "minutesAgo": "{count}m ago",
     "hoursAgo": "{count}h ago",
-    "daysAgo": "{count} days ago"
+    "daysAgo": "{count} days ago",
+    "retry": "Retry"
   },
   "home": {
     "title": "Role Inbox",
@@ -118,7 +119,8 @@
     "reportFirstQueued": "{count} generating report first → auto fit",
     "skippedCount": "{count} skipped",
     "fitAnalysisComplete": "Fit analysis complete — refreshing results",
-    "yourProfile": "Your Profile"
+    "yourProfile": "Your Profile",
+    "regenerateFit": "Regenerate Fit Report"
   },
   "jobFilters": {
     "filters": "Filters",
@@ -219,7 +221,8 @@
     "selectRole": "Select a role to see its intelligence, fit, and JD.",
     "loadFailed": "Couldn't load this role.",
     "seniorityLabel": "Seniority",
-    "experienceLabel": "Experience"
+    "experienceLabel": "Experience",
+    "generatingReport": "Generating…"
   },
   "runs": {
     "title": "Reports & Runs",
@@ -270,7 +273,13 @@
     "jobReportIdOptional": "Job Report ID (optional)",
     "useLatestActive": "use latest active",
     "startFitReportRun": "Start Fit Report Run",
-    "failedToStartRun": "Failed to start run"
+    "failedToStartRun": "Failed to start run",
+    "toastReportDone": "Job intelligence report is ready",
+    "toastFitDone": "Fit analysis is ready",
+    "toastTailorDone": "Tailored resume is ready",
+    "toastReportFailed": "Job intelligence report did not finish",
+    "toastFitFailed": "Fit analysis did not finish",
+    "toastTailorFailed": "Resume tailoring did not finish"
   },
   "profile": {
     "loadingProfile": "Loading profile...",

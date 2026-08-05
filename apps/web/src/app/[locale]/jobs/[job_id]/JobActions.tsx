@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
+import { useRunFetcher, useRunOwnerId, useRunSettled, useTrackedRun } from "@/hooks/useTrackedRun";
 import { createRun, archiveJob } from "@/api/client";
-import { pollRunUntilDone } from "@/lib/pollRun";
+import { runKey, startTracking } from "@/lib/runTracker";
 import { Button } from "@/components/ui/button";
 import { FileText, Trash2, PenLine } from "lucide-react";
 
@@ -32,11 +33,27 @@ export function ReportActionButton({ jobId, hasExistingReport, onMutated }: Repo
   const t = useTranslations("jobDetail");
   const router = useRouter();
   const getToken = useApiToken();
-  const [loading, setLoading] = useState(false);
+  const userId = useRunOwnerId();
+  const fetchRun = useRunFetcher();
+  // The run is tracked outside this component, so the button still reads
+  // "generating" when you come back to a pane that was closed mid-run.
+  const key = runKey("job_report", jobId);
+  const tracked = useTrackedRun(key, userId);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useRunSettled(key, (run) => {
+    if (run.status === "succeeded") {
+      setError(null);
+      router.refresh();
+      onMutated?.();
+    } else {
+      setError(run.errorMessage ?? `Job report ${run.status.replace(/_/g, " ")}`);
+    }
+  });
+
   async function handleGenerateReport() {
-    setLoading(true);
+    setStarting(true);
     setError(null);
     try {
       const token = await getToken();
@@ -51,24 +68,21 @@ export function ReportActionButton({ jobId, hasExistingReport, onMutated }: Repo
         },
         token,
       );
-      const finished = await pollRunUntilDone(run.id, getToken);
-      if (finished.status !== "succeeded") {
-        throw new Error(finished.error_message ?? "Job report generation failed");
-      }
-      router.refresh();
-      onMutated?.();
-      setLoading(false);
+      startTracking({ key, runId: run.id, runType: "job_report", userId }, fetchRun);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start job report run");
-      setLoading(false);
+    } finally {
+      setStarting(false);
     }
   }
 
+  const busy = starting || tracked !== null;
+
   return (
     <div className="flex items-center gap-2">
-      <Button onClick={handleGenerateReport} loading={loading} size="sm" variant={hasExistingReport ? "outline" : "default"}>
-        {!loading && <FileText size={15} className="mr-1.5" />}
-        {hasExistingReport ? t("refreshReport") : t("generateReport")}
+      <Button onClick={handleGenerateReport} loading={busy} size="sm" variant={hasExistingReport ? "outline" : "default"}>
+        {!busy && <FileText size={15} className="mr-1.5" />}
+        {busy ? t("generatingReport") : hasExistingReport ? t("refreshReport") : t("generateReport")}
       </Button>
       {error && <span className="text-xs text-rose-600">{error}</span>}
     </div>
@@ -79,33 +93,44 @@ export function TailorResumeButton({ jobId, onMutated }: { jobId: string; onMuta
   const t = useTranslations("jobDetail");
   const router = useRouter();
   const getToken = useApiToken();
-  const [loading, setLoading] = useState(false);
+  const userId = useRunOwnerId();
+  const fetchRun = useRunFetcher();
+  const key = runKey("resume_tailor", jobId);
+  const tracked = useTrackedRun(key, userId);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useRunSettled(key, (run) => {
+    if (run.status === "succeeded") {
+      setError(null);
+      router.refresh();
+      onMutated?.();
+    } else {
+      setError(run.errorMessage ?? `Resume tailor ${run.status.replace(/_/g, " ")}`);
+    }
+  });
+
   async function handleTailor() {
-    setLoading(true);
+    setStarting(true);
     setError(null);
     try {
       const token = await getToken();
       const run = await createRun({ run_type: "resume_tailor", input_snapshot: { job_id: jobId } }, token);
-      const finished = await pollRunUntilDone(run.id, getToken);
-      if (finished.status !== "succeeded") {
-        throw new Error(finished.error_message ?? "Resume tailor failed");
-      }
-      router.refresh();
-      onMutated?.();
+      startTracking({ key, runId: run.id, runType: "resume_tailor", userId }, fetchRun);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
     } finally {
-      setLoading(false);
+      setStarting(false);
     }
   }
 
+  const busy = starting || tracked !== null;
+
   return (
     <div className="flex items-center gap-2">
-      <Button onClick={handleTailor} loading={loading} size="sm">
-        {!loading && <PenLine size={15} className="mr-1.5" />}
-        {loading ? t("tailoring") : t("tailorResume")}
+      <Button onClick={handleTailor} loading={busy} size="sm">
+        {!busy && <PenLine size={15} className="mr-1.5" />}
+        {busy ? t("tailoring") : t("tailorResume")}
       </Button>
       {error && <span className="text-xs text-rose-600">{error}</span>}
     </div>

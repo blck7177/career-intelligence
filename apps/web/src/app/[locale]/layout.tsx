@@ -6,6 +6,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { TopBar } from "@/components/TopBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
+import { RunToasts } from "@/components/RunToasts";
 import { routing } from "@/i18n/routing";
 import "./globals.css";
 
@@ -41,6 +42,10 @@ export default async function RootLayout({ children, params }: Props) {
               <TopBar />
               <main className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</main>
               <Toaster />
+              {/* Watches runs started anywhere in the app, so finishing is
+                  announced even after you have navigated away from whatever
+                  button started it. */}
+              <RunToasts />
             </TooltipProvider>
           </NextIntlClientProvider>
         </body>
