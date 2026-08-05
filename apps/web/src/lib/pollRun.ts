@@ -24,9 +24,3 @@ export async function pollRunUntilDone(
 
   throw new Error("Run timed out — check Search Runs for status.");
 }
-
-export function extractReportId(run: RunRead): string | null {
-  const summary = run.result_summary_json as Record<string, unknown> | null | undefined;
-  const id = summary?.report_id;
-  return typeof id === "string" ? id : null;
-}

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { useApiToken } from "@/hooks/useApiToken";
+import { useRunFetcher, useRunOwnerId, useRunSettled, useTrackedRun } from "@/hooks/useTrackedRun";
 import { createRun, getRunReport } from "@/api/client";
-import { pollRunUntilDone, extractReportId } from "@/lib/pollRun";
+import { runKey, startTracking } from "@/lib/runTracker";
 import { Button } from "@/components/ui/button";
 import { Target, AlertCircle } from "lucide-react";
 
@@ -23,14 +25,6 @@ interface FitButtonProps {
   onMutated?: () => void;
 }
 
-type UIState =
-  | { phase: "idle" }
-  | { phase: "submitting" }
-  | { phase: "polling"; status: string }
-  | { phase: "error"; message: string };
-
-const POLL_INTERVAL_MS = 3000;
-
 export function FitButton({
   jobId,
   jobReportId,
@@ -42,67 +36,56 @@ export function FitButton({
   inline = false,
   onMutated,
 }: FitButtonProps) {
+  const t = useTranslations("jobs");
+  const tCommon = useTranslations("common");
   const router = useRouter();
   const getToken = useApiToken();
-  const [state, setState] = useState<UIState>({ phase: "idle" });
-  const runIdRef = useRef<string | null>(null);
+  const userId = useRunOwnerId();
+  const fetchRun = useRunFetcher();
+  // Tracked outside this component: the same run is watched whether this button
+  // is in the list, the detail pane, or a modal that gets closed mid-analysis.
+  const key = runKey("fit_report", jobId);
+  const tracked = useTrackedRun(key, userId);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** Navigating away is a reply to *your* click, not to a run ending: this same
+   *  job's button can be mounted in the list and the pane at once, and only the
+   *  one that was pressed should move the page. Refreshing is idempotent, so
+   *  that side is left unguarded. */
+  const startedHere = useRef(false);
 
-  const resolveReportId = useCallback(
-    async (runId: string) => {
-      const run = await pollRunUntilDone(runId, getToken, { intervalMs: POLL_INTERVAL_MS });
-      if (run.status !== "succeeded") {
-        throw new Error(run.error_message ?? `Fit analysis ${run.status.replace(/_/g, " ")}`);
-      }
-      let reportId = extractReportId(run);
-      if (!reportId) {
-        const token = await getToken();
-        const report = await getRunReport(runId, token);
-        reportId = report.id;
-      }
-      if (!reportId) {
-        throw new Error("Fit report completed but no report ID returned");
-      }
-      return reportId;
-    },
-    [getToken],
-  );
-
-  useEffect(() => {
-    if (state.phase !== "polling" || !runIdRef.current) return;
-
-    let cancelled = false;
-
-    (async () => {
+  useRunSettled(key, (run) => {
+    if (run.status !== "succeeded") {
+      startedHere.current = false;
+      setError(run.errorMessage ?? `Fit analysis ${run.status.replace(/_/g, " ")}`);
+      return;
+    }
+    setError(null);
+    if (inline || !startedHere.current) {
+      router.refresh();
+      onMutated?.();
+      startedHere.current = false;
+      return;
+    }
+    startedHere.current = false;
+    void (async () => {
       try {
-        const reportId = await resolveReportId(runIdRef.current!);
-        if (!cancelled) {
-          if (inline) {
-            setState({ phase: "idle" });
-            router.refresh();
-            onMutated?.();
-          } else {
-            router.push(`/fit-reports/${reportId}`);
-            router.refresh();
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setState({
-            phase: "error",
-            message: err instanceof Error ? err.message : "Fit report generation failed",
-          });
-        }
+        const report = await getRunReport(run.runId, await getToken());
+        router.push(`/fit-reports/${report.id}`);
+        router.refresh();
+      } catch {
+        // The analysis did succeed; only the jump to it failed. Stay put and
+        // refresh so the new score shows up where the user already is.
+        router.refresh();
+        onMutated?.();
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [state.phase, getToken, resolveReportId, router, inline, onMutated]);
+  });
 
   async function handleClick() {
     if (disabled) return;
-    setState({ phase: "submitting" });
+    setStarting(true);
+    setError(null);
     try {
       const token = await getToken();
       const run = await createRun(
@@ -116,34 +99,34 @@ export function FitButton({
         },
         token,
       );
-      runIdRef.current = run.id;
-      setState({ phase: "polling", status: run.status });
+      startedHere.current = true;
+      startTracking({ key, runId: run.id, runType: "fit_report", userId }, fetchRun);
     } catch (err) {
-      setState({
-        phase: "error",
-        message: err instanceof Error ? err.message : "Failed to start fit analysis",
-      });
+      setError(err instanceof Error ? err.message : "Failed to start fit analysis");
+    } finally {
+      setStarting(false);
     }
   }
 
-  if (state.phase === "error") {
+  if (error) {
     return (
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex items-center gap-1.5 text-sm text-rose-600">
           <AlertCircle size={14} />
-          <span className="text-xs">{state.message}</span>
+          <span className="text-xs">{error}</span>
         </div>
-        <Button size="sm" variant="outline" onClick={() => setState({ phase: "idle" })}>
-          Retry
+        <Button size="sm" variant="outline" onClick={() => setError(null)}>
+          {tCommon("retry")}
         </Button>
       </div>
     );
   }
 
-  if (state.phase === "polling" || state.phase === "submitting") {
+  const busy = starting || tracked !== null;
+  if (busy) {
     return (
       <Button size={size} variant={variant} loading>
-        {state.phase === "submitting" ? "Starting…" : "Analyzing fit…"}
+        {t("analyzing")}
       </Button>
     );
   }
@@ -151,7 +134,7 @@ export function FitButton({
   return (
     <Button size={size} variant={variant} onClick={handleClick} disabled={disabled}>
       <Target size={14} className="mr-1.5" />
-      {label ?? (force ? "Regenerate Fit Report" : "Analyze Fit")}
+      {label ?? (force ? t("regenerateFit") : t("analyzeFit"))}
     </Button>
   );
 }
