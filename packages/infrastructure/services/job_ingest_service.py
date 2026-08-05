@@ -10,22 +10,28 @@ Both build a run/task (run_type="manual_import"), bind the LLM cost context, run
 the shared extract/create path, and return a JobIngestResult (raw Job ORM row +
 created + jd_fetched flags; the API route builds JobImportResponse via _job_read).
 
-The URL path preserves import_job's original semantics verbatim (3-level fetch,
-DOA/dead-url recording, cross-workspace dedup → 409). The paste path synthesizes
+The URL path resolves identity (title/company/location) through a cascade that
+ends in reading rather than guessing: ATS board API → schema.org markup → the
+page itself via a cheap LLM with a verbatim-evidence gate. When all of them
+come up empty the import is refused. There is deliberately no URL-derived
+fallback — it could not fail, so an unreadable page became a row titled with a
+URL slug that nothing downstream could tell was wrong.
+
+Otherwise the URL path preserves import_job's original semantics (3-level
+fetch, DOA/dead-url recording, cross-workspace dedup → 409). The paste path synthesizes
 a manual://<ws>/<md5(jd)> canonical url so the row dedups + references like any
 other job, but — being a non-http scheme — never re-enters the fetch /
 reconciliation / dead-url machinery (those all guard on http(s) already; see the
 W1 http-assumption audit note in apps/api/routes/jobs.py).
 
 Note: raises fastapi.HTTPException for the caller-facing error cases (bad
-scheme / LinkedIn 400 / cross-workspace 409 / DOA 404 / unreadable posting 422 /
-paste-JD rejected 422).
+scheme / blocked aggregator 400 / cross-workspace 409 / DOA 404 / unreadable
+posting 422 / unidentifiable posting 422 / paste-JD rejected 422).
 """
 from __future__ import annotations
 
 import hashlib
 import logging
-import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -42,7 +48,35 @@ from packages.infrastructure.db.repositories import (
 
 logger = logging.getLogger(__name__)
 
-_BLOCKED_HOSTS = ("linkedin.com", "www.linkedin.com")
+# Aggregators that cannot be fetched at all — not "usually fails", but blocked
+# by design behind a login wall or a browser challenge, on every tier we have.
+# Rejecting at the door beats letting the fetch tiers grind through and return
+# a generic "couldn't read this posting": the user gets told what is actually
+# wrong and what to do instead, one round trip sooner. Matched on the
+# registrable domain, so regional and www subdomains are covered too.
+# Add a domain only with a real failed import behind it.
+_BLOCKED_DOMAINS = {
+    "linkedin.com": (
+        "LinkedIn requires login to view job postings. Please use the direct "
+        "employer or ATS URL instead."
+    ),
+    # Cloudflare challenge; verified unreachable via direct fetch (403 with a
+    # browser user-agent too) and via the Jina renderer, which returns the
+    # "Just a moment..." interstitial rather than the posting.
+    "indeed.com": (
+        "Indeed requires browser verification and cannot be read automatically. "
+        "Use the employer's own posting (their careers site or ATS link), or "
+        "paste the job description text instead."
+    ),
+}
+
+
+def _blocked_domain_message(hostname: str | None) -> str | None:
+    host = (hostname or "").lower()
+    for domain, message in _BLOCKED_DOMAINS.items():
+        if host == domain or host.endswith(f".{domain}"):
+            return message
+    return None
 
 
 @dataclass
@@ -65,11 +99,9 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
 
     from urllib.parse import urlparse
-    if urlparse(url).hostname in _BLOCKED_HOSTS:
-        raise HTTPException(
-            status_code=400,
-            detail="LinkedIn requires login to view job postings. Please use the direct employer or ATS URL instead.",
-        )
+    blocked = _blocked_domain_message(urlparse(url).hostname)
+    if blocked:
+        raise HTTPException(status_code=400, detail=blocked)
 
     from packages.domain.agent_jobs.url_normalize import normalize_job_url
     url = normalize_job_url(url)
@@ -206,16 +238,6 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
         jd_hash = fetch_result.jd_hash
         jd_fetched = True
         status = "reportable"
-        try:
-            jd_structured = extract_jd_fields(
-                jd_text=jd_text,
-                company=company,
-                title=title,
-                location=location or "",
-                llm_client=get_llm_client(),
-            )
-        except Exception:
-            logger.warning("ingest_from_url: JD extraction failed for %s", url, exc_info=True)
 
     if not title and jd_text:
         for line in jd_text.splitlines():
@@ -223,11 +245,35 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
             if line.lower().startswith("title:"):
                 title = line[6:].strip()
                 break
-    # Past this point the row is built by guessing at the URL string. With no JD
-    # text *and* no title from any structured source, the guess is all there
-    # would be — a slug of "post" and a host of "www.kkr.com" produce a row
-    # titled "Post" at "Www" holding nothing. Refuse rather than write that
-    # husk; the paste path is the way in for a posting we can't read.
+
+    # Nothing structured resolved the identity, but the page is readable — so
+    # read it. This is the general channel behind the vendor-specific ones
+    # (board API, schema.org markup); without it, an employer-built portal that
+    # renders a real JD with no machine-readable identity falls through to
+    # whatever the URL string happens to look like. Cheap model, verified
+    # output, and only on the paths that need it — a posting whose ATS already
+    # named it never gets here.
+    if jd_text and (not title or not company):
+        from packages.infrastructure.llm.identity_extractor import extract_job_identity
+
+        try:
+            identity = extract_job_identity(
+                page_text=jd_text, url=url, llm_client=get_llm_client()
+            )
+        except Exception:
+            # The extractor swallows its own failures; this is the belt to that
+            # brace. It matters which way it fails: an unknown identity must
+            # land on the refusal below, never on a 500 and never on a row.
+            logger.warning("ingest_from_url: identity extraction raised for %s", url, exc_info=True)
+            identity = None
+        if identity is not None:
+            title = title or (identity.title or "")
+            company = company or (identity.company or "")
+            location = location or identity.location
+
+    # With no JD text *and* no title from any structured source, there is
+    # nothing to build a row out of. The paste path is the way in for a posting
+    # we can't read.
     if not jd_fetched and not title:
         task_repo.mark_failed(
             task.id, "jd_unreadable", f"No readable job posting at {url}"
@@ -252,20 +298,52 @@ def ingest_from_url(db: Session, workspace: Workspace, url: str) -> JobIngestRes
             ),
         )
 
+    # The JD is readable but no channel could say what job it is. There used to
+    # be a guess here — slug -> title, hostname -> company — and it is gone on
+    # purpose: it turned "we could not read this page" into a row titled
+    # "169151" at a company called "Higher", indistinguishable in the UI from a
+    # row that was read correctly. Refusing costs the user a paste; the guess
+    # cost them a wrong row they had no way to spot.
     if not title:
-        slug = url.rstrip("/").split("/")[-1].split("?")[0]
-        title = re.sub(r"[_-](?:JR?\d+)$", "", slug, flags=re.IGNORECASE).replace("-", " ").replace("_", " ").strip().title() or "Imported Job"
-    if not company:
-        from urllib.parse import urlparse
-        hostname = (urlparse(url).hostname or "").lower()
-        # Skip the label the careers site is hosted under, or every employer
-        # collapses to the same non-name ("Www", "Careers", "Jobs").
-        labels = [
-            label
-            for label in hostname.split(".")
-            if label not in ("www", "careers", "career", "jobs", "job", "apply", "recruiting")
-        ]
-        company = labels[0].replace("-", " ").title() if labels else ""
+        task_repo.mark_failed(
+            task.id, "identity_unresolved", f"No job title could be read from {url}"
+        )
+        run_repo.complete(
+            run.id,
+            status="failed",
+            result_summary={
+                "source": "manual_import",
+                "reason": "identity_unresolved",
+                "fetch_status": fetch_result.fetch_status if fetch_result else "error",
+            },
+        )
+        db.commit()
+        logger.info("ingest_from_url: refused unidentifiable posting %s", url)
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Could not determine the job title from this page. The posting "
+                "text was readable but the title was not — paste the job "
+                "description text instead."
+            ),
+        )
+    # company may stay empty: an unbranded page is a blank field, not a reason
+    # to name the website as the employer.
+
+    # Identity is settled, so the JD extractor sees the real title/company as
+    # context rather than a placeholder. Runs last because a refusal above
+    # means no row — and no reason to spend tokens on one.
+    if jd_fetched and jd_text:
+        try:
+            jd_structured = extract_jd_fields(
+                jd_text=jd_text,
+                company=company,
+                title=title,
+                location=location or "",
+                llm_client=get_llm_client(),
+            )
+        except Exception:
+            logger.warning("ingest_from_url: JD extraction failed for %s", url, exc_info=True)
 
     job = job_repo.create(
         canonical_url=url,
