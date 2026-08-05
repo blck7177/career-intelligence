@@ -129,6 +129,33 @@ _SHELL_STUB_MARKERS = (
     "please wait",
 )
 
+# Anti-bot challenge pages (Cloudflare et al). These reach us through the Jina
+# renderer, which fetches the challenge successfully and hands back its text —
+# ~1.5K chars of prose that is long enough and clean enough to pass every other
+# check in _validate_jd_text, so without this the interstitial gets stored as a
+# posting's JD. Real case: an indeed.com import returned "Just a moment..." and
+# validated clean.
+_ANTIBOT_MARKERS = (
+    "just a moment",
+    "verify you are human",
+    "checking your browser",
+    "enable cookies to continue",
+    "additional verification required",
+)
+# A challenge page announces itself in its title//heading, and is short. Both
+# bounds matter: a genuine JD that happens to use one of these phrases mid-body
+# must not be discarded as a challenge.
+_ANTIBOT_HEAD_CHARS = 300
+_ANTIBOT_MAX_LEN = 5000
+
+
+def is_antibot_challenge(text: str) -> bool:
+    """True when the fetched text is a bot-check interstitial, not a posting."""
+    if not text or len(text) > _ANTIBOT_MAX_LEN:
+        return False
+    head = text[:_ANTIBOT_HEAD_CHARS].lower()
+    return any(marker in head for marker in _ANTIBOT_MARKERS)
+
 # Real JDs measure < 2 CSS/JS markup tokens per 1000 chars; unrendered SPA
 # shells measure 30+. The threshold sits in the wide empty gap between them
 # (calibrated on production data: real JDs 0.0-1.8, shells 30.6-37.2), so a
@@ -162,6 +189,15 @@ def is_shell_text(text: str) -> bool:
 
 
 def _validate_jd_text(jd_text: str) -> JdFetchResult:
+    if is_antibot_challenge(jd_text):
+        return JdFetchResult(
+            ok=False,
+            jd_text=None,
+            jd_hash=None,
+            error="Fetched text is a bot-verification page, not a job posting",
+            source=None,
+            fetch_status="shell",
+        )
     if len(jd_text) < MIN_JD_TEXT_LEN:
         return JdFetchResult(
             ok=False,

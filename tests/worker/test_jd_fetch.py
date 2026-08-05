@@ -508,6 +508,68 @@ class TestAntiBotJinaFallback:
         assert mock_client.return_value.__enter__.return_value.get.call_count == 1
 
 
+_CLOUDFLARE_INTERSTITIAL = (
+    "Title: Just a moment...\n\n"
+    "URL Source: https://www.indeed.com/viewjob?jk=cb4d4c846374e999\n\n"
+    "Markdown Content:\n"
+    + "Enable JavaScript and cookies to continue. " * 25
+)
+
+
+class TestAntiBotChallengeDetection:
+    """A challenge page fetched *successfully* by the renderer. It is long
+    enough and clean enough to pass every other check in _validate_jd_text, so
+    without a marker for it the interstitial gets stored as a posting's JD.
+    Real case: an indeed.com import returned "Just a moment..." — measured at
+    1,509 chars, which validated clean."""
+
+    def test_interstitial_is_rejected_by_validation(self):
+        from packages.infrastructure.jd_fetch.service import _validate_jd_text
+
+        result = _validate_jd_text(_CLOUDFLARE_INTERSTITIAL)
+        assert result.ok is False
+        assert result.fetch_status == "shell"
+
+    def test_403_with_a_challenge_from_jina_stays_failed(self):
+        # The 403 -> Jina hop must not turn an anti-bot wall into a stored JD.
+        request = httpx.Request("GET", "https://jobs.example.com/job/1")
+        with patch("packages.infrastructure.jd_fetch.service.httpx.Client") as mock_client:
+            mock_client.return_value.__enter__.return_value.get.side_effect = [
+                httpx.HTTPStatusError(
+                    "403", request=request, response=httpx.Response(403, request=request)
+                ),
+                httpx.Response(
+                    200,
+                    text=_CLOUDFLARE_INTERSTITIAL,
+                    request=httpx.Request("GET", "https://r.jina.ai/x"),
+                ),
+            ]
+            result = fetch_jd_from_url("https://jobs.example.com/job/1")
+
+        assert result.ok is False
+        assert result.jd_text is None
+        assert result.http_status == 403
+
+    def test_marker_deep_in_a_real_jd_is_not_a_challenge(self):
+        # Both bounds matter: the phrase must be in the head *and* the document
+        # short. A long posting that uses the words mid-body is a posting.
+        from packages.infrastructure.jd_fetch.service import is_antibot_challenge
+
+        jd = ("We move fast here. " * 40) + "Please wait, just a moment — verify you are human? " \
+             + ("No: we value real conversation with candidates. " * 40)
+        assert is_antibot_challenge(jd) is False
+
+    def test_long_challenge_page_is_not_flagged(self):
+        from packages.infrastructure.jd_fetch.service import is_antibot_challenge
+
+        assert is_antibot_challenge("Just a moment..." + "x" * 6000) is False
+
+    def test_empty_text_is_not_flagged(self):
+        from packages.infrastructure.jd_fetch.service import is_antibot_challenge
+
+        assert is_antibot_challenge("") is False
+
+
 class TestArtifactCache:
     def test_save_and_resolve_from_artifact(self, tmp_path: Path):
         url = "https://boards.greenhouse.io/acme/jobs/123"
