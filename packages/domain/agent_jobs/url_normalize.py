@@ -61,6 +61,8 @@ _STRIP_PARAMS = frozenset(
         "embed",
         "iis",  # LinkedIn "in it source" referrer (?iis=LinkedIn) — seen on
         #         careers.cobank.com and oraclecloud CandidateExperience URLs
+        "iisn",  # its companion source-name (?iis=Job+Boards&iisn=Indeed),
+        #          seen on higher.gs.com
     }
 )
 
