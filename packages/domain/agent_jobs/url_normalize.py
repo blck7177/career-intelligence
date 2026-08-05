@@ -31,6 +31,7 @@ while these must dedup to the same row (same path, tracking-only query):
 
 from __future__ import annotations
 
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 # Query params known to carry tracking / referrer / search-context noise rather
@@ -58,11 +59,24 @@ _STRIP_PARAMS = frozenset(
         "jobfamilygroup",
         "usemylastapplication",
         "embed",
+        "iis",  # LinkedIn "in it source" referrer (?iis=LinkedIn) — seen on
+        #         careers.cobank.com and oraclecloud CandidateExperience URLs
     }
 )
 
 # Param-name prefixes to strip (utm_source, utm_medium, ... and bare "utm").
 _STRIP_PREFIXES = ("utm_", "utm")
+
+# Eightfold-family path shape: /careers/job/<numeric id> optionally followed by
+# a "-<title-slug>" that some referrers append and others don't. The id alone
+# is the posting identity; the slug is decoration that varies by source. A real
+# dup pair proved it:
+#     careers.newyorklife.com/careers/job/39995361-senior-associate-model-...
+#     careers.newyorklife.com/careers/job/39995361
+# Scoped to the exact "/careers/job/<id>-<slug>" shape so this can only ever
+# merge URLs sharing the same numeric id on the same host — same-id-different-
+# job on one host is not a real ATS layout, so the asymmetry rule holds.
+_CAREERS_JOB_SLUG_RE = re.compile(r"^(?P<keep>/careers/job/\d{6,})-[^/]+$")
 
 
 def _is_tracking_param(name: str) -> bool:
@@ -99,6 +113,11 @@ def normalize_job_url(url: str) -> str:
     kept.sort()
     query = urlencode(kept)
 
+    path = parts.path
+    slug_match = _CAREERS_JOB_SLUG_RE.match(path)
+    if slug_match:
+        path = slug_match.group("keep")
+
     return urlunsplit(
-        (parts.scheme.lower(), parts.netloc.lower(), parts.path, query, "")
+        (parts.scheme.lower(), parts.netloc.lower(), path, query, "")
     )

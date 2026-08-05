@@ -51,6 +51,11 @@ class TestTrackingParamsStripped:
         url = "https://example.com/job/1?utm_source=x&utm_medium=y&utm=undefined"
         assert normalize_job_url(url) == "https://example.com/job/1"
 
+    def test_iis_stripped(self):
+        # LinkedIn referrer param, seen on cobank + oraclecloud imports
+        url = "https://careers.cobank.com/jobs/7863?iis=LinkedIn"
+        assert normalize_job_url(url) == "https://careers.cobank.com/jobs/7863"
+
     def test_same_job_different_referrers_dedup(self):
         a = normalize_job_url("https://co.com/job/1?source=LinkedIn")
         b = normalize_job_url("https://co.com/job/1?ref=modus.news")
@@ -76,10 +81,34 @@ class TestStructuralNormalization:
         url = "https://jobs.lever.co/company/uuid-here"
         assert normalize_job_url(url) == url
 
-    def test_path_not_altered(self):
-        # job id + slug in path must be preserved verbatim (no trailing-slash edits)
-        url = "https://morganstanley.eightfold.ai/careers/job/549795932448-market-risk-analytics-associate"
-        assert normalize_job_url(url) == url
+    def test_careers_job_slug_stripped(self):
+        # Eightfold-family /careers/job/<id>-<slug>: the slug varies by referrer
+        # while the numeric id is the identity. Production dup pair:
+        # newyorklife /careers/job/39995361-senior-... vs .../39995361.
+        assert (
+            normalize_job_url(
+                "https://careers.newyorklife.com/careers/job/39995361-senior-associate-model-validation-and"
+            )
+            == "https://careers.newyorklife.com/careers/job/39995361"
+        )
+        assert (
+            normalize_job_url(
+                "https://morganstanley.eightfold.ai/careers/job/549795932448-market-risk-analytics-associate"
+            )
+            == "https://morganstanley.eightfold.ai/careers/job/549795932448"
+        )
+
+    def test_slug_strip_scoped_to_careers_job_shape(self):
+        # Anything not exactly /careers/job/<6+ digit id>-<slug> is untouched:
+        # a short numeric prefix, a different path root, or extra path segments
+        # might be load-bearing on an unknown site.
+        for url in (
+            "https://co.com/careers/job/123-team-lead",  # id too short
+            "https://co.com/jobs/549795932448-market-risk",  # not /careers/job/
+            "https://co.com/careers/job/549795932448-market/extra",  # extra segment
+            "https://careers.smbcgroup.com/smbc/job/Jersey-City-Associate-NJ-07311/1412538800/",
+        ):
+            assert normalize_job_url(url) == url
 
 
 class TestNonHttpPassthrough:
