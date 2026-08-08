@@ -2700,7 +2700,7 @@
           "applications"
         ],
         "summary": "Get Planner Week",
-        "description": "The week's shape for the Today card's strip: scheduled interviews and how\nmuch is due each day. Read-only.\n\nAn interview's time lives in the event's payload (`at`), not in a column, so\nthe rounds are filtered in Python; only those landing inside the week get\ntheir company resolved, which keeps that to a handful of lookups.",
+        "description": "The week's shape for the Today card's strip: scheduled interviews and how\nmuch is due each day. Read-only.\n\nInterviews come off the event_at index \u2014 only rows landing inside the week\nare read at all, so company resolution stays a handful of lookups. Rows the\nbackfill couldn't date (event_at NULL) don't match a range, which is the\nsame \"an interview with no time can't sit on a day\" rule the old Python\nfilter applied.",
         "operationId": "get_planner_week_api_app_planner_week_get",
         "parameters": [
           {

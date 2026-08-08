@@ -229,3 +229,75 @@ def test_delete_is_workspace_scoped(db_session: Session):
     app = repo.create(workspace_id=WS, job_id="j1", status="planned")
     assert repo.delete_planned(app.id, OTHER_WS) is False  # IDOR guard
     assert repo.get(app.id, WS) is not None
+
+
+def test_append_persists_event_at(db_session: Session):
+    from datetime import datetime, timezone
+
+    repo = JobApplicationRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="interviewing")
+    at = datetime(2026, 8, 20, 15, 0, tzinfo=timezone.utc)
+    events.append(
+        application_id=app.id,
+        workspace_id=WS,
+        event_type="interview_scheduled",
+        payload_json={"round_type": "onsite", "at": at.isoformat()},
+        event_at=at,
+    )
+    events.append(  # a note has no instant it describes — the column stays NULL
+        application_id=app.id, workspace_id=WS, event_type="note", message="hi"
+    )
+    log = events.list_for_application(app.id, WS)
+    stored = {e.event_type: e.event_at for e in log}
+    got = stored["interview_scheduled"]
+    if got.tzinfo is None:  # SQLite round-trips drop tzinfo; the instant is UTC
+        got = got.replace(tzinfo=timezone.utc)
+    assert got == at
+    assert stored["note"] is None
+
+
+def test_list_events_between_filters_on_the_column_not_the_payload(db_session: Session):
+    """The week window is a SQL predicate over event_at. Three exclusions all
+    matter: outside the range, event_at NULL (an interview the backfill could
+    not date — it can't sit on a day), and other workspaces."""
+    from datetime import datetime, timezone
+
+    repo = JobApplicationRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="interviewing")
+    other = repo.create(workspace_id=OTHER_WS, job_id="j1", status="interviewing")
+
+    def _iv(app_row, ws, day, hour=12):
+        at = datetime(2026, 8, day, hour, 0, tzinfo=timezone.utc)
+        return events.append(
+            application_id=app_row.id, workspace_id=ws,
+            event_type="interview_scheduled",
+            payload_json={"round_type": "onsite", "at": at.isoformat()},
+            event_at=at,
+        )
+
+    _iv(app, WS, 9)                    # before the window
+    inside_late = _iv(app, WS, 12, hour=18)
+    inside_early = _iv(app, WS, 11)
+    _iv(app, WS, 17)                   # after the window (end-exclusive: the 17th is the next week's Monday)
+    # Log order is the OPPOSITE of interview order (a round booked weeks ahead
+    # is an old row pointing at a future date). SQLite gives every row the same
+    # CURRENT_TIMESTAMP second, and an index-prefix scan then leaks event_at
+    # order anyway — distinct values make the ordering assertion load-bearing.
+    inside_late.created_at = datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc)
+    inside_early.created_at = datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc)
+    db_session.flush()
+    _iv(other, OTHER_WS, 12)           # someone else's interview, same dates
+    events.append(                     # undated: event_at NULL never matches a range
+        application_id=app.id, workspace_id=WS,
+        event_type="interview_scheduled", payload_json={"round_type": "final"},
+    )
+    events.append(                     # right kind of time, wrong kind of event
+        application_id=app.id, workspace_id=WS, event_type="note", message="x",
+    )
+
+    start = datetime(2026, 8, 10, 0, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 8, 17, 0, 0, tzinfo=timezone.utc)
+    got = events.list_events_between(WS, "interview_scheduled", start, end)
+    assert [e.id for e in got] == [inside_early.id, inside_late.id]  # ordered by event_at

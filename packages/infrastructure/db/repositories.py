@@ -1879,6 +1879,7 @@ class ApplicationEventRepository:
         event_type: str,
         message: str | None = None,
         payload_json: dict | None = None,
+        event_at: datetime | None = None,
     ) -> ApplicationEvent:
         event = ApplicationEvent(
             application_id=application_id,
@@ -1886,6 +1887,7 @@ class ApplicationEventRepository:
             event_type=event_type,
             message=message,
             payload_json=payload_json,
+            event_at=event_at,
         )
         self._s.add(event)
         self._s.flush()
@@ -1907,24 +1909,19 @@ class ApplicationEventRepository:
         )
         return list(self._s.execute(stmt).scalars().all())
 
-    def list_by_type_for_workspace(
-        self, workspace_id: str, event_type: str, limit: int = 20_000
+    def list_events_between(
+        self, workspace_id: str, event_type: str, start: datetime, end: datetime
     ) -> list[ApplicationEvent]:
-        """All events of one kind across the workspace.
+        """Events of one kind whose event_at lands in [start, end) — the
+        planner-week query, filtered on the (workspace_id, event_type, event_at)
+        index instead of loading the whole workspace and date-filtering in
+        Python (which is what this replaced: the time used to live only in
+        payload_json, unreachable by a portable SQL predicate).
 
-        Callers filter by time in Python because the timestamp that matters for
-        an interview lives in payload_json (`at` — when the round happens), not
-        in created_at (when it was logged), and JSON predicates are not portable
-        between Postgres and the SQLite used by tests.
-
-        The caller therefore needs the COMPLETE set, which is why the limit is
-        set far above any real workspace rather than at a page size: `at` and
-        `created_at` are uncorrelated — an interview booked months ahead is an
-        old row pointing at a future date — so truncating by insertion recency
-        would silently drop exactly the rows a date filter is looking for. One
-        person's interview history does not approach 20k; a workspace that does
-        has outgrown reading events this way, and should get a real index on the
-        scheduled time."""
+        Rows with event_at NULL never match a range — an interview with no time
+        can't sit on a day, so skipping them is the semantics, not an accident.
+        Bounds are UTC instants; SQLite stores these columns naive, so the
+        caller normalises tzinfo on the way out, not here."""
         from sqlalchemy import select
 
         stmt = (
@@ -1932,9 +1929,10 @@ class ApplicationEventRepository:
             .where(
                 ApplicationEvent.workspace_id == workspace_id,
                 ApplicationEvent.event_type == event_type,
+                ApplicationEvent.event_at >= start,
+                ApplicationEvent.event_at < end,
             )
-            .order_by(ApplicationEvent.created_at.desc())
-            .limit(limit)
+            .order_by(ApplicationEvent.event_at)
         )
         return list(self._s.execute(stmt).scalars().all())
 

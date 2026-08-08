@@ -870,10 +870,16 @@ class JobApplication(Base):
 
 class ApplicationEvent(Base):
     """Append-only timeline for an application: status changes, follow-ups,
-    interview scheduling (datetime + round type in payload_json), email matches
-    (P2). Same shape as TaskEvent. workspace_id is denormalized (copied from the
-    parent) so Today/summary queries need no join — matches the migration, which
-    puts no FK on it."""
+    interview scheduling, email matches (P2). Same shape as TaskEvent.
+    workspace_id is denormalized (copied from the parent) so Today/summary
+    queries need no join — matches the migration, which puts no FK on it.
+
+    event_at is when the thing the event describes HAPPENS (an interview's
+    start), as opposed to created_at (when it was logged) — the two are
+    uncorrelated, since a round booked weeks ahead is an old row pointing at a
+    future date. NULL for event kinds that have no such instant (notes, status
+    changes). Interview rows keep a copy in payload_json["at"] for backward
+    compatibility; the column is what range queries filter on."""
 
     __tablename__ = "application_events"
 
@@ -885,8 +891,17 @@ class ApplicationEvent(Base):
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     payload_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    event_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_application_events_ws_type_at", "workspace_id", "event_type", "event_at"
+        ),
     )
 
     application: Mapped["JobApplication"] = relationship(back_populates="events")
