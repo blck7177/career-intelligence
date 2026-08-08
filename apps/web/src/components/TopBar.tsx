@@ -36,7 +36,7 @@ function NavBadgeCount({ count, urgent }: { count: number; urgent: boolean }) {
 }
 
 const NAV_ITEMS: { href: string; key: string; exact: boolean; icon: LucideIcon; badgeType: BadgeType; action: ContextAction }[] = [
-  { href: "/", key: "inbox", exact: true, icon: Inbox, badgeType: "urgent", action: "search" },
+  { href: "/home", key: "inbox", exact: true, icon: Inbox, badgeType: "urgent", action: "search" },
   { href: "/jobs", key: "saved", exact: false, icon: Bookmark, badgeType: "neutral", action: "search" },
   { href: "/workspace", key: "searches", exact: false, icon: Search, badgeType: "none", action: "none" },
   { href: "/runs", key: "reports", exact: false, icon: FileText, badgeType: "urgent", action: "run" },
