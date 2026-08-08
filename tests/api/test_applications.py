@@ -372,9 +372,12 @@ def test_planner_stats_invalid_week_422(make_client):
 
 
 def _interview_event(at: str, application_id: str = "app-1", round_type: str = "onsite"):
+    # event_at mirrors what the repository would return; payload keeps the
+    # legacy copy that round_type/duration are still read from.
     return SimpleNamespace(
         id="ev-1", application_id=application_id, event_type="interview_scheduled",
         message=None, payload_json={"at": at, "round_type": round_type}, created_at=_NOW,
+        event_at=datetime.fromisoformat(at),
     )
 
 
@@ -384,7 +387,7 @@ def test_planner_week_returns_seven_days_with_interviews_and_due_counts(make_cli
          patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
          patch("apps.api.routes.applications.JobRepository") as MockJob, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
-        MockEv.return_value.list_by_type_for_workspace.return_value = [
+        MockEv.return_value.list_events_between.return_value = [
             _interview_event("2026-07-16T18:00:00+00:00")
         ]
         MockApp.return_value.get.return_value = _app()
@@ -436,7 +439,7 @@ def test_planner_week_folds_the_backlog_into_today_in_both_units(make_client):
     client = make_client()
     with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
-        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockEv.return_value.list_events_between.return_value = []
         MockAct.return_value.list_due_between.return_value = []
         MockAct.return_value.list_scheduled_between.return_value = []
         MockAct.return_value.list_pending_carried_into_today.return_value = [
@@ -464,7 +467,7 @@ def test_planner_week_keeps_blocks_placed_earlier_this_week(make_client):
     client = make_client()
     with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
-        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockEv.return_value.list_events_between.return_value = []
         MockAct.return_value.list_due_between.return_value = []
         MockAct.return_value.list_pending_carried_into_today.return_value = []
         MockAct.return_value.list_scheduled_between.return_value = []
@@ -487,7 +490,7 @@ def test_planner_week_stamps_utc_on_a_naive_block_instant(make_client):
     client = make_client()
     with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
-        MockEv.return_value.list_by_type_for_workspace.return_value = []
+        MockEv.return_value.list_events_between.return_value = []
         MockAct.return_value.list_due_between.return_value = []
         MockAct.return_value.list_pending_carried_into_today.return_value = []
         MockAct.return_value.list_scheduled_between.return_value = [
@@ -505,28 +508,26 @@ def test_planner_week_stamps_utc_on_a_naive_block_instant(make_client):
     assert blocks[0]["at"].endswith("Z") or "+00:00" in blocks[0]["at"]
 
 
-def test_planner_week_skips_events_without_a_usable_time(make_client):
-    """An interview with no time (or a malformed one) can't sit on a day — it is
-    dropped rather than defaulted onto one, which would invent a commitment."""
+def test_planner_week_pushes_the_week_window_into_the_interview_query(make_client):
+    """The whole point of event_at: the repository receives the week's bounds
+    instead of returning every interview the workspace has ever logged. (The
+    old "no usable time" cases died with the Python filter — a row event_at
+    can't date never matches a range, which the repository tests pin.)"""
     client = make_client()
     with patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv, \
-         patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
-         patch("apps.api.routes.applications.JobRepository") as MockJob, \
          patch("apps.api.routes.applications.ApplicationActionRepository") as MockAct:
-        MockEv.return_value.list_by_type_for_workspace.return_value = [
-            SimpleNamespace(id="e1", application_id="app-1", event_type="interview_scheduled",
-                            message=None, payload_json=None, created_at=_NOW),
-            SimpleNamespace(id="e2", application_id="app-1", event_type="interview_scheduled",
-                            message=None, payload_json={"at": "not-a-date"}, created_at=_NOW),
-            SimpleNamespace(id="e3", application_id="app-1", event_type="interview_scheduled",
-                            message=None, payload_json={"at": 12345}, created_at=_NOW),
-        ]
-        MockApp.return_value.get.return_value = _app()
-        MockJob.return_value.get.return_value = None
+        MockEv.return_value.list_events_between.return_value = []
         MockAct.return_value.list_due_between.return_value = []
+        MockAct.return_value.list_pending_carried_into_today.return_value = []
+        MockAct.return_value.list_scheduled_between.return_value = []
         resp = client.get("/api/app/planner-week?week=2026-07-15")
     assert resp.status_code == 200, resp.text
-    assert sum(len(d["interviews"]) for d in resp.json()["days"]) == 0
+    args, _ = MockEv.return_value.list_events_between.call_args
+    _, event_type, start, end = args
+    assert event_type == "interview_scheduled"
+    # The window is the ISO week containing the ref date, ~7 days wide.
+    assert start.date().isoformat() <= "2026-07-13" <= end.date().isoformat()
+    assert timedelta(days=6) <= (end - start) <= timedelta(days=8)
 
 
 def test_planner_week_invalid_week_422(make_client):

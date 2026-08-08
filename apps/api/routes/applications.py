@@ -725,9 +725,11 @@ def get_planner_week(
     """The week's shape for the Today card's strip: scheduled interviews and how
     much is due each day. Read-only.
 
-    An interview's time lives in the event's payload (`at`), not in a column, so
-    the rounds are filtered in Python; only those landing inside the week get
-    their company resolved, which keeps that to a handful of lookups."""
+    Interviews come off the event_at index — only rows landing inside the week
+    are read at all, so company resolution stays a handful of lookups. Rows the
+    backfill couldn't date (event_at NULL) don't match a range, which is the
+    same "an interview with no time can't sit on a day" rule the old Python
+    filter applied."""
     from packages.domain.planner.rules import effective_est_minutes, local_today
     from packages.domain.planner.week import (
         DueItem,
@@ -759,18 +761,11 @@ def get_planner_week(
 
     slots: list[InterviewSlot] = []
     job_cache: dict[str, Optional[Job]] = {}
-    for e in event_repo.list_by_type_for_workspace(workspace.id, "interview_scheduled"):
-        raw = (e.payload_json or {}).get("at")
-        if not isinstance(raw, str):
-            continue  # an interview with no time can't sit on a day
-        try:
-            at = datetime.fromisoformat(raw)
-        except ValueError:
-            continue
+    for e in event_repo.list_events_between(workspace.id, "interview_scheduled", start, end):
+        at = e.event_at
         if at.tzinfo is None:
+            # A SQLite round-trip drops tzinfo; the stored instant is UTC.
             at = at.replace(tzinfo=timezone.utc)
-        if not (start <= at < end):
-            continue
         app = app_repo.get(e.application_id, workspace.id)
         if app is None:
             continue
