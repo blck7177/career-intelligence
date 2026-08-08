@@ -1240,6 +1240,27 @@ class TestEvents:
         _, kwargs = MockEv.return_value.append.call_args
         assert kwargs["event_type"] == "interview_scheduled"
         assert kwargs["payload_json"]["round_type"] == "onsite"
+        assert kwargs["event_at"] == datetime(2026, 7, 20, 15, 0, tzinfo=timezone.utc)
+
+    def test_add_interview_naive_at_is_read_as_utc(self, make_client):
+        # Same convention every reader of the old payload strings used: a naive
+        # datetime means UTC. The column must not silently mean something else.
+        client = make_client()
+        with patch("apps.api.routes.applications.JobApplicationRepository") as MockApp, \
+             patch("apps.api.routes.applications.ApplicationEventRepository") as MockEv:
+            MockApp.return_value.get.return_value = _app()
+            MockEv.return_value.append.return_value = _event(
+                id="ev-int", event_type="interview_scheduled", message=None,
+                payload_json={"round_type": "phone", "at": "2026-07-20T15:00:00"},
+            )
+            resp = client.post(
+                "/api/app/applications/app-1/events",
+                json={"event_type": "interview_scheduled", "round_type": "phone",
+                      "at": "2026-07-20T15:00:00"},
+            )
+        assert resp.status_code == 201, resp.text
+        _, kwargs = MockEv.return_value.append.call_args
+        assert kwargs["event_at"] == datetime(2026, 7, 20, 15, 0, tzinfo=timezone.utc)
 
     def test_add_interview_missing_fields_returns_422(self, make_client):
         client = make_client()

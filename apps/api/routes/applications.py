@@ -452,16 +452,22 @@ def add_application_event(
             raise HTTPException(
                 status_code=422, detail="An interview requires round_type and at."
             )
+        # A naive datetime is read as UTC, matching how every reader of the old
+        # payload_json["at"] strings normalised them.
+        at = body.at if body.at.tzinfo else body.at.replace(tzinfo=timezone.utc)
         event = event_repo.append(
             application_id=application_id,
             workspace_id=workspace.id,
             event_type="interview_scheduled",
             message=body.message,
+            # payload keeps a copy of `at` for backward compatibility (the rules
+            # engine's event_view still reads it); event_at is the queryable one.
             payload_json={
                 "round_type": body.round_type,
                 "at": body.at.isoformat(),
                 "duration_minutes": body.duration_minutes,
             },
+            event_at=at,
         )
     db.commit()
     return ApplicationEventRead.model_validate(event)

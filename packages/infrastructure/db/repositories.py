@@ -1879,6 +1879,7 @@ class ApplicationEventRepository:
         event_type: str,
         message: str | None = None,
         payload_json: dict | None = None,
+        event_at: datetime | None = None,
     ) -> ApplicationEvent:
         event = ApplicationEvent(
             application_id=application_id,
@@ -1886,6 +1887,7 @@ class ApplicationEventRepository:
             event_type=event_type,
             message=message,
             payload_json=payload_json,
+            event_at=event_at,
         )
         self._s.add(event)
         self._s.flush()

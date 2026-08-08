@@ -229,3 +229,29 @@ def test_delete_is_workspace_scoped(db_session: Session):
     app = repo.create(workspace_id=WS, job_id="j1", status="planned")
     assert repo.delete_planned(app.id, OTHER_WS) is False  # IDOR guard
     assert repo.get(app.id, WS) is not None
+
+
+def test_append_persists_event_at(db_session: Session):
+    from datetime import datetime, timezone
+
+    repo = JobApplicationRepository(db_session)
+    events = ApplicationEventRepository(db_session)
+    app = repo.create(workspace_id=WS, job_id="j1", status="interviewing")
+    at = datetime(2026, 8, 20, 15, 0, tzinfo=timezone.utc)
+    events.append(
+        application_id=app.id,
+        workspace_id=WS,
+        event_type="interview_scheduled",
+        payload_json={"round_type": "onsite", "at": at.isoformat()},
+        event_at=at,
+    )
+    events.append(  # a note has no instant it describes — the column stays NULL
+        application_id=app.id, workspace_id=WS, event_type="note", message="hi"
+    )
+    log = events.list_for_application(app.id, WS)
+    stored = {e.event_type: e.event_at for e in log}
+    got = stored["interview_scheduled"]
+    if got.tzinfo is None:  # SQLite round-trips drop tzinfo; the instant is UTC
+        got = got.replace(tzinfo=timezone.utc)
+    assert got == at
+    assert stored["note"] is None
