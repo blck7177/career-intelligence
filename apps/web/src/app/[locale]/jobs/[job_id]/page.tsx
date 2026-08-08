@@ -69,7 +69,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       >
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
-            <Link href="/" className="text-sm hover:underline shrink-0" style={{ color: "var(--primary)" }}>
+            <Link href="/home" className="text-sm hover:underline shrink-0" style={{ color: "var(--primary)" }}>
               {t("backToInbox")}
             </Link>
             <div className="min-w-0">
